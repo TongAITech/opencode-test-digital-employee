@@ -70,11 +70,15 @@ class CoverageRerunPlanningService(ExecutionPlanningService):
             if len(rows)!=1:raise ExecutionPlanningError('COVERAGE_RERUN_ACTIVE_PLAN_NOT_UNIQUE')
             return self.owner._ensure_plan(rows[0])
         return self.base.plan(release_batch_id=release_batch_id)
-    def assert_current(self,plan_id):
+    def assert_current(self,plan_id,*,review_only=False):
+        # Preserve the native planner's read-only review contract: N7
+        # finalization, admission and cold audit may request review_only=True.
+        # A decorator missing this keyword would crash the real fresh-N7
+        # path after some actual HTTP effects have already occurred.
         rows=self.truth.query('rc72_n7_execution_plan',plan_id=plan_id)
         if len(rows)==1 and rows[0].get('coverage_rerun_id'):
             return self.owner._assert_plan(rows[0])
-        return self.base.assert_current(plan_id)
+        return self.base.assert_current(plan_id,review_only=review_only)
 
 
 class NativeCoverageRerunService:
@@ -267,24 +271,25 @@ class NativeCoverageRerunService:
         result=self.pipeline.complete(release_batch_id=release_batch_id)
         if result.get('state')!='N7_PASS':return dict(status='HOLD',reason=result.get('reason','COVERAGE_RERUN_N7_NOT_ACCEPTED'),rerun_id=record['rerun_id'])
         if result['gate_id']==record['origin_n7_gate_id']:raise ContractError('COVERAGE_RERUN_OLD_N7_GATE_REUSE_FORBIDDEN')
-        # The canonical N7 finalizer returns its accepted gate and Attempts, not
-        # a bundle_id. Resolve the bundle from that gate's signed delivery, then
-        # independently audit it before persisting a durable rerun PASS receipt.
+        # The N7 finalize response intentionally does not carry a bundle ID.
+        # Recover it only from the accepted canonical Gate -> Delivery, and
+        # independently audit the signed full-denominator N7 proof before
+        # sealing an R1 freshness receipt.  Never trust a response label.
         gate=self._one('rc72_node_gate',gate_id=result['gate_id'])
+        if gate['node_type']!='N7_EXECUTION' or gate['mission_id']!=record['mission_id'] or gate['decision']!='PASS':
+            raise ContractError('COVERAGE_RERUN_FRESH_GATE_INVALID')
         delivery=self._one('rc72_node_delivery',delivery_id=gate['delivery_id'])
-        bundle_refs=[ref for ref in delivery['artifact_refs']
-                     if self.truth.query('rc72_n7_evidence_bundle',bundle_id=ref)]
-        if len(bundle_refs)!=1:
+        bundles=[self._one('rc72_n7_evidence_bundle',bundle_id=ref) for ref in delivery['artifact_refs']
+                 if self.truth.query('rc72_n7_evidence_bundle',bundle_id=ref)]
+        if len(bundles)!=1 or bundles[0]['plan_id']!=record['rerun_plan_id']:
             raise ContractError('COVERAGE_RERUN_FRESH_BUNDLE_NOT_UNIQUE')
-        accepted=self.pipeline.finalization.audit(bundle_refs[0])
-        if (accepted['gate_id']!=result['gate_id']
-                or accepted['attempt_ids']!=result['attempt_ids']
-                or accepted['bundle_id']!=bundle_refs[0]):
-            raise ContractError('COVERAGE_RERUN_FRESH_N7_CHANGED')
+        verified=self.pipeline.finalization.audit(bundles[0]['bundle_id'])
+        if verified['gate_id']!=result['gate_id'] or verified['attempt_ids']!=result['attempt_ids']:
+            raise ContractError('COVERAGE_RERUN_FRESH_PROOF_CHANGED')
         current=self._one(_KIND,rerun_id=record['rerun_id'])
         if current['state']!='N7_PASS':
-            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=accepted['gate_id'],
-                                       fresh_bundle_id=accepted['bundle_id'],fresh_attempt_ids=accepted['attempt_ids']))
+            current=self._persist(dict(current,state='N7_PASS',fresh_n7_gate_id=verified['gate_id'],
+                fresh_bundle_id=verified['bundle_id'],fresh_attempt_ids=verified['attempt_ids']))
         return self._audit_pass(current)
 
 

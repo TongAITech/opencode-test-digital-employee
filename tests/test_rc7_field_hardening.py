@@ -8,6 +8,7 @@ from rc7_release import dsh_plugins
 from rc7_release.dsh import write_patch
 from rc7_release.final_unified_qualification import _decode_output
 from rc7_release import mcp_server as rc7_mcp
+from rc7_release.plugin_payload import BSK_DSH_PLUGIN_NAME, BSK_DSH_PLUGIN_VERSION
 
 
 def _seed_plugin_payload(home: Path) -> None:
@@ -16,7 +17,10 @@ def _seed_plugin_payload(home: Path) -> None:
         target = dsh_plugins.package_path(vendor, package)
         target.mkdir(parents=True, exist_ok=True)
         (target / "package.json").write_text(
-            json.dumps({"name": package, "version": "0.0.0-field-test"}),
+            json.dumps({
+                "name": package,
+                "version": BSK_DSH_PLUGIN_VERSION if package == BSK_DSH_PLUGIN_NAME else "0.0.0-field-test",
+            }),
             encoding="utf-8",
         )
 

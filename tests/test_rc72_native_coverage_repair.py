@@ -73,8 +73,14 @@ def test_accepted_repair_opens_signed_fresh_n7_fence_and_n10_refuses_old_epoch(t
         control=NativeN10ControlService(diagnosis.measurement.expected_scope,diagnosis.measurement.n9,
             diagnosis.measurement,diagnosis.intake,diagnosis,repair=repair)
         result=control.complete(release_batch_id=BATCH)
-        assert result['reason']=='N10_COVERAGE_INVESTIGATION_REQUIRED'
-        assert result['holds'][0]['reason']=='N10_POST_REPAIR_FRESH_N7_REQUIRED'
+        # This deliberately composes a repair-only N10 controller without a
+        # native fresh-N7 rerun provider. The newer product gate must refuse
+        # the old N7 epoch immediately, not pretend that a coverage review
+        # hold can replace a physical rerun.
+        assert result['status']=='HOLD'
+        assert result['reason']=='N10_NATIVE_COVERAGE_RERUN_PROVIDER_REQUIRED'
+        assert result['repair_ids']==[boundary['repair_id']]
+        assert result['field_verified'] is False and result['bank_final'] is False
         assert len(server.calls)==calls and len(business.calls)==business_calls
         # Cold/repeated activation only audits the accepted repair; it never repeats work or changes R1.
         assert repair.activate(release_batch_id=BATCH,application_id=server.app,gap_id=gap)==activated

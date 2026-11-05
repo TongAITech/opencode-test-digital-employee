@@ -1,22 +1,20 @@
 name: RC7.2 Portable Transport Preparation
 
 on:
-  push:
-    branches: [work/rc7.2, work/rc7.2-full-transport]
-    paths:
-      - '.github/workflows/rc7.2-portable-transport.yml'
-      - 'rc6_runtime/**'
-      - 'rc7_runtime/**'
-      - 'rc7_release/**'
-      - 'tests/test_rc72_bank_pc_pip_mirror_windows.py'
-      - 'packaging/rc7.2/**'
   workflow_dispatch:
+    inputs:
+      final_qualification:
+        description: 'Deliberate final release gate: package only after full design and CI'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   portable-transport:
+    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     runs-on: windows-latest
     timeout-minutes: 120
     env:

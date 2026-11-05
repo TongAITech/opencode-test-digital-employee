@@ -17,6 +17,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from .rc72_context_economy import ExecutionMode, SemanticWorkDescriptor
 from .rc72_model_economy import (
     BankCostWindow,
+    BankCostWindowConfig,
     MissionCriticality,
     SemanticCostClass,
     classify_bank_cost_window,
@@ -43,6 +44,11 @@ class EconomyReadyPlan:
 class EconomyAwareReadySelector:
     """Prefer useful cheaper work without turning quota policy into a kill-switch."""
 
+    def __init__(self, *, cost_window_config: Optional[BankCostWindowConfig] = None) -> None:
+        self.cost_window_config = cost_window_config if cost_window_config is not None else BankCostWindowConfig()
+        if not isinstance(self.cost_window_config, BankCostWindowConfig):
+            raise EconomySchedulingError("BANK_COST_WINDOW_CONFIG_INVALID")
+
     def plan(
         self,
         items: Sequence[SemanticWorkDescriptor],
@@ -58,7 +64,7 @@ class EconomyAwareReadySelector:
         if len(workitem_ids) != len(set(workitem_ids)):
             raise EconomySchedulingError("DUPLICATE_READY_WORKITEM")
 
-        window = classify_bank_cost_window(when)
+        window = classify_bank_cost_window(when, config=self.cost_window_config)
         run_now: List[str] = []
         deferred: List[str] = []
         reasons: Dict[str, str] = {}

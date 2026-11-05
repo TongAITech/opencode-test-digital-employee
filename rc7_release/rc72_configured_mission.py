@@ -18,16 +18,20 @@ from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_runtime.rc72_code_tool_binding import NATIVE_CODE_TOOLS
 from rc7_runtime.rc72_bank_pip_mirror import NativeBankPipMirrorService
 from rc7_runtime.rc72_ledger_lock import ledger_lock
-from rc7_runtime.rc72_mission_factory import ROLES, MissionWorkerBinding, MissionHostBindings
+from rc7_runtime.rc72_mission_factory import (ROLES, MissionWorkerBinding,
+    MissionHostBindings, MissionProfessionalDshBinding)
 from rc7_runtime.rc72_native_n1_launcher import NativeN1ReadDshLauncher
 from rc7_runtime.rc72_native_n1_read_gate import N1ReadResource
 from .execution_environment import ExecutionEnvironmentLoader, ExecutionEnvironmentLoadError
 from .rc72_tool_environment import package_tool_environment, OWNED_NAMES
 
 SCHEMA = 'RC72_MISSION_CAPABILITIES_V1'
+SCHEMA_V2 = 'RC72_MISSION_CAPABILITIES_V2'
+_N9_DIAGNOSTIC_TOOLS = frozenset({'read_only_diagnostic'})
 _FIELDS = {'schema', 'release_id', 'source_commit', 'package_root', 'state_root',
            'dsh_bin', 'patch_path', 'inputs', 'role_tools', 'tool_registry',
            'environment_module', 'archive', 'pip_field_config', 'model_environment_names'}
+_FIELDS_V2 = _FIELDS | {'n9_read_only_tools'}
 _FORBIDDEN_ENV = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DSH_HOME',
                   'XDG_CONFIG_HOME', 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS'}
 
@@ -68,7 +72,11 @@ def _controller_key(truth, directory):
         return raw
 
 
-def configured_mission_bindings(truth, *, release_id, source_commit, config_path):
+def configured_mission_bindings(truth, *, release_id, source_commit, config_path,
+                                release_batch_id=None, observed_captain=None,
+                                observed_captain_startup=None,
+                                host_authority=None, captain_role_profiles=None,
+                                captain_approved_capabilities=None):
     path = Path(config_path).expanduser().resolve()
     try:
         config = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_pairs)
@@ -76,12 +84,56 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
         raise
     except (OSError, ValueError):
         raise ContractError('MISSION_CONFIG_READ_FAILED') from None
-    if (not isinstance(config, dict) or set(config) != _FIELDS or config.get('schema') != SCHEMA):
+    schema = config.get('schema') if isinstance(config, dict) else None
+    if (schema not in {SCHEMA, SCHEMA_V2}
+            or set(config) != (_FIELDS_V2 if schema == SCHEMA_V2 else _FIELDS)):
         raise ContractError('MISSION_CONFIG_EXACT_CAPABILITY_FIELDS_REQUIRED')
     if (not isinstance(release_id,str) or not release_id.strip()
             or not isinstance(source_commit,str) or not re.fullmatch('[0-9a-f]{40}', source_commit) or config['source_commit'] != source_commit
             or config['release_id'] != release_id):
         raise ContractError('MISSION_CONFIG_RELEASE_SOURCE_MISMATCH')
+    # A capability JSON contains no authenticated DSH AgentTeams Captain
+    # identity or signed lease. If the canonical release already has a Captain
+    # generation, refusing here prevents an unfenced local controller key,
+    # DSH worker bootstrap, model budget, or later business I/O from starting.
+    # The trusted host module is the only supported Captain-bound entry.
+    from rc7_runtime.rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
+    install_captain_dispatch_overlay()
+    if release_batch_id is not None:
+        if not isinstance(release_batch_id, str) or not release_batch_id.strip():
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_REQUIRED')
+        batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+        if len(batches) != 1 or batches[0]['release_id'] != release_id:
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_SCOPE_MISMATCH')
+    else:
+        # Direct legacy config callers do not provide the batch: fail closed
+        # for the complete release rather than guessing which Mission they own.
+        batches = truth.query('rc72_release_batch', release_id=release_id)
+    # A JSON capability file cannot supply a Captain token or session.
+    # Only an approved in-process AgentTeams Host module may inject the
+    # separately signed, freshly observed ACTIVE R1 Captain generation.
+    # No fallback to legacy execution is permitted after a cold restart.
+    governed_batches = [batch for batch in batches if truth.query(
+        'rc72_captain_dispatch_lease', mission_id=batch['mission_id'])]
+    injected = (observed_captain is not None or observed_captain_startup is not None
+                or host_authority is not None or captain_role_profiles is not None
+                or captain_approved_capabilities is not None)
+    if governed_batches:
+        if (not injected or observed_captain_startup is not None
+                or any(value is None for value in (
+                    observed_captain, host_authority, captain_role_profiles,
+                    captain_approved_capabilities))):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
+        if release_batch_id is None or len(governed_batches) != 1:
+            raise ContractError('MISSION_CONFIG_CAPTAIN_EXACT_BATCH_REQUIRED')
+    elif observed_captain_startup is not None:
+        if (release_batch_id is None or len(batches) != 1
+                or observed_captain is not None
+                or any(value is None for value in (
+                    host_authority, captain_role_profiles, captain_approved_capabilities))):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_FIRST_START_EXACT_HOST_REQUIRED')
+    elif injected:
+        raise ContractError('MISSION_CONFIG_CAPTAIN_UNOBSERVED_LEASE_FORBIDDEN')
 
     def configured_path(name, *, file=False):
         value = config[name]
@@ -109,6 +161,57 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     if (not isinstance(registry, dict) or not registry
             or any(not isinstance(k, str) or not k.strip() or not _tools(v) for k,v in registry.items())):
         raise ContractError('MISSION_CONFIG_EXACT_EXECUTION_TOOLS_REQUIRED')
+    # V2 is an explicit bank-owned, scoped professional diagnostic provider.
+    # V1 remains a strict schema and cannot implicitly inherit N7 business
+    # tools or mint N9 permissions. The only admitted V2 skill is the
+    # reviewed read-only diagnostic capability; no API write/BSK/4A replay.
+    n9_tools = None
+    if schema == SCHEMA_V2:
+        proposed = config['n9_read_only_tools']
+        if (not _tools(proposed)
+                or set(proposed) != _N9_DIAGNOSTIC_TOOLS
+                or set(proposed) & {tool for group in registry.values()
+                                   for tool in group}):
+            raise ContractError('MISSION_CONFIG_N9_EXACT_READ_ONLY_TOOLS_REQUIRED')
+        n9_tools = tuple(proposed)
+    captain_binding = None
+    if governed_batches or observed_captain_startup is not None:
+        # The signed Host observation is verified before loading model
+        # credentials, controller-owned worker keys or starting any worker.
+        # Role grants must match capabilities of the bank-reviewed current
+        # execution registry; no role may inherit Full Access or other
+        # capabilities by naming them in config/AgentTeams.
+        from rc7_release.rc72_captain_host_reentry import (
+            reenter_host_captain, bootstrap_host_captain)
+        from rc7_runtime.rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+        if (not isinstance(captain_role_profiles, dict)
+                or not captain_role_profiles
+                or any(role not in CaptainFencedWorkItemScheduler._ETU_EXECUTOR_ROLES
+                       and role != 'N9_QUALIFY'
+                       for role in captain_role_profiles)):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_APPROVED_ROLE_REQUIRED')
+        expected_capabilities = set(registry)
+        if n9_tools is not None:
+            expected_capabilities.add('defect_analysis')
+        if (not isinstance(captain_approved_capabilities, (tuple, list, set, frozenset))
+                or set(captain_approved_capabilities) != expected_capabilities
+                or not all(set(caps).issubset(expected_capabilities)
+                           for caps in captain_role_profiles.values())
+                or ((n9_tools is not None) != ('N9_QUALIFY' in captain_role_profiles))
+                or ('N9_QUALIFY' in captain_role_profiles
+                    and set(captain_role_profiles['N9_QUALIFY']) != {'defect_analysis'})):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_ROLE_CAPABILITY_SCOPE_CHANGED')
+        arguments = dict(
+            truth=truth, release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, host_authority=host_authority,
+            role_profiles=captain_role_profiles,
+            approved_capabilities=captain_approved_capabilities)
+        if governed_batches:
+            captain_binding = reenter_host_captain(
+                observed=observed_captain, **arguments)
+        else:
+            captain_binding = bootstrap_host_captain(
+                startup=observed_captain_startup, **arguments)
     inputs = config['inputs']
     if not isinstance(inputs, list) or not inputs:
         raise ContractError('MISSION_CONFIG_ORIGINAL_INPUTS_REQUIRED')
@@ -161,7 +264,25 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     mirror = NativeBankPipMirrorService(truth, release_id=release_id, source_commit=source_commit,
         authority=authority('bank-pip-mirror'), package_root=root, archive=archive,
         field_config=field, evidence_root=owned/'pip-mirror')
-    return MissionHostBindings(workers, mirror, execution, adapter, registry, tools_environment or None)
+    # A real, dedicated native DSH worker — not a callback that returns
+    # analysis PASS. Host-owned private authority/root prevent N7 process,
+    # task lease or execution environment credentials from being inherited.
+    # Only N8's accepted frozen discrepancy may trigger this analyst.
+    professional = None
+    if n9_tools is not None:
+        analyst = DshHeadlessWorkerLauncher(
+            dsh_bin=str(dsh), patch_path=str(patch), cwd=str(root), truth=truth,
+            authority=authority('worker:n9_professional'),
+            coordinator_instance_id='rc72-controller-'+scope[:24],
+            release_id=release_id, state_root=str(owned/'workers'/'n9-professional'),
+            env=environment)
+        professional = MissionProfessionalDshBinding(
+            analyst, n9_tools,
+            captain_governed_dsh=captain_binding is not None)
+    return MissionHostBindings(
+        workers, mirror, execution, adapter, registry, tools_environment or None,
+        captain_binding=captain_binding,
+        professional_dsh_binding=professional)
 
 
 def create_mission_bindings(*, truth, release_id, source_commit):

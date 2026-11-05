@@ -156,6 +156,39 @@ def test_reconciliation_resumes_after_target_restoration_interruption(tmp_path, 
         _close(server)
 
 
+
+def test_n8_retry_rejects_changed_nonfailed_case_verifier_before_any_r1_mutation(
+        tmp_path, monkeypatch):
+    """C01/C02 whole inventory: unrelated verified DataRef is not disposable."""
+    truth, prep, server, original, _, data, _, _, _ = _whole_inventory_repaired(
+        tmp_path, monkeypatch)
+    try:
+        contract = prep._one('rc72_n6_executable_contract',
+                             contract_id=original['contract_id'])
+        affected = {item['data_ref'] for item in contract['data_refs']}
+        other = [row for row in truth.query(
+            'rc72_n5_existing_data_repair',
+            release_batch_id=original['release_batch_id'])
+            if row['state'] == 'VERIFIED'
+            and row['original_binding']['data_ref'] not in affected]
+        assert other, 'whole-inventory setup must include another verified Case'
+        evidence = prep._one('rc7_evidence', evidence_id=other[0]['evidence_ref'])
+        raw = Path(evidence['content_ref'][len('file://'):])
+        raw.write_bytes(raw.read_bytes() + b'QA-UNRELATED-DATA-RECHECK-TAMPER')
+        before = truth.store.path.read_bytes()
+        attempts = list(truth.query('execution_attempt'))
+        calls = list(server.calls)
+        with pytest.raises(ContractError, match='N8_RETRY_N5_BATCH_REVERIFICATION_BYTES_CHANGED'):
+            DataRepairContinuationService(data.boundary.diagnosis).reconcile(
+                original['preparation_id'])
+        assert truth.store.path.read_bytes() == before
+        assert truth.query('execution_attempt') == attempts
+        assert server.calls == calls
+        assert not truth.query('rc72_n8_retry_reconciliation')
+    finally:
+        _close(server)
+
+
 def test_unsigned_recovery_plan_cannot_reuse_old_identities(tmp_path, monkeypatch):
     values, _ = _accepted_data_repair(tmp_path, monkeypatch)
     truth, prep, server, p, _, data, _, _, _ = values

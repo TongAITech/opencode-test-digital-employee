@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Sequence, Tuple
 
+from .rc72_provider_usage_filter import is_tool_branch_key, is_tool_usage_node
 from .rc72_model_usage import TokenUsageAuditService
 
 
@@ -117,7 +118,7 @@ class Rc72TokenUsageLauncherProxy:
     @classmethod
     def _has_model_call_signal(cls, events: Sequence[Dict[str, Any]]) -> bool:
         for event in events:
-            if not isinstance(event, dict):
+            if not isinstance(event, dict) or is_tool_usage_node(event):
                 continue
             kind = str(
                 event.get("type")
@@ -138,7 +139,11 @@ class Rc72TokenUsageLauncherProxy:
     @classmethod
     def _contains_usage_mapping(cls, value: Any) -> bool:
         if isinstance(value, dict):
+            if is_tool_usage_node(value):
+                return False
             for key, child in value.items():
+                if is_tool_branch_key(key):
+                    continue
                 if str(key).lower() in {"usage", "token_usage", "model_usage"} and isinstance(child, dict):
                     return True
                 if cls._contains_usage_mapping(child):

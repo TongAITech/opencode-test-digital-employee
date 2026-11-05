@@ -209,3 +209,175 @@ def test_execution_materializer_cannot_accept_playwright_without_full_graph_comp
         materializer._materialize_playwright(tmp_path)
     assert 'gitnexus@latest' in commands[0] and '--ignore-scripts' not in commands[0]
     assert '--package-lock=true' in commands[0]
+
+
+def test_bsk_041_packaging_pins_cli_extension_and_dsh_exact_release(tmp_path, monkeypatch):
+    assert materializer.BSK_LOCK_VERSION == "0.4.1"
+    versions = []
+    downloads = []
+
+    def release(repo, *, name=None, contains=(), tag=None):
+        assert repo == "Tencent/BrowserSkill"
+        versions.append((name, tag))
+        if tag == "cli-v0.4.1":
+            return {"tag_name": tag}, {
+                "name": name, "digest": "sha256:" +
+                    materializer.BSK_CLI_ARCHIVE_SHA256,
+                "browser_download_url": "https://example.test/bsk-cli.zip",
+            }
+        if tag == "ext-v0.4.1":
+            return {"tag_name": tag}, {
+                "name": name, "digest": "sha256:" +
+                    materializer.BSK_EXTENSION_ARCHIVE_SHA256,
+                "browser_download_url": "https://example.test/bsk-ext.zip",
+            }
+        raise AssertionError("Moving latest or wrong tag was requested")
+
+    def download(url, destination, expected_sha256):
+        downloads.append((url, expected_sha256))
+        with zipfile.ZipFile(destination, "w") as archive:
+            if url.endswith("bsk-cli.zip"):
+                archive.writestr("bsk.exe", "fake binary; never execute")
+            else:
+                archive.writestr("browser-extension/manifest.json", '{"version":"0.4.1"}')
+        return str(expected_sha256).replace("sha256:", "")
+
+    monkeypatch.setattr(materializer, "_release_asset", release)
+    monkeypatch.setattr(materializer, "_download", download)
+    monkeypatch.setattr(materializer, "_run", lambda *a, **k: "bsk 0.4.1")
+
+    rows = materializer._materialize_browserskill(tmp_path)
+    assert versions == [
+        ("bsk-v0.4.1-x86_64-pc-windows-msvc.zip", "cli-v0.4.1"),
+        ("browser-skill-extension-v0.4.1-chrome.zip", "ext-v0.4.1"),
+    ]
+    assert len(downloads) == 2
+    assert downloads[0][1] == "sha256:" + materializer.BSK_CLI_ARCHIVE_SHA256
+    assert downloads[1][1] == "sha256:" + materializer.BSK_EXTENSION_ARCHIVE_SHA256
+    assert [row["resolved_version"] for row in rows] == ["0.4.1", "0.4.1"]
+
+
+@pytest.mark.parametrize("bad", ["cli_digest", "cli_tag", "extension_digest", "extension_tag"])
+def test_bsk_041_packaging_rejects_unexpected_bytes_or_version_before_io(
+        tmp_path, monkeypatch, bad):
+    downloads = []
+
+    def release(repo, *, name=None, contains=(), tag=None):
+        if tag == "cli-v0.4.1":
+            return {"tag_name": "cli-v0.4.0" if bad == "cli_tag" else tag}, {
+                "name": name, "digest": "sha256:" +
+                    ("0" * 64 if bad == "cli_digest"
+                     else materializer.BSK_CLI_ARCHIVE_SHA256),
+                "browser_download_url": "https://example.test/cli",
+            }
+        if tag == "ext-v0.4.1":
+            return {"tag_name": "ext-v0.4.0" if bad == "extension_tag" else tag}, {
+                "name": name, "digest": "sha256:" +
+                    ("0" * 64 if bad == "extension_digest"
+                     else materializer.BSK_EXTENSION_ARCHIVE_SHA256),
+                "browser_download_url": "https://example.test/ext",
+            }
+        raise AssertionError("Unexpected latest request")
+
+    monkeypatch.setattr(materializer, "_release_asset", release)
+    monkeypatch.setattr(materializer, "_download",
+                        lambda *a, **k: downloads.append(a))
+    with pytest.raises(
+            materializer.RuntimePayloadMaterializerError,
+            match="BROWSERSKILL_(CLI|EXTENSION)_PIN_OR_DIGEST_MISMATCH"):
+        materializer._materialize_browserskill(tmp_path)
+    assert downloads == []
+
+
+def _build_offline_dsh_plugin_archives(home: Path, *,
+                                       missing_default: str | None = None,
+                                       escaped_entry: bool = False) -> None:
+    """Real two-archive transport layout, without network/npm stubs."""
+    from rc7_release import plugin_payload, optional_plugin_payload
+    import hashlib
+
+    required = home / plugin_payload.PAYLOAD_ARCHIVE_RELATIVE
+    required.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(required, "w") as target:
+        for name in plugin_payload.REQUIRED_PLUGIN_NAMES:
+            version = (plugin_payload.BSK_DSH_PLUGIN_VERSION
+                       if name == plugin_payload.BSK_DSH_PLUGIN_NAME else "test")
+            package = plugin_payload.package_path(Path(""), name).as_posix()
+            target.writestr(package + "/package.json",
+                            json.dumps({"name": name, "version": version}))
+        target.writestr("payload-manifest.json",
+                        json.dumps({"resolved_plugins": []}))
+
+    optional = home / optional_plugin_payload.PAYLOAD_ARCHIVE_RELATIVE
+    receipts, bundled = [], []
+    with zipfile.ZipFile(optional, "w") as target:
+        for name in ("dsh-vision-router", "dsh-memento",
+                     "@perrylink/dsh-plugin-doctor"):
+            if name == missing_default:
+                continue
+            entry = ("../foreign.js" if escaped_entry and name == "dsh-vision-router"
+                     else "lib/public-entry.js" if name == "dsh-vision-router"
+                     else "index.mjs" if name == "dsh-memento" else "index.js")
+            package = plugin_payload.package_path(Path(""), name).as_posix()
+            raw = json.dumps({"name": name, "version": "test",
+                              "main": entry}).encode("utf-8")
+            target.writestr(package + "/package.json", raw)
+            if not entry.startswith("../"):
+                target.writestr(package + "/" + entry, "export function apply() {}\n")
+            bundled.append(name)
+            receipts.append({"name": name, "status": "BUNDLED",
+                             "package_json_sha256": hashlib.sha256(raw).hexdigest()})
+        target.writestr("payload-manifest.json", json.dumps({
+            "schema_version": optional_plugin_payload.PAYLOAD_SCHEMA,
+            "bundled": bundled,
+            "resolved_plugins": receipts,
+        }))
+
+
+def test_offline_dsh_materializer_merges_p1_and_preserves_p0(tmp_path: Path) -> None:
+    from rc7_release import dsh, plugin_payload
+
+    _build_offline_dsh_plugin_archives(tmp_path)
+    row = materializer._materialize_dsh_plugins(tmp_path)
+    vendor = tmp_path / "workspace-template/runtime/dsh-plugins"
+    assert row["default_runtime_enhancements"] == ["dsh-vision-router", "dsh-memento"]
+    assert set(row["optional_runtime_plugins"]) == {
+        "dsh-vision-router", "dsh-memento", "@perrylink/dsh-plugin-doctor",
+    }
+    assert plugin_payload.inspect_vendor(vendor)["status"] == "PASS"
+    assert json.loads((vendor / "payload-manifest.json").read_text()) == {
+        "resolved_plugins": [],
+    }
+    assert json.loads((plugin_payload.package_path(
+        vendor, plugin_payload.BSK_DSH_PLUGIN_NAME) / "package.json"
+    ).read_text())["version"] == "0.4.1"
+    patch = tmp_path / "state/rc7-dsh.patch.yml"
+    dsh.write_patch(patch, tmp_path, "python.exe", require_default_enhancements=True)
+    content = patch.read_text(encoding="utf-8")
+    assert "localOnlyVision: true" in content
+    assert "freeFallback: false" in content
+    assert "Memento" not in content or "memory.db" in content
+
+
+def test_offline_dsh_materializer_refuses_missing_p1_archive(tmp_path: Path) -> None:
+    from rc7_release import optional_plugin_payload
+
+    _build_offline_dsh_plugin_archives(tmp_path)
+    (tmp_path / optional_plugin_payload.PAYLOAD_ARCHIVE_RELATIVE).unlink()
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,
+                       match="DSH_DEFAULT_ENHANCEMENT_PAYLOAD_ARCHIVE_MISSING"):
+        materializer._materialize_dsh_plugins(tmp_path)
+
+
+def test_offline_dsh_materializer_refuses_incomplete_p1(tmp_path: Path) -> None:
+    _build_offline_dsh_plugin_archives(tmp_path, missing_default="dsh-memento")
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,
+                       match="DSH_DEFAULT_ENHANCEMENT_PAYLOAD_INCOMPLETE:dsh-memento"):
+        materializer._materialize_dsh_plugins(tmp_path)
+
+
+def test_offline_dsh_materializer_refuses_escape_entry(tmp_path: Path) -> None:
+    _build_offline_dsh_plugin_archives(tmp_path, escaped_entry=True)
+    with pytest.raises(materializer.RuntimePayloadMaterializerError,
+                       match="DSH_DEFAULT_ENHANCEMENT_ENTRY_ESCAPE:dsh-vision-router"):
+        materializer._materialize_dsh_plugins(tmp_path)

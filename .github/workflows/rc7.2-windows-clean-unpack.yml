@@ -1,23 +1,20 @@
 name: RC7.2 Q2 Windows Clean Unpack
 
 on:
-  push:
-    branches:
-      - work/rc7.2
-    paths:
-      - 'rc7_release/**'
-      - 'rc7_runtime/rc72_*.py'
-      - 'packaging/rc7.2/**'
-      - 'tests/test_rc72_windows_clean_unpack_contract.py'
-      - 'tests/test_rc72_q2b_clean_runtime_contract.py'
-      - '.github/workflows/rc7.2-windows-clean-unpack.yml'
   workflow_dispatch:
+    inputs:
+      final_qualification:
+        description: 'Deliberate final release gate: package only after full design and CI'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   q2a-windows-clean-unpack:
+    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
     name: q2a-windows-clean-unpack-python-3.8
     runs-on: windows-latest
     timeout-minutes: 90

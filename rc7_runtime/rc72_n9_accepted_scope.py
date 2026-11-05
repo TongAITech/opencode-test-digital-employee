@@ -15,6 +15,8 @@ from .rc72_ledger_lock import ledger_lock
 from .rc72_n7_execution_admission import _hash
 from .rc72_obligation_execution_proof import AcceptedObligationExecutionProof
 from .rc72_state_machine import RC72StateMachine
+from .closed_loop_control import ClosedLoopControlPlane
+from .defect_resolution_control import DefectResolutionControl, DefectResolutionControlError
 
 _KIND='rc72_n9_accepted_scope'
 _EVENT='RC72_N9_ACCEPTED_SCOPE_UPSERTED'
@@ -66,13 +68,30 @@ class AcceptedScopeN9Service:
                if t['node'] in {'DEFECT','N9_DEFECT'} or t['task_type'] in
                {'QUALIFY_DEFECT','DEFECT_REPRODUCTION','DEFECT_RCA','DEFECT_REGRESSION','DEFECT_RESOLUTION'}]
         blockers=['gap:'+g['gap_id'] for g in gaps if g['state'] not in _TERMINAL_GAPS]
-        # This deterministic route has no professional disposition executor.
-        # Closed labels cannot launder a historic business discrepancy/defect.
+        # A historical product Defect can be cleared only by re-auditing the
+        # original governed RCA/fix/original-Case verification/impact regression
+        # chain. An unverified CLOSED label is an active professional blocker.
+        cleared_gaps=set()
+        if defects:
+            control=ClosedLoopControlPlane(self.truth,self.release_id,mission)
+            auditor=DefectResolutionControl()
+            for defect in defects:
+                try:
+                    if defect.get('state')!='CLOSED':
+                        raise DefectResolutionControlError('DEFECT_NOT_CLOSED')
+                    accepted=auditor.audit_closed(control,defect['defect_id'])
+                    cleared_gaps.add(accepted['source_gap_id'])
+                except (DefectResolutionControlError, ContractError, ValueError, TypeError, KeyError):
+                    blockers.append('professional-defect-unverified:'+defect['defect_id'])
         blockers+=['professional-gap-history:'+g['gap_id'] for g in gaps
-                   if g['state'] in _TERMINAL_GAPS and (g['target_node'] in {'DEFECT','N9_DEFECT'}
-                   or g['category'] in {'PRODUCT_DEFECT','VALID_TEST_FAILURE'})]
-        blockers+=['professional-defect-history:'+d['defect_id'] for d in defects]
-        blockers+=['professional-workitem-history:'+t['task_id'] for t in tasks]
+                   if g['state'] in _TERMINAL_GAPS and
+                   (g['target_node'] in {'DEFECT','N9_DEFECT'}
+                    or g['category'] in {'PRODUCT_DEFECT','VALID_TEST_FAILURE'})
+                   and g['gap_id'] not in cleared_gaps]
+        blockers+=['professional-workitem-history:'+t['task_id'] for t in tasks
+                   if not (t['node']=='DEFECT' and t['task_type']=='QUALIFY_DEFECT'
+                   and t['state']=='PASS'
+                   and any(gid in cleared_gaps for gid in t.get('gap_refs',[])))]
         edges=self.truth.query('rc72_node_transition',mission_id=mission)
         if not any(e['kind']=='FORWARD' and e['from_node_type']=='N7_EXECUTION'
                    and e['to_node_type']=='N9_DEFECT' and e['source_gate_id']==proof['n7_gate_id'] for e in edges):

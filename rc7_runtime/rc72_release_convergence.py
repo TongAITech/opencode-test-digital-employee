@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Mapping, Sequence, Set, Tuple
 
 from rc6_runtime import contracts as _contracts
@@ -108,7 +108,7 @@ class ReleaseConvergenceAggregator:
     _DEFECT_ACCEPTABLE = {"CLOSED", "DUPLICATE", "NOT_A_DEFECT"}
     _HIGH_RISKS = {"HIGH", "CRITICAL", "BLOCKER"}
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None, coverage_diagnosis=None) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str, runtime: RC72StateMachine, execution_proof=None, expected_scope=None, coverage_proof=None, coverage_intake=None, coverage_diagnosis=None, coverage_repair=None, replay_safe=False) -> None:
         install_rc72_release_convergence_overlay()
         _ensure_projection_bucket(truth)
         if not isinstance(release_id, str) or not release_id.strip():
@@ -132,6 +132,10 @@ class ReleaseConvergenceAggregator:
         self.coverage_proof = coverage_proof
         self.coverage_intake = coverage_intake
         self.coverage_diagnosis = coverage_diagnosis
+        self.coverage_repair = coverage_repair
+        self.replay_safe = replay_safe
+        if type(replay_safe) is not bool:
+            raise ContractError('RELEASE_CONVERGENCE_REPLAY_POLICY_INVALID')
         self._assert_inputs()
 
     def _assert_inputs(self):
@@ -171,6 +175,14 @@ class ReleaseConvergenceAggregator:
                     or self.coverage_diagnosis.intake is not self.coverage_intake
                     or self.coverage_diagnosis.truth is not self.truth):
                 raise ContractError('RELEASE_CONVERGENCE_NATIVE_COVERAGE_DIAGNOSIS_REQUIRED')
+
+        if self.coverage_repair is not None:
+            from .rc72_native_coverage_repair import NativeCoverageRepairService
+            if (not isinstance(self.coverage_repair, NativeCoverageRepairService)
+                    or self.coverage_repair.diagnosis is not self.coverage_diagnosis
+                    or self.coverage_repair.truth is not self.truth
+                    or self.coverage_repair.release_id != self.release_id):
+                raise ContractError('RELEASE_CONVERGENCE_NATIVE_CLOSED_REPAIR_PROOF_REQUIRED')
 
     def install_overlay(self) -> None:
         install_rc72_release_convergence_overlay()
@@ -367,7 +379,8 @@ class ReleaseConvergenceAggregator:
         manifest = self._one_manifest(mission_id, str(batch["release_batch_id"]))
         if frozen is not None and frozen['manifest_id'] != manifest['manifest_id']:
             raise ContractError('RELEASE_CONVERGENCE_EXPECTED_SCOPE_MANIFEST_MISMATCH')
-        scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]))
+        scope_snapshot = self.scope.evaluate_denominator(manifest_id=str(manifest["manifest_id"]),
+            replay_safe=self.replay_safe)
         blockers: List[str] = [] if scope_verified else ['scope:EXPECTED_INPUT_PROOF_REQUIRED']
         if native_scope_history and self.execution_proof is None:
             blockers.append('execution:NATIVE_ACCEPTED_PROOF_REQUIRED')
@@ -463,8 +476,41 @@ class ReleaseConvergenceAggregator:
                 for diagnosis in native_diagnoses:
                     gap=self.truth.query('rc72_coverage_gap',gap_id=diagnosis['gap_id'])
                     if len(gap)!=1:raise ContractError('RELEASE_CONVERGENCE_NATIVE_DIAGNOSIS_GAP_REQUIRED')
-                    self.coverage_diagnosis.audit(release_batch_id=str(batch['release_batch_id']),
-                        application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
+                    resolved=gap[0]['status']=='RESOLVED'
+                    if resolved:
+                        # Historical N8 belongs to the original N7/Libra epoch.
+                        # It cannot be re-audited against today's intake, or
+                        # silently discarded when post-repair coverage improves.
+                        if self.coverage_repair is None:
+                            raise ContractError('RELEASE_CONVERGENCE_NATIVE_DIAGNOSIS_ACCEPTED_CLOSURE_REQUIRED:SIGNED_REPAIR_REQUIRED')
+                        repaired=self.coverage_repair._existing_boundary(
+                            release_batch_id=str(batch['release_batch_id']),
+                            application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
+                        if (repaired is None or repaired['state']!='CLOSED'
+                                or repaired['diagnosis_id']!=diagnosis['diagnosis_id']
+                                or repaired['origin_measurement_id']!=diagnosis['measurement_id']
+                                or gap[0]['resolution_verification_id']!=repaired['verification_id']):
+                            raise ContractError('RELEASE_CONVERGENCE_NATIVE_CLOSED_REPAIR_CHANGED')
+                        self.coverage_diagnosis.audit_historical(release_batch_id=str(batch['release_batch_id']),
+                            application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
+                        current=self.coverage_proof.audit(release_batch_id=str(batch['release_batch_id']),
+                            application_id=gap[0]['application_id'])
+                        verification=self.truth.query('rc72_coverage_gap_verification',
+                            verification_id=repaired['verification_id'])
+                        current_report=(self.coverage_proof._one('rc72_libra_measurement',
+                            measurement_id=current['measurement_id']) if current is not None else None)
+                        if (current is None or len(verification)!=1 or current['measurement_id']!=repaired['fresh_measurement_id']
+                                or current_report['n7_gate_id']!=repaired['fresh_n7_gate_id']
+                                or current_report['n7_gate_id']==repaired['origin_n7_gate_id']
+                                or gap[0]['code_slice'] in current['uncovered_code_slices']
+                                or verification[0]['gap_id']!=gap[0]['gap_id']
+                                or verification[0]['uncovered_units_after']!=0
+                                or verification[0]['observation_id']!=current['observation_id']
+                                or verification[0]['evidence_ref']!='r1://artifact/'+repaired['fresh_measurement_id']):
+                            raise ContractError('RELEASE_CONVERGENCE_POST_REPAIR_VERIFICATION_CHANGED')
+                    else:
+                        self.coverage_diagnosis.audit(release_batch_id=str(batch['release_batch_id']),
+                            application_id=gap[0]['application_id'],gap_id=diagnosis['gap_id'])
 
         runtime_integrity, node_human, runtime_blocked, runtime_blockers = self._runtime_facts(mission_id, accepted_n7_gate_id=accepted_n7_gate_id)
         human_gate_required = human_gate_required or node_human
@@ -506,6 +552,41 @@ class ReleaseConvergenceAggregator:
             blockers=sorted(set(blockers)), proven_obligation_ids=sorted(proven),
             unproven_obligation_ids=unproven, coverage_observation_ids=sorted(coverage_ids),
         )
+        if self.replay_safe:
+            # Every R1 source was audited above; reuse a receipt only when
+            # *all* derived dimensions, accepted obligations, coverage and
+            # blockers remain identical. No cached PASS can skip validation.
+            expected = {key: value for key, value in (
+                ("mission_id", snapshot.mission_id),
+                ("release_batch_id", snapshot.release_batch_id),
+                ("manifest_id", snapshot.manifest_id),
+                ("scope_snapshot_id", snapshot.scope_snapshot_id),
+                ("facts", asdict(snapshot.facts)),
+                ("result", snapshot.result.value),
+                ("blockers", snapshot.blockers),
+                ("proven_obligation_ids", snapshot.proven_obligation_ids),
+                ("unproven_obligation_ids", snapshot.unproven_obligation_ids),
+                ("coverage_observation_ids", snapshot.coverage_observation_ids))}
+            old = [row for row in self.truth.query(_CONVERGENCE_SNAPSHOT,
+                       release_batch_id=snapshot.release_batch_id)
+                   if all(row.get(key) == value for key, value in expected.items())
+                   and row.get("release_id") == self.release_id]
+            if old:
+                receipt = sorted(old, key=lambda row: (row["created_at"], row["snapshot_id"]))[-1]
+                return ReleaseConvergenceSnapshot(
+                    snapshot_id=receipt["snapshot_id"],
+                    mission_id=receipt["mission_id"],
+                    release_batch_id=receipt["release_batch_id"],
+                    manifest_id=receipt["manifest_id"],
+                    scope_snapshot_id=receipt["scope_snapshot_id"],
+                    facts=ReleaseConvergenceFacts(**receipt["facts"]),
+                    result=ReleaseConvergenceResult(receipt["result"]),
+                    blockers=list(receipt["blockers"]),
+                    proven_obligation_ids=list(receipt["proven_obligation_ids"]),
+                    unproven_obligation_ids=list(receipt["unproven_obligation_ids"]),
+                    coverage_observation_ids=list(receipt["coverage_observation_ids"]),
+                    created_at=receipt["created_at"],
+                )
         self.truth.append_atomic(
             _EVENT_TYPE,
             {

@@ -1,0 +1,57 @@
+name: RC7.2 C04 Package Native Independent N9 DSH Host
+
+on:
+  push:
+    branches: [work/rc7.2-a-c04-configured-n9-host]
+    paths:
+      - 'rc7_release/rc72_configured_mission.py'
+      - 'tests/test_rc72_configured_mission.py'
+      - '.github/workflows/rc7.2-a-c04-native-n9-host.yml'
+  pull_request:
+    branches: [work/rc7.2-abcd-v3-qualification, work/rc7.2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-c04-n9-host-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  native-n9-host:
+    name: c04-native-n9-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned native runtime qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile native Product/Host and independent DSH services
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Exercise V1/V2 Host, no-R1 security and real DSH N8/N9 integration
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_configured_mission.py
+          tests/test_rc72_mission_bindings.py
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_n9_professional_dsh_contract.py
+          tests/test_rc72_n9_professional_dsh_real_route.py
+          --junitxml=rc72-c04-native-n9-host.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c04-n9-host-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c04-native-n9-host.xml
+          retention-days: 14
+          if-no-files-found: warn

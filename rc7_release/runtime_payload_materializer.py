@@ -290,9 +290,22 @@ def _materialize_ripgrep(root: Path) -> Dict[str, Any]:
 
 
 def _materialize_dsh_plugins(root: Path) -> Dict[str, Any]:
-    archive = root / "rc7_release/vendor/dsh-plugins-payload.zip"
+    """Materialize P0 *and* default P1 into the same sealed offline runtime.
+
+    P1 packages are downloaded into a separate archive by the build stage.
+    Without this merge, a clean Windows extraction had five valid P0 plugins
+    but failed the real startup patch on dsh-vision-router.  The strict
+    startup gate is correct: never silently make these defaults optional.
+    """
+    from . import dsh_plugins, optional_plugin_payload, plugin_payload
+
+    archive = root / plugin_payload.PAYLOAD_ARCHIVE_RELATIVE
     if not archive.is_file():
         raise RuntimePayloadMaterializerError("DSH_PLUGIN_PAYLOAD_ARCHIVE_MISSING")
+    optional_archive = root / optional_plugin_payload.PAYLOAD_ARCHIVE_RELATIVE
+    if not optional_archive.is_file():
+        raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_PAYLOAD_ARCHIVE_MISSING")
+
     target = root / "workspace-template/runtime/dsh-plugins"
     if target.exists():
         shutil.rmtree(str(target))
@@ -301,16 +314,104 @@ def _materialize_dsh_plugins(root: Path) -> Dict[str, Any]:
     if not manifest.is_file():
         raise RuntimePayloadMaterializerError("DSH_PLUGIN_RUNTIME_MANIFEST_MISSING")
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    versions = [str(row.get("name")) + "@" + str(row.get("resolved_version")) for row in payload.get("resolved_plugins", [])]
-    return _record("dsh_plugins", target, version=",".join(versions), source="PACKAGE_VENDOR_ARCHIVE", sha256=_sha256(archive))
+    if plugin_payload.inspect_vendor(target)["status"] != "PASS":
+        raise RuntimePayloadMaterializerError("DSH_PLUGIN_RUNTIME_P0_INCOMPLETE")
+
+    with tempfile.TemporaryDirectory(prefix="rc7-default-plugin-merge-") as work:
+        optional_root = Path(work) / "optional"
+        _safe_extract(optional_archive, optional_root)
+        optional_manifest = optional_root / "payload-manifest.json"
+        if not optional_manifest.is_file():
+            raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_MANIFEST_MISSING")
+        optional_data = json.loads(optional_manifest.read_text(encoding="utf-8"))
+        if optional_data.get("schema_version") != optional_plugin_payload.PAYLOAD_SCHEMA:
+            raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_SCHEMA_INVALID")
+        bundled = optional_data.get("bundled")
+        receipts = optional_data.get("resolved_plugins")
+        if not isinstance(bundled, list) or not isinstance(receipts, list):
+            raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_MANIFEST_INVALID")
+        required_defaults = set(dsh_plugins.DEFAULT_ENABLED_RUNTIME)
+        if not required_defaults.issubset(set(bundled)):
+            raise RuntimePayloadMaterializerError(
+                "DSH_DEFAULT_ENHANCEMENT_PAYLOAD_INCOMPLETE:" +
+                ",".join(sorted(required_defaults - set(bundled)))
+            )
+        by_name = {row.get("name"): row for row in receipts if isinstance(row, dict)}
+        # Validate both default entrypoints and recorded package bytes before
+        # modifying the canonical P0 vendor tree.  Optional diagnostic packages
+        # may be missing, but cannot supply or replace a required P0 package.
+        for name in dsh_plugins.DEFAULT_ENABLED_RUNTIME:
+            source = plugin_payload.package_path(optional_root, name)
+            package_manifest = source / "package.json"
+            row = by_name.get(name, {})
+            if not package_manifest.is_file() or row.get("status") != "BUNDLED":
+                raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_MISSING:" + name)
+            raw = package_manifest.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != row.get("package_json_sha256"):
+                raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_HASH_MISMATCH:" + name)
+            metadata = json.loads(raw.decode("utf-8"))
+            if metadata.get("name") != name:
+                raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_NAME_MISMATCH:" + name)
+            entry = metadata.get("main")
+            if not isinstance(entry, str) or not entry.strip():
+                entry = "index.mjs" if (source / "index.mjs").is_file() else "index.js"
+            resolved = (source / entry).resolve()
+            try:
+                resolved.relative_to(source.resolve())
+            except ValueError as exc:
+                raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_ENTRY_ESCAPE:" + name) from exc
+            if not resolved.is_file():
+                raise RuntimePayloadMaterializerError("DSH_DEFAULT_ENHANCEMENT_ENTRY_MISSING:" + name)
+
+        copied = []
+        for name in optional_plugin_payload.OPTIONAL_PLUGIN_NAMES:
+            source = plugin_payload.package_path(optional_root, name)
+            if name not in bundled or not (source / "package.json").is_file():
+                continue
+            destination = plugin_payload.package_path(target, name)
+            if destination.exists() or name in plugin_payload.REQUIRED_PLUGIN_NAMES:
+                raise RuntimePayloadMaterializerError("DSH_OPTIONAL_PLUGIN_P0_COLLISION:" + name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(source), str(destination))
+            copied.append(name)
+
+    if plugin_payload.inspect_vendor(target)["status"] != "PASS":
+        raise RuntimePayloadMaterializerError("DSH_PLUGIN_RUNTIME_P0_CHANGED")
+    versions = [str(row.get("name")) + "@" + str(row.get("resolved_version"))
+                for row in payload.get("resolved_plugins", [])]
+    result = _record("dsh_plugins", target, version=",".join(versions),
+                     source="PACKAGE_VENDOR_ARCHIVE", sha256=_sha256(archive))
+    result["default_runtime_enhancements"] = list(dsh_plugins.DEFAULT_ENABLED_RUNTIME)
+    result["optional_runtime_plugins"] = copied
+    result["optional_archive_sha256"] = _sha256(optional_archive)
+    return result
+
+
+# Qualified together on 2026-11-04. Never resolve moving `latest` on a bank
+# transport build: CLI, extension and DSH plugin share the same release series.
+BSK_LOCK_VERSION = "0.4.1"
+BSK_CLI_ARCHIVE_SHA256 = "f4a62af2dde31508188ea0c80feee11dbb62d9e7b7bf388f3f3a9856cfffb37d"
+BSK_EXTENSION_ARCHIVE_SHA256 = "75e38414e732679b7fe7616de9f3bb80dbb9cfcc55d9cab2566dbcebb4cd9b51"
 
 
 def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
-    cli_release, cli_asset = _release_asset("Tencent/BrowserSkill", contains=("x86_64-pc-windows-msvc", ".zip"))
-    tag = str(cli_release.get("tag_name") or "")
-    version = tag.removeprefix("cli-v")
-    if not version:
-        raise RuntimePayloadMaterializerError("BROWSERSKILL_RELEASE_VERSION_INVALID")
+    version = BSK_LOCK_VERSION
+    cli_release, cli_asset = _release_asset(
+        "Tencent/BrowserSkill",
+        name="bsk-v%s-x86_64-pc-windows-msvc.zip" % version,
+        tag="cli-v%s" % version,
+    )
+    if (cli_release.get("tag_name") != "cli-v%s" % version
+            or cli_asset.get("digest") != "sha256:" + BSK_CLI_ARCHIVE_SHA256):
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_CLI_PIN_OR_DIGEST_MISMATCH")
+    ext_release, ext_asset = _release_asset(
+        "Tencent/BrowserSkill",
+        name="browser-skill-extension-v%s-chrome.zip" % version,
+        tag="ext-v%s" % version,
+    )
+    if (ext_release.get("tag_name") != "ext-v%s" % version
+            or ext_asset.get("digest") != "sha256:" + BSK_EXTENSION_ARCHIVE_SHA256):
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_EXTENSION_PIN_OR_DIGEST_MISMATCH")
     with tempfile.TemporaryDirectory(prefix="rc7-bsk-") as temp:
         archive = Path(temp) / str(cli_asset["name"])
         _download(str(cli_asset["browser_download_url"]), archive, str(cli_asset["digest"]))
@@ -321,9 +422,10 @@ def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
     bsk = next(iter(target.rglob("bsk.exe")), None)
     if bsk is None:
         raise RuntimePayloadMaterializerError("BROWSERSKILL_BSK_EXE_MISSING")
-    _run([str(bsk), "--version"], cwd=root, timeout=30)
+    actual_cli_version = _run([str(bsk), "--version"], cwd=root, timeout=30)
+    if version not in actual_cli_version:
+        raise RuntimePayloadMaterializerError("BROWSERSKILL_CLI_BINARY_VERSION_MISMATCH")
 
-    ext_release, ext_asset = _release_asset("Tencent/BrowserSkill", contains=("chrome.zip",), tag="ext-v%s" % version)
     ext_target = root / "workspace-template/runtime/browser/browserskill-extension"
     with tempfile.TemporaryDirectory(prefix="rc7-bsk-ext-") as temp:
         archive = Path(temp) / str(ext_asset["name"])
@@ -335,8 +437,8 @@ def _materialize_browserskill(root: Path) -> List[Dict[str, Any]]:
     if not manifests:
         raise RuntimePayloadMaterializerError("BROWSERSKILL_EXTENSION_MANIFEST_MISSING")
     return [
-        _record("browserskill", target, version=version, source=str(cli_asset["browser_download_url"]), sha256=str(cli_asset["digest"]).removeprefix("sha256:")),
-        _record("browserskill_extension", ext_target, version=str(ext_release.get("tag_name") or "").removeprefix("ext-v"), source=str(ext_asset["browser_download_url"]), sha256=str(ext_asset["digest"]).removeprefix("sha256:")),
+        _record("browserskill", target, version=version, source=str(cli_asset["browser_download_url"]), sha256=str(cli_asset["digest"])[len("sha256:"):]),
+        _record("browserskill_extension", ext_target, version=version, source=str(ext_asset["browser_download_url"]), sha256=str(ext_asset["digest"])[len("sha256:"):]),
     ]
 
 

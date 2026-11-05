@@ -101,6 +101,10 @@ _INSTALLERS = (
     ('rc72_truth', 'install_rc72_truth_overlay'),
     ('rc72_usage_ledger', 'install_rc72_usage_ledger_overlay'),
     ('rc72_worker_lifecycle', 'install_rc72_worker_lifecycle_overlay'),
+    # C07 Captain/ETU overlays must be registered before cold TruthRuntime
+    # reconstruction. Their durable events are not optional after admission.
+    ('rc72_captain_dispatch_fencing', 'install_captain_dispatch_overlay'),
+    ('rc72_captain_scheduling', 'install_captain_etu_admission_overlay'),
 )
 
 

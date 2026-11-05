@@ -22,7 +22,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -30,6 +30,8 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 from rc6_runtime.truth import TruthRuntime
+
+from .rc72_provider_usage_filter import is_tool_branch_key, is_tool_usage_node
 
 
 _TOKEN_BUDGET = "rc72_token_budget"
@@ -102,6 +104,105 @@ class BankCostWindow:
 
 
 @dataclass(frozen=True)
+class BankCostWindowConfig:
+    """Bank-local *scheduling* configuration, not a mandatory-test kill switch.
+
+    Asia/Shanghai is deliberately fixed rather than inferred from the host.
+    Default 18:00-21:00 rate is 10:1; post-21:00 is quota-unlimited.
+    """
+    timezone_name: str = _BANK_TZ_NAME
+    normal_end_hour: int = 18
+    discount_end_hour: int = 21
+    normal_factor_millis: int = 1000
+    discount_factor_millis: int = 100
+    unlimited_after_discount: bool = True
+    post_discount_factor_millis: int = 0
+    # Offline official bank calendar overrides: holidays may be weekdays,
+    # compensatory working days may fall on weekends. Never use host timezone.
+    non_working_dates: Tuple[str, ...] = ()
+    makeup_work_dates: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.timezone_name != _BANK_TZ_NAME:
+            raise TokenEconomyError("BANK_COST_WINDOW_TIMEZONE_MUST_BE_ASIA_SHANGHAI")
+        if (
+            isinstance(self.normal_end_hour, bool)
+            or isinstance(self.discount_end_hour, bool)
+            or not isinstance(self.normal_end_hour, int)
+            or not isinstance(self.discount_end_hour, int)
+            or not (0 < self.normal_end_hour < self.discount_end_hour <= 23)
+        ):
+            raise TokenEconomyError("BANK_COST_WINDOW_HOURS_INVALID")
+        for name in ("normal_factor_millis", "discount_factor_millis", "post_discount_factor_millis"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or not (0 <= value <= 100000):
+                raise TokenEconomyError("BANK_COST_WINDOW_FACTOR_INVALID:%s" % name)
+        if self.normal_factor_millis == 0 or self.discount_factor_millis == 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
+        if not isinstance(self.unlimited_after_discount, bool):
+            raise TokenEconomyError("BANK_COST_WINDOW_UNLIMITED_FLAG_INVALID")
+        if self.unlimited_after_discount and self.post_discount_factor_millis != 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_UNLIMITED_FACTOR_MUST_BE_ZERO")
+        if not self.unlimited_after_discount and self.post_discount_factor_millis == 0:
+            raise TokenEconomyError("BANK_COST_WINDOW_LIMITED_FACTOR_REQUIRED")
+        for name in ("non_working_dates", "makeup_work_dates"):
+            raw = getattr(self, name)
+            if not isinstance(raw, (list, tuple)) or any(
+                not isinstance(v, str) or len(v) != 10
+                or v[4:5] != "-" or v[7:8] != "-"
+                for v in raw
+            ):
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_INVALID" % name.upper())
+            try:
+                for item in raw:
+                    if date.fromisoformat(item).isoformat() != item:
+                        raise ValueError("noncanonical date")
+            except ValueError as exc:
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_INVALID" % name.upper()) from exc
+            if len(set(raw)) != len(raw):
+                raise TokenEconomyError("BANK_COST_WINDOW_%s_DUPLICATE" % name.upper())
+            object.__setattr__(self, name, tuple(sorted(raw)))
+        if set(self.non_working_dates) & set(self.makeup_work_dates):
+            raise TokenEconomyError("BANK_COST_WINDOW_CALENDAR_DATE_CONFLICT")
+
+    def is_working_day(self, local_date: date) -> bool:
+        day = local_date.isoformat()
+        if day in self.makeup_work_dates:
+            return True
+        if day in self.non_working_dates:
+            return False
+        return local_date.weekday() < 5
+
+    def as_mapping(self) -> Dict[str, Any]:
+        return {
+            "timezone_name": self.timezone_name,
+            "normal_end_hour": self.normal_end_hour,
+            "discount_end_hour": self.discount_end_hour,
+            "normal_factor_millis": self.normal_factor_millis,
+            "discount_factor_millis": self.discount_factor_millis,
+            "unlimited_after_discount": self.unlimited_after_discount,
+            "post_discount_factor_millis": self.post_discount_factor_millis,
+            "non_working_dates": list(self.non_working_dates),
+            "makeup_work_dates": list(self.makeup_work_dates),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "BankCostWindowConfig":
+        if not isinstance(mapping, Mapping):
+            raise TokenEconomyError("BANK_COST_WINDOW_CONFIGURATION_REQUIRED")
+        allowed = {
+            "timezone_name", "normal_end_hour", "discount_end_hour",
+            "normal_factor_millis", "discount_factor_millis",
+            "unlimited_after_discount", "post_discount_factor_millis",
+            "non_working_dates", "makeup_work_dates",
+        }
+        unknown = set(mapping) - allowed
+        if unknown:
+            raise TokenEconomyError("BANK_COST_WINDOW_UNKNOWN_CONFIGURATION_KEYS")
+        return cls(**dict(mapping))
+
+
+@dataclass(frozen=True)
 class TokenAdmission:
     admitted: bool
     call_id: str
@@ -130,27 +231,47 @@ def _new(prefix: str) -> str:
     return "%s-%s" % (prefix, uuid.uuid4().hex[:20])
 
 
-def classify_bank_cost_window(when: Optional[datetime] = None) -> BankCostWindow:
-    """Classify the explicit bank-local quota window.
-
-    Naive datetimes are rejected so tests/runtime cannot silently depend on the
-    host timezone. Asia/Shanghai is represented as fixed UTC+08:00, which is
-    sufficient for the current bank schedule and Python 3.8 portability.
-    """
+def classify_bank_cost_window(
+    when: Optional[datetime] = None,
+    *,
+    config: Optional[BankCostWindowConfig] = None,
+) -> BankCostWindow:
+    """Classify the bank-local window independently of the machine timezone."""
+    policy = config if config is not None else BankCostWindowConfig()
+    if not isinstance(policy, BankCostWindowConfig):
+        raise TokenEconomyError("BANK_COST_WINDOW_CONFIG_INVALID")
     current = when or datetime.now(timezone.utc)
     if current.tzinfo is None:
         raise TokenEconomyError("BANK_COST_WINDOW_REQUIRES_AWARE_DATETIME")
     local = current.astimezone(_BANK_TZ)
-    if local.hour >= 21:
+    if not policy.is_working_day(local.date()):
+        # Whole non-working day: NO quota; includes weekends and explicitly
+        # configured public holidays. Adjusted weekend workdays are excluded.
         return BankCostWindow(
-            "BANK_AFTER_21_UNLIMITED", _BANK_TZ_NAME, False, 0
+            "BANK_NON_WORKING_DAY_UNLIMITED", _BANK_TZ_NAME, False, 0
         )
-    if local.hour >= 18:
+    standard = policy == BankCostWindowConfig()
+    if local.hour >= policy.discount_end_hour:
         return BankCostWindow(
-            "BANK_18_21_TEN_TO_ONE", _BANK_TZ_NAME, True, 100
+            ("BANK_AFTER_21_UNLIMITED" if standard else
+             "BANK_AFTER_DISCOUNT_UNLIMITED" if policy.unlimited_after_discount
+             else "BANK_AFTER_DISCOUNT_LIMITED"),
+            _BANK_TZ_NAME,
+            not policy.unlimited_after_discount,
+            policy.post_discount_factor_millis,
+        )
+    if local.hour >= policy.normal_end_hour:
+        return BankCostWindow(
+            "BANK_18_21_TEN_TO_ONE" if standard else "BANK_CONFIGURED_DISCOUNT",
+            _BANK_TZ_NAME,
+            True,
+            policy.discount_factor_millis,
         )
     return BankCostWindow(
-        "BANK_DAYTIME_FULL_RATE", _BANK_TZ_NAME, True, 1000
+        "BANK_DAYTIME_FULL_RATE" if standard else "BANK_CONFIGURED_NORMAL",
+        _BANK_TZ_NAME,
+        True,
+        policy.normal_factor_millis,
     )
 
 
@@ -205,6 +326,13 @@ def _validate_budget(payload: Dict[str, Any]) -> Dict[str, Any]:
         out[name] = _nonnegative_int(out, name)
     out["require_measured_usage"] = _boolean(out, "require_measured_usage")
     out["require_complete_lineage"] = _boolean(out, "require_complete_lineage")
+    if "bank_cost_window_config" in out:
+        try:
+            out["bank_cost_window_config"] = BankCostWindowConfig.from_mapping(
+                out["bank_cost_window_config"]
+            ).as_mapping()
+        except (TokenEconomyError, TypeError, ValueError) as exc:
+            raise _contracts.DomainValidationError("BANK_COST_WINDOW_CONFIG_INVALID") from exc
     out["created_at"] = _nonnegative_int(out, "created_at")
     out["updated_at"] = _nonnegative_int(out, "updated_at")
     return out
@@ -243,6 +371,68 @@ def _validate_call(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Additive/backward-compatible fields. Older R1 events are projected with
     # safe defaults rather than becoming unreadable after this construction slice.
+    # Per-native-process proof is separate from admission: a call can be
+    # ADMITTED in R1 before any subprocess was actually launched. Older
+    # R1 events remain UNKNOWN, never a fabricated successful process.
+    # Projection describes *canonical references*, not whether the native
+    # prompt actually consumed fewer tokens. Proof of prompt reduction must
+    # come from native final prompt bytes, never from an inferred ref count.
+    out.setdefault("context_projection_status", "NOT_BOUND")
+    if out["context_projection_status"] not in {
+        "NOT_BOUND", "REFERENCE_ONLY", "NATIVE_RETRY_DELTA_VERIFIED"
+    }:
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_PROJECTION_STATUS_INVALID")
+    out.setdefault("context_projection_applied_to_prompt", False)
+    out.setdefault("native_retry_delta_saved_bytes", 0)
+    out["native_retry_delta_saved_bytes"] = _nonnegative_int(
+        out, "native_retry_delta_saved_bytes"
+    )
+    native_delta_applied = out["context_projection_status"] == "NATIVE_RETRY_DELTA_VERIFIED"
+    if native_delta_applied:
+        if (
+            out["context_projection_applied_to_prompt"] is not True
+            or out.get("context_mode") != "RETRY_DELTA"
+            or not out.get("parent_attempt_id")
+            or out["native_retry_delta_saved_bytes"] < 1
+        ):
+            raise _contracts.DomainValidationError("TOKEN_NATIVE_RETRY_DELTA_PROOF_REQUIRED")
+    elif out["context_projection_applied_to_prompt"] is not False or out["native_retry_delta_saved_bytes"] != 0:
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
+    for name in (
+        "context_canonical_ref_count", "context_effective_ref_count",
+        "context_unhydrated_lineage_ref_count",
+    ):
+        out.setdefault(name, 0)
+        out[name] = _nonnegative_int(out, name)
+    if out["context_projection_status"] in {"REFERENCE_ONLY", "NATIVE_RETRY_DELTA_VERIFIED"}:
+        for name in ("context_envelope_id", "context_envelope_sha256", "context_mode"):
+            out[name] = _required(out, name)
+        if len(out["context_envelope_sha256"]) != 64:
+            raise _contracts.DomainValidationError("TOKEN_CONTEXT_ENVELOPE_DIGEST_INVALID")
+        if out["context_mode"] not in {"NORMAL", "RETRY_DELTA", "FULL_CONTEXT_RETRY", "RETRY_DELTA_UNKNOWN"}:
+            raise _contracts.DomainValidationError("TOKEN_CONTEXT_PROJECTION_MODE_INVALID")
+    out.setdefault("context_envelope_id", None)
+    out.setdefault("context_envelope_sha256", None)
+    out.setdefault("context_mode", "UNKNOWN")
+    parent_attempt_id = out.get("parent_attempt_id")
+    if parent_attempt_id is not None and (not isinstance(parent_attempt_id, str) or not parent_attempt_id.strip()):
+        raise _contracts.DomainValidationError("TOKEN_CONTEXT_PARENT_ATTEMPT_INVALID")
+    out.setdefault("prompt_original_bytes", out["context_bytes"])
+    out.setdefault("prompt_serialization_saved_bytes", 0)
+    out.setdefault("prompt_compaction_status", "UNCHANGED")
+    out["prompt_original_bytes"] = _nonnegative_int(out, "prompt_original_bytes")
+    out["prompt_serialization_saved_bytes"] = _nonnegative_int(out, "prompt_serialization_saved_bytes")
+    if out["prompt_compaction_status"] not in {"UNCHANGED", "LOSSLESS_JSON"}:
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_STATUS_INVALID")
+    if out["prompt_original_bytes"] != out["context_bytes"] + out["prompt_serialization_saved_bytes"]:
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_BYTES_INCONSISTENT")
+    if (out["prompt_compaction_status"] == "LOSSLESS_JSON") != (
+        out["prompt_serialization_saved_bytes"] > 0
+    ):
+        raise _contracts.DomainValidationError("TOKEN_PROMPT_COMPACTION_STATUS_BYTES_MISMATCH")
+    out.setdefault("process_outcome", "UNKNOWN")
+    if out["process_outcome"] not in {"UNKNOWN", "NOT_STARTED", "RETURNED", "RAISED"}:
+        raise _contracts.DomainValidationError("DSH_PROCESS_OUTCOME_INVALID")
     out.setdefault("economy_signal", "NONE")
     out.setdefault("cost_window", "UNKNOWN")
     out.setdefault("bank_timezone", _BANK_TZ_NAME)
@@ -303,10 +493,14 @@ def _usage_candidate(mapping: Mapping[str, Any]) -> Optional[Tuple[int, int, int
 
 def _walk_usage(value: Any) -> Iterable[Tuple[int, int, int]]:
     if isinstance(value, Mapping):
+        if is_tool_usage_node(value):
+            return
         candidate = _usage_candidate(value)
         if candidate is not None:
             yield candidate
-        for child in value.values():
+        for key, child in value.items():
+            if is_tool_branch_key(key):
+                continue
             for found in _walk_usage(child):
                 yield found
     elif isinstance(value, list):
@@ -319,47 +513,60 @@ _FINAL_EVENT_MARKERS = ("complete", "completed", "result", "final", "message_end
 
 
 def extract_dsh_token_usage(text: str) -> DshTokenUsage:
-    """Return MEASURED only for an unambiguous provider usage observation."""
-    candidates: List[Tuple[int, int, int]] = []
-    final_candidates: List[Tuple[int, int, int]] = []
-    for raw in text.splitlines():
-        raw = raw.strip()
-        if not raw:
-            continue
+    """Use the SAME provider observation semantics as the independent R1 audit.
+
+    A process may emit cumulative snapshots, conflicting token aliases or tool
+    counters. Calling the separate permissive parser here could mark a Mission
+    MEASURED while its R1 TokenUsageAudit is UNKNOWN. Never assert successful
+    provider accounting unless the canonical audit parser agrees.
+    """
+    if not isinstance(text, str):
+        return DshTokenUsage.unknown("DSH_OUTPUT_NOT_TEXT")
+    events: List[Dict[str, Any]] = []
+    for line in text.splitlines():
         try:
-            event = json.loads(raw)
+            event = json.loads(line)
         except (TypeError, ValueError):
             continue
-        if not isinstance(event, Mapping):
-            continue
-        found = list(_walk_usage(event))
-        if not found:
-            continue
-        candidates.extend(found)
-        marker = " ".join(
-            str(event.get(key) or "").lower()
-            for key in ("type", "event", "event_type", "name", "status")
+        if isinstance(event, dict):
+            events.append(event)
+    # Import on call to preserve the established RC7.2 truth-bootstrap order.
+    from .rc72_model_usage import DshTokenUsageParser
+
+    parsed = DshTokenUsageParser.parse(events)
+    if parsed.observation_status != "OBSERVED":
+        return DshTokenUsage.unknown(
+            "DSH_PROVIDER_" + str(parsed.unknown_reason or "UNKNOWN")
         )
-        if any(item in marker for item in _FINAL_EVENT_MARKERS):
-            final_candidates.extend(found)
-    pool = final_candidates or candidates
-    if not pool:
-        return DshTokenUsage.unknown("DSH_USAGE_NOT_EMITTED")
-    unique: List[Tuple[int, int, int]] = []
-    for item in pool:
-        if item not in unique:
-            unique.append(item)
-    if len(unique) != 1:
-        return DshTokenUsage.unknown("DSH_USAGE_AMBIGUOUS_MULTIPLE_SNAPSHOTS")
-    input_tokens, output_tokens, total_tokens = unique[0]
+    supplied_input = parsed.input_tokens
+    supplied_output = parsed.output_tokens
+    supplied_total = parsed.total_tokens
+    if supplied_total is None:
+        if supplied_input is None or supplied_output is None:
+            return DshTokenUsage.unknown("DSH_PROVIDER_TOTAL_NOT_OBSERVED")
+        supplied_total = supplied_input + supplied_output
+    if supplied_total < 1:
+        return DshTokenUsage.unknown("DSH_PROVIDER_NONPOSITIVE_USAGE")
+    if supplied_input is None or supplied_output is None:
+        # Do not invent a zero input/output breakdown for a total-only DSH
+        # counter. It can be shown in the independent audit as a partial
+        # observation, not promoted into full Mission accounting.
+        return DshTokenUsage.unknown("DSH_PROVIDER_INPUT_OUTPUT_UNKNOWN")
+    if supplied_input + supplied_output != supplied_total:
+        return DshTokenUsage.unknown("DSH_PROVIDER_TOTAL_BREAKDOWN_CONFLICT")
+    final_markers = ("final", "complete", "completed", "message_end", "response_end")
+    final_seen = any(
+        any(marker in str(event.get("type") or event.get("event") or "").lower()
+            for marker in final_markers)
+        for event in events
+    )
     return DshTokenUsage(
         UsageStatus.MEASURED,
-        input_tokens,
-        output_tokens,
-        total_tokens,
-        "DSH_FINAL_USAGE" if final_candidates else "DSH_SINGLE_USAGE",
+        supplied_input,
+        supplied_output,
+        supplied_total,
+        "DSH_FINAL_USAGE" if final_seen else "DSH_SINGLE_USAGE",
     )
-
 
 Clock = Callable[[], datetime]
 
@@ -378,6 +585,7 @@ class TokenEconomyService:
         *,
         release_id: str,
         clock: Optional[Clock] = None,
+        cost_window_config: Optional[BankCostWindowConfig] = None,
     ) -> None:
         install_rc72_token_economy_overlay()
         _ensure_projection_buckets(truth)
@@ -386,6 +594,9 @@ class TokenEconomyService:
         self.truth = truth
         self.release_id = release_id.strip()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.cost_window_config = cost_window_config if cost_window_config is not None else BankCostWindowConfig()
+        if not isinstance(self.cost_window_config, BankCostWindowConfig):
+            raise TokenEconomyError("BANK_COST_WINDOW_CONFIG_INVALID")
 
     def _append(self, event_type: str, payload: Dict[str, Any]) -> None:
         out = dict(payload)
@@ -425,6 +636,7 @@ class TokenEconomyService:
             "max_same_context_calls": max_same_context_calls,
             "require_measured_usage": require_measured_usage,
             "require_complete_lineage": require_complete_lineage,
+            "bank_cost_window_config": self.cost_window_config.as_mapping(),
             "created_at": created_at,
             "updated_at": now,
             "artifact_version": version,
@@ -481,6 +693,30 @@ class TokenEconomyService:
             for row in unknown
         )
         total_context_bytes = sum(int(row.get("context_bytes", 0)) for row in model_calls)
+        # Prepared/admitted calls may not have reached the native DSH runner.
+        # Only a returned real native subprocess command confirms actual
+        # prompt bytes transmitted through this runner boundary.
+        returned_calls = [
+            row for row in model_calls if row.get("process_outcome") == "RETURNED"
+        ]
+        real_prompt_serialization_bytes_saved = sum(
+            int(row.get("prompt_serialization_saved_bytes", 0)) for row in returned_calls
+        )
+        lossless_json_compacted_calls = sum(
+            row.get("prompt_compaction_status") == "LOSSLESS_JSON" for row in returned_calls
+        )
+        native_retry_delta_applied_calls = sum(
+            row.get("context_projection_status") == "NATIVE_RETRY_DELTA_VERIFIED"
+            for row in returned_calls
+        )
+        native_retry_delta_saved_bytes = sum(
+            int(row.get("native_retry_delta_saved_bytes", 0))
+            for row in returned_calls
+        )
+        reference_projection_calls = sum(
+            row.get("context_projection_status") == "REFERENCE_ONLY"
+            for row in model_calls
+        )
         seen: Dict[str, int] = {}
         for row in model_calls:
             digest = str(row.get("context_sha256") or "")
@@ -506,12 +742,47 @@ class TokenEconomyService:
         return {
             "mission_id": mission_id,
             "model_calls": len(model_calls),
+            # An ADMITTED receipt is not evidence of a launched DSH process.
+            # Count successful process returns only when the production
+            # command boundary wrote an explicit outcome. Legacy direct
+            # model-call receipts stay UNKNOWN rather than claiming launches.
+            "dsh_process_invocations": (
+                sum(row.get("process_outcome") == "RETURNED" for row in model_calls)
+                if all(row.get("process_outcome") in {"RETURNED", "RAISED"} for row in model_calls)
+                else None
+            ),
+            "dsh_process_invocation_count_status": (
+                "MEASURED" if model_calls and all(
+                    row.get("process_outcome") in {"RETURNED", "RAISED"} for row in model_calls
+                ) else "UNKNOWN" if model_calls else "NO_CALLS"
+            ),
+            "dsh_process_launch_error_count": sum(
+                row.get("process_outcome") == "RAISED" for row in model_calls
+            ),
+            "provider_inference_call_count": None,
+            "provider_inference_call_count_status": (
+                "UNKNOWN" if model_calls else "NO_CALLS"
+            ),
             "blocked_calls": len(calls) - len(model_calls),
             "economy_warning_calls": len(warning_calls),
             "defer_recommended_calls": len(deferred_recommended),
             "pending_calls": len(pending),
             "unknown_usage_calls": len(unknown),
             "measured_calls": len(measured),
+            # Legacy measured_total_tokens is only the measured SUBTOTAL.
+            # Actual whole-Mission use is intentionally nullable: a partial
+            # sample must never be displayed as a complete zero/total.
+            "usage_total_status": (
+                "UNKNOWN" if unknown else
+                "PENDING" if pending else
+                "MEASURED" if measured else "NO_CALLS"
+            ),
+            "actual_total_tokens": (
+                measured_total if measured and not unknown and not pending else None
+            ),
+            "actual_quota_equivalent_tokens": (
+                measured_quota if measured and not unknown and not pending else None
+            ),
             "measured_total_tokens": measured_total,
             "pending_reserved_tokens": pending_reserved,
             "unknown_reserved_tokens": unknown_reserved,
@@ -525,6 +796,21 @@ class TokenEconomyService:
             "retry_effective_tokens": retry_measured + retry_reserved,
             "total_context_bytes": total_context_bytes,
             "unique_context_bytes": unique_context_bytes,
+            # An identical prompt sent twice is duplicated input, not saved
+            # input. The old reuse_factor is retained only for compatibility
+            # and MUST NOT be presented as verified token savings.
+            "context_duplication_factor": (
+                float(total_context_bytes) / float(unique_context_bytes)
+                if unique_context_bytes else 0.0
+            ),
+            "native_reference_projection_calls": reference_projection_calls,
+            "native_minimal_prompt_proven_calls": native_retry_delta_applied_calls,
+            "observed_native_retry_delta_prompt_saved_bytes": native_retry_delta_saved_bytes,
+            "verified_context_savings_bytes": None,
+            "lossless_json_compacted_calls": lossless_json_compacted_calls,
+            "verified_prompt_serialization_saved_bytes": real_prompt_serialization_bytes_saved,
+            # Saved bytes are not provider tokenizer measurements.
+            "verified_prompt_token_savings": None,
             "context_reuse_factor": (
                 float(total_context_bytes) / float(unique_context_bytes)
                 if unique_context_bytes else 0.0
@@ -546,6 +832,9 @@ class TokenEconomyService:
         prompt: str,
         mission_criticality: Any = MissionCriticality.UNKNOWN,
         semantic_cost_class: Any = SemanticCostClass.UNKNOWN,
+        context_projection: Optional[Mapping[str, Any]] = None,
+        original_prompt_bytes: Optional[int] = None,
+        prompt_compaction_status: str = "UNCHANGED",
         when: Optional[datetime] = None,
     ) -> TokenAdmission:
         budget = self._budget(mission_id)
@@ -556,10 +845,50 @@ class TokenEconomyService:
         if not isinstance(semantic_cost_class, SemanticCostClass):
             semantic_cost_class = SemanticCostClass(str(semantic_cost_class).upper())
 
+        if context_projection is not None and not isinstance(context_projection, Mapping):
+            raise TokenEconomyError("TOKEN_CONTEXT_PROJECTION_INVALID")
+        projection = dict(context_projection or {})
+        accepted_projection = {
+            "context_envelope_id", "context_envelope_sha256", "context_mode",
+            "context_canonical_ref_count", "context_effective_ref_count",
+            "context_unhydrated_lineage_ref_count",
+            "context_projection_applied_to_prompt", "context_projection_status",
+            "parent_attempt_id", "native_retry_delta_saved_bytes",
+        }
+        if set(projection) - accepted_projection:
+            raise TokenEconomyError("TOKEN_CONTEXT_PROJECTION_FIELDS_INVALID")
+        if projection:
+            applied = projection.get("context_projection_applied_to_prompt")
+            if applied is True:
+                if (
+                    projection.get("context_projection_status") != "NATIVE_RETRY_DELTA_VERIFIED"
+                    or projection.get("context_mode") != "RETRY_DELTA"
+                    or not projection.get("parent_attempt_id")
+                    or type(projection.get("native_retry_delta_saved_bytes")) is not int
+                    or projection["native_retry_delta_saved_bytes"] < 1
+                ):
+                    raise TokenEconomyError("TOKEN_NATIVE_RETRY_DELTA_PROOF_REQUIRED")
+            elif applied is not False:
+                raise TokenEconomyError("TOKEN_CONTEXT_SAVINGS_UNPROVEN")
         prompt_bytes = prompt.encode("utf-8")
+        actual_prompt_bytes = len(prompt_bytes)
+        if original_prompt_bytes is None:
+            original_prompt_bytes = actual_prompt_bytes
+        if (
+            isinstance(original_prompt_bytes, bool)
+            or not isinstance(original_prompt_bytes, int)
+            or original_prompt_bytes < actual_prompt_bytes
+        ):
+            raise TokenEconomyError("TOKEN_ORIGINAL_PROMPT_BYTES_INVALID")
+        serialization_saved = original_prompt_bytes - actual_prompt_bytes
+        if (
+            prompt_compaction_status not in {"UNCHANGED", "LOSSLESS_JSON"}
+            or (prompt_compaction_status == "LOSSLESS_JSON") != (serialization_saved > 0)
+        ):
+            raise TokenEconomyError("TOKEN_PROMPT_COMPACTION_PROOF_INVALID")
         digest = hashlib.sha256(prompt_bytes).hexdigest()
         summary = self.summary(mission_id)
-        window = classify_bank_cost_window(when or self.clock())
+        window = classify_bank_cost_window(when or self.clock(), config=self.cost_window_config)
         reserve = int(budget["max_single_call_tokens"])
         reserve_quota = self._quota_equivalent(reserve, window.quota_cost_factor_millis)
         warnings: List[str] = []
@@ -573,7 +902,15 @@ class TokenEconomyService:
         else:
             same_context = [
                 row for row in self._calls(mission_id)
-                if row.get("state") != "BLOCKED" and row.get("context_sha256") == digest
+                # Distinct canonical WorkItems may legitimately share the same
+                # bounded semantic prompt. Blocking them because of a mission-
+                # wide fingerprint collision would silently shrink test scope.
+                # A no-progress guard applies only within the same WorkItem.
+                if (
+                    row.get("state") != "BLOCKED"
+                    and row.get("workitem_id") == workitem_id
+                    and row.get("context_sha256") == digest
+                )
             ]
             if len(same_context) >= int(budget["max_same_context_calls"]):
                 admitted = False
@@ -625,11 +962,16 @@ class TokenEconomyService:
             "call_class": call_class.value,
             "retry": bool(retry),
             "context_sha256": digest,
-            "context_bytes": len(prompt_bytes),
+            "context_bytes": actual_prompt_bytes,
+            "prompt_original_bytes": original_prompt_bytes,
+            "prompt_serialization_saved_bytes": serialization_saved,
+            "prompt_compaction_status": prompt_compaction_status,
             "reserved_tokens": reserve if admitted else 0,
             "state": "ADMITTED" if admitted else "BLOCKED",
             "usage_status": "PENDING",
             "usage_source": "AWAITING_DSH_USAGE" if admitted else "NOT_EXECUTED",
+            "process_outcome": "NOT_STARTED" if admitted else "UNKNOWN",
+            **projection,
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
@@ -659,19 +1001,24 @@ class TokenEconomyService:
             schedule_recommendation,
         )
 
-    def complete_call(self, call_id: str, usage: DshTokenUsage) -> Dict[str, Any]:
+    def complete_call(
+        self, call_id: str, usage: DshTokenUsage, *, process_outcome: str = "UNKNOWN"
+    ) -> Dict[str, Any]:
         rows = self.truth.query(_TOKEN_CALL, call_id=call_id)
         if len(rows) != 1:
             raise TokenEconomyError("TOKEN_CALL_NOT_FOUND:%s" % call_id)
         current = rows[0]
         if current.get("state") != "ADMITTED":
             raise TokenEconomyError("TOKEN_CALL_NOT_ADMITTED:%s" % call_id)
+        if process_outcome not in {"UNKNOWN", "RETURNED", "RAISED"}:
+            raise TokenEconomyError("DSH_PROCESS_OUTCOME_INVALID")
         if not isinstance(usage, DshTokenUsage):
             usage = DshTokenUsage.unknown("INVALID_USAGE_OBJECT")
         updated = dict(current)
         updated.pop("artifact_type", None)
         updated["artifact_version"] = int(current.get("artifact_version", 1)) + 1
         updated["updated_at"] = _now()
+        updated["process_outcome"] = process_outcome
         updated["usage_status"] = usage.status.value
         updated["usage_source"] = usage.source
         updated["input_tokens"] = int(usage.input_tokens)
@@ -702,7 +1049,9 @@ class TokenEconomyService:
             status, reason = "HOLD", "TOKEN_USAGE_EVIDENCE_REQUIRED"
         elif metrics["pending_calls"]:
             status, reason = "HOLD", "TOKEN_CALLS_PENDING"
-        elif bool(budget["require_measured_usage"]) and metrics["unknown_usage_calls"]:
+        elif metrics["unknown_usage_calls"]:
+            # UNKNOWN is never qualified as measured, even if an older optional
+            # budget switch disabled strict measurement for warning purposes.
             status, reason = "HOLD", "TOKEN_USAGE_UNKNOWN"
         elif bool(budget["require_complete_lineage"]) and metrics["unknown_lineage_call_ids"]:
             status, reason = "HOLD", "TOKEN_CALL_LINEAGE_INCOMPLETE"
@@ -717,6 +1066,25 @@ class TokenEconomyService:
         elif metrics["retry_calls"] > int(budget["max_retry_calls"]):
             status, reason = "DEGRADED", "MODEL_ECONOMY_RETRY_CALL_TARGET_EXCEEDED"
         return TokenQualification(status, mission_id, reason, metrics)
+
+    def field_qualification(self, mission_id: str) -> TokenQualification:
+        """Strict Field Q7 qualification, distinct from source-only accounting.
+
+        A native DSH subprocess is not proof of the number of underlying
+        provider inference rounds. Until a real bank JSONL event contract can
+        attribute *each* inference, never promote simulated/subprocess counts
+        into an independently verified MODEL_ECONOMY_STATUS=PASS.
+        """
+        component = self.qualification(mission_id)
+        metrics = component.metrics
+        if (
+            component.status in {"PASS", "DEGRADED"}
+            and metrics.get("provider_inference_call_count_status") != "MEASURED"
+        ):
+            return TokenQualification(
+                "HOLD", mission_id, "PROVIDER_INFERENCE_CALL_COUNT_UNKNOWN", metrics,
+            )
+        return component
 
 
 MetadataResolver = Callable[[Any], Mapping[str, Any]]

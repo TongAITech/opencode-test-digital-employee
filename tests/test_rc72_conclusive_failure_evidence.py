@@ -39,6 +39,13 @@ def test_full_native_discrepancy_is_independently_diagnosed_for_n9_without_produ
         assert receipt['diagnostic_process']['pid']!=receipt['review_process']['pid']
         assert receipt['diagnosis_worker_id']!=receipt['reviewer_worker_id']!=attempt['worker_id']
         assert not truth.query('rc7_defect')
+        reproduction=truth.query('rc7_task',task_type='N9_DISCREPANCY_QUALIFICATION')
+        assert len(reproduction)==1 and reproduction[0]['task_id']==result['qualification_workitem_id']
+        assert reproduction[0]['state'] in {'REGISTERED','READY'}
+        assert reproduction[0]['node']=='DEFECT'
+        assert reproduction[0]['required_capabilities']==['defect_analysis']
+        assert reproduction[0]['gap_refs']==[truth.query('rc72_diagnosis_outcome')[0]['gap_id']]
+        assert result['defect_confirmed'] is False and result['reproduction_completed'] is False
         assert not truth.query('rc72_node_gate',node_type='N7_EXECUTION')
         assert len(truth.query('rc72_n7_execution_plan')[0]['items'])==len(plan['items'])
         before=truth.store.path.read_bytes()
@@ -94,6 +101,8 @@ def test_runner_process_failure_does_not_automatically_cleanup_or_replay(tmp_pat
         assert not truth.query('rc72_n7_cleanup_call')
         attempt=truth.query('execution_attempt')[0]
         assert attempt['status']=='BLOCKED' and attempt['reason']=='RUNNER_PROCESS_FAILED'
+        assert not truth.query('rc7_task',task_type='N9_DISCREPANCY_QUALIFICATION')
+        assert not truth.query('rc7_defect')
         assert all(r['state']=='ACTIVE' for r in truth.query('rc72_data_lease'))
         before=truth.store.path.read_bytes()
         assert pipeline.complete(release_batch_id=BATCH)==result
@@ -224,3 +233,67 @@ def test_rehashed_failure_file_and_canonical_pointers_cannot_forge_runtime_signa
         assert len(server.calls)==1
     finally:
         server.shutdown();server.server_close()
+
+
+def test_n9_qualification_workitem_is_schedulable_and_rejects_changed_scope(tmp_path,monkeypatch):
+    """Only a real accepted N8 failure may create a pending N9 WorkItem."""
+    truth,plan,prep,server,url,pipeline=_failed_business(tmp_path,monkeypatch)
+    try:
+        result=pipeline.complete(release_batch_id=BATCH)
+        assert result['failure_class']=='VALID_TEST_FAILURE'
+        task=truth.query('rc7_task',task_id=result['qualification_workitem_id'])[0]
+        assert task['state']=='READY'
+        assert task['task_type']=='N9_DISCREPANCY_QUALIFICATION'
+        assert all(truth.query('rc7_artifact',artifact_id=ref) for ref in task['input_artifact_refs'])
+        assert not truth.query('rc7_defect')
+        assert not truth.query('rc7_task',task_type='DEFECT_REPRODUCTION')
+        assert task['required_capabilities']==['defect_analysis']
+        before=truth.store.path.read_bytes()
+        assert pipeline.complete(release_batch_id=BATCH)==result
+        assert truth.store.path.read_bytes()==before and len(server.calls)==1
+        # Altering the approved professional task after admission cannot
+        # produce a new diagnosis/defect or silently reuse the old authority.
+        truth.append_atomic('RC7_TASK_UPSERTED',dict(task,
+            objective='forged reproduction scope',artifact_version=task['artifact_version']+1))
+        tampered=truth.store.path.read_bytes()
+        with pytest.raises(ContractError,match='N9_PROFESSIONAL_REPRODUCTION_SCOPE_CHANGED'):
+            pipeline.complete(release_batch_id=BATCH)
+        assert truth.store.path.read_bytes()==tampered and len(server.calls)==1
+        assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_n9_qualification_does_not_improperly_enter_rc7_reproduction_runner(tmp_path,monkeypatch):
+    """Existing RC7 reproduction demands a qualified PRODUCT_DEFECT Gap.
+
+    N8 VALID_TEST_FAILURE cannot smuggle a product-defect claim by reusing
+    a runner intended for already-qualified product failures.
+    """
+    from rc7_runtime.closed_loop_control import ClosedLoopControlPlane
+    from rc7_runtime.defect_reproduction import DefectReproductionExecutionService
+    from rc7_runtime.runtime_execution import RuntimeExecutionError
+    truth,plan,prep,server,url,pipeline=_failed_business(tmp_path,monkeypatch)
+    try:
+        result=pipeline.complete(release_batch_id=BATCH)
+        task_id=result['qualification_workitem_id']
+        control=ClosedLoopControlPlane(truth,prep.release_id,
+            truth.query('rc72_release_batch',release_batch_id=BATCH)[0]['mission_id'])
+        before=truth.store.path.read_bytes()
+        with pytest.raises(RuntimeExecutionError,match='DEFECT_REPRODUCTION_EXECUTION_TASK_REQUIRED'):
+            DefectReproductionExecutionService(evidence_root=str(tmp_path/'repro')).execute_task(
+                control,task_id,source_product_gap_id=truth.query('rc72_diagnosis_outcome')[0]['gap_id'],
+                bundle=None,prepared=None,authority=None,tool_broker=None,cwd=str(tmp_path))
+        assert truth.store.path.read_bytes()==before and len(server.calls)==1
+        # But the *real* registered N9 qualification is schedulable to an
+        # existing defect_analysis worker and does not acquire a business
+        # execution lease or create a product Defect.
+        leased=control.scheduler.lease_task(control.mission_id,task_id,
+            worker_ref='independent-n9-analyst',capabilities=('defect_analysis',))
+        assert leased is not None and leased.task_id==task_id and leased.state.value=='LEASED'
+        assert not truth.query('rc7_defect')
+        assert len(server.calls)==1
+    finally:
+        server.shutdown()
+        server.server_close()

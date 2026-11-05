@@ -326,3 +326,97 @@ def test_provider_failover_truth_survives_r1_replay(tmp_path: Path):
     assert failover["replacement_attempt_id"] == result.attempt_id
     assert failover["replacement_worker_id"] == result.worker_id
     assert replay.query("rc72_model_assignment", assignment_id=result.assignment_id)[0]["state"] == "ACTIVE"
+
+
+
+def test_provider_failover_is_quarantined_when_n7_dispatch_may_have_committed_business(tmp_path):
+    from rc7_runtime.rc72_n7_tool_dispatch import install_rc72_n7_tool_dispatch_overlay
+    from rc7_runtime.models import ContractError
+
+    truth, _, _, manager, original = _setup(tmp_path)
+    manager.record_provider_failure(
+        failure_id="PF-UNCERTAIN", assignment_id="MA-1",
+        failure_class=ProviderFailureClass.PROVIDER_TIMEOUT,
+        reason="model timeout after possible business call",
+        evidence_refs=["provider-evidence://timeout"],
+    )
+    install_rc72_n7_tool_dispatch_overlay()
+    truth.append_atomic("RC72_N7_TOOL_DISPATCH_UPSERTED", {
+        "dispatch_id": "N7CALL-UNKNOWN-PROVIDER-1",
+        "preparation_id": "P-UNKNOWN", "release_id": "RC7.2",
+        "source_commit": "0" * 40,
+        "workitem_id": "WI-1", "attempt_id": "ATT-1",
+        "worker_id": original.worker_id,
+        "contract_id": "N6-1", "contract_sha256": "f" * 64,
+        "tool": "api_http", "request_sha256": "a" * 64,
+        "state": "UNKNOWN", "error_type": "TimeoutError",
+        "replay_prohibited": True, "possible_external_effect": True,
+        "artifact_version": 1,
+    })
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="BUSINESS_EFFECT_RECONCILIATION_REQUIRED"):
+        manager.failover(failure_id="PF-UNCERTAIN",
+                         reason="must not repeat the business attempt")
+    assert list(truth.store.iter_raw()) == before
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1
+    assert truth.query("rc72_provider_failure", failure_id="PF-UNCERTAIN")[0]["state"] == "BLOCKED_PROVIDER"
+
+
+def _provider_failover_contender(path, index):
+    from rc7_runtime.models import ContractError
+    truth = TruthRuntime(path)
+    manager = ModelFailoverManager(
+        truth, release_id="RC7.2",
+        worker_lifecycle=WorkerLifecycleService(truth, release_id="RC7.2"))
+    try:
+        manager.failover(failure_id="PF-1", reason="concurrent fallback contender")
+        return "ADMITTED"
+    except ContractError:
+        return "FENCED"
+
+
+def test_concurrent_cold_failover_only_creates_one_fresh_worker_and_attempt(tmp_path):
+    import multiprocessing
+
+    truth, _, _, manager, original = _setup(tmp_path)
+    manager.record_provider_failure(
+        failure_id="PF-1", assignment_id="MA-1",
+        failure_class=ProviderFailureClass.PROVIDER_QUOTA,
+        reason="daily provider quota limit", evidence_refs=["provider-evidence://quota"])
+    ctx = multiprocessing.get_context("spawn")
+    with ctx.Pool(processes=2) as pool:
+        outcomes = pool.starmap(
+            _provider_failover_contender,
+            [(str(truth.store.path), 0), (str(truth.store.path), 1)])
+    assert sorted(outcomes) == ["ADMITTED", "FENCED"]
+    cold = TruthRuntime(truth.store.path)
+    assert len(cold.query("rc72_model_failover", failure_id="PF-1")) == 1
+    assert len(cold.query("rc72_worker_session", mission_id="M-1")) == 2
+    failed = cold.query("rc72_provider_failure", failure_id="PF-1")[0]
+    assert failed["state"] == "FAILED_OVER"
+    child = cold.query("rc72_model_failover", failure_id="PF-1")[0]
+    assert child["replacement_worker_id"] != original.worker_id
+    assert child["replacement_attempt_id"] != "ATT-1"
+
+
+
+def test_provider_failover_cannot_ignore_existing_business_tool_call_evidence(tmp_path):
+    from rc7_runtime.models import ContractError
+
+    truth, _, _, manager, _ = _setup(tmp_path)
+    manager.record_provider_failure(
+        failure_id="PF-IO", assignment_id="MA-1",
+        failure_class=ProviderFailureClass.PROVIDER_QUOTA,
+        reason="quota observed after external action",
+        evidence_refs=["provider-evidence://quota-after-operation"])
+    original = truth.query("execution_attempt", attempt_id="ATT-1")[0]
+    updated = dict(original)
+    updated.pop("artifact_type", None)
+    updated["artifact_version"] = int(original["artifact_version"]) + 1
+    updated["tool_call_refs"] = ["business-operation://previously-invoked"]
+    truth.append_atomic("EXECUTION_ATTEMPT_UPSERTED", updated)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ContractError, match="ATTEMPT_OUTCOME_RECONCILIATION_REQUIRED"):
+        manager.failover(failure_id="PF-IO", reason="do not reexecute")
+    assert list(truth.store.iter_raw()) == before
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 1

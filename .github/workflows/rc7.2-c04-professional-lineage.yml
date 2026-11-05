@@ -1,0 +1,62 @@
+name: RC7.2 C04 Original N8-N9 Semantic Lineage Gate
+
+on:
+  push:
+    branches: [work/rc7.2-c04-professional-n9-lineage]
+    paths:
+      - 'rc7_runtime/rc72_n9_professional_intake.py'
+      - 'tests/test_rc72_n9_professional_lineage.py'
+      - '.github/workflows/rc7.2-c04-professional-lineage.yml'
+  pull_request:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_n9_professional_intake.py'
+      - 'tests/test_rc72_n9_professional_lineage.py'
+      - '.github/workflows/rc7.2-c04-professional-lineage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-c04-lineage-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  native-n9-semantic-lineage:
+    name: n9-native-${{ matrix.os }}-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned engineering test dependencies
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile N9 code and tests
+        run: >-
+          python -m py_compile
+          rc7_runtime/rc72_n9_professional_intake.py
+          tests/test_rc72_n9_professional_lineage.py
+      - name: Execute actual local SUT N8 to N9 admission and tamper regressions
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_n9_professional_lineage.py
+          tests/test_rc72_conclusive_failure_evidence.py
+          tests/test_rc72_n9_professional_dsh_real_route.py
+          --junitxml=rc72-c04-lineage.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c04-lineage-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c04-lineage.xml
+          retention-days: 14
+          if-no-files-found: warn

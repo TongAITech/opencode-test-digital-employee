@@ -16,6 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import urlopen
 
+# Deliberately required: any CI suite collecting this module must provision
+# Python Playwright and the matching real Chromium. Never silently skip a
+# required browser proof in an RC7.2 qualification job.
 from playwright.sync_api import sync_playwright
 
 from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
@@ -188,14 +191,19 @@ def test_real_chromium_cdp_journey_replay_and_business_oracles(tmp_path: Path):
             folder = tmp_path / "actual-browser-evidence" / "REAL-CHROMIUM-1" / ("step-%04d" % seq)
             assert (folder / "screen.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
             assert (folder / "actual.json").is_file()
+        # A SPA response can arrive after click() returned. The authoritative
+        # HTTP Oracle Actual stores the response under the source click's
+        # request-origin, not whatever later step happened to receive it.
         observed = json.loads(
             (tmp_path / "actual-browser-evidence" / "REAL-CHROMIUM-1" /
-             "step-0002" / "actual.json").read_text()
+             "step-0004" / "actual.json").read_text()
         )
-        assert any(row["method"] == "POST"
-                   and row["url"] == origin + "/api/save"
-                   and row["status"] == 200
-                   for row in observed["response_metadata"])
+        proof = observed["network_oracle_proof"]
+        assert proof["method"] == "POST"
+        assert proof["url"] == origin + "/api/save"
+        assert proof["status"] == 200
+        assert proof["source_step_id"] == "S-POST"
+        assert proof["action_type"] == "CLICK"
         assert "never-leak" not in json.dumps(observed)
         assert (tmp_path / "r1.jsonl").is_file()
     finally:
@@ -279,7 +287,7 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
             workitem_id="WI-1", attempt_id="ATT-1", worker_id="WORKER-1",
             session_id="SESSION-1", browser_lease_id=lease.browser_lease_id,
             human_operator_ref="human://ci-scripted-click-not-bank-signature",
-            auth_asset_ref="auth://4a/asset",
+            auth_asset_ref="auth://4a/session-asset",
         )
         assert recorder.page is not None
         recorder.page.locator("#save").click(timeout=10000)
