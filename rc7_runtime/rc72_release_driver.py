@@ -186,6 +186,11 @@ class ReleaseBatchDriver:
                     or n8.reproduction_human_gate.requests.analyst is not n8.professional_dsh
                     or n8.reproduction_human_gate.truth is not self.truth
                     or n8.reproduction_human_gate.source_commit != self.source_commit))
+                or (n8.reproduction_executor is not None and (
+                    n8.reproduction_human_gate is None
+                    or n8.reproduction_executor.gate is not n8.reproduction_human_gate
+                    or n8.reproduction_executor.truth is not self.truth
+                    or n8.reproduction_executor.captain_scheduler is not self.n7_pipeline.captain_scheduler))
                 or (n8.capability_broker is not None and (
                     n8.capability_broker.truth is not self.truth
                     or n8.capability_broker.release_id != self.n7_pipeline.release_id
@@ -209,6 +214,25 @@ class ReleaseBatchDriver:
         return self.n8_pipeline.review_reproduction(
             release_batch_id=release_batch_id,
             request_id=request_id, attestation_ref=attestation_ref)
+
+    def execute_reproduction(self, *, release_batch_id, request_id, bundle,
+                             prepared, authority, tool_broker, cwd,
+                             env=None, target_base_url=None):
+        """Explicit bank Host route to one real new Attempt; NEVER auto retry.
+
+        There is no Case/Defect/N9 PASS shortcut here. All business effects
+        still require the exact active Captain generation and HumanGate.
+        """
+        self._assert_n8_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if self.n8_pipeline is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_REPRODUCTION_PROVIDER_REQUIRED')
+        return self.n8_pipeline.execute_reproduction(
+            release_batch_id=release_batch_id, request_id=request_id,
+            bundle=bundle, prepared=prepared, authority=authority,
+            tool_broker=tool_broker, cwd=cwd, env=env,
+            target_base_url=target_base_url)
 
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
