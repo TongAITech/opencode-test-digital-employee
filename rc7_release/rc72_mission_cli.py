@@ -106,7 +106,11 @@ def main(argv=None):
     # Register all C10-owned events BEFORE TruthRuntime replays a historical
     # R1 ledger, including UNKNOWN provider usage and shared batch evidence.
     from rc7_runtime.rc72_economy_replay_bootstrap import install_rc72_economy_replay_bindings
+    from rc7_runtime.rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
     install_rc72_economy_replay_bindings()
+    # Register real Captain lease events before a cold R1 projection. A
+    # configured JSON without a DSH Host binding must not hide old leases.
+    install_captain_dispatch_overlay()
     truth = TruthRuntime(path)
     if args.command == 'status':
         result = release_batch_status(truth, source_commit=args.source_commit, release_batch_id=args.release_batch)
