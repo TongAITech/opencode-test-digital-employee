@@ -326,3 +326,13 @@ QA 产品接线测试另有 7 个红灯，均反映 B Captain、C BSK/Playwright
 - QA PR #9 仍 OPEN/DRAFT，QA HEAD `8220a75ac2b3412df52a1061514abbdf99d8f0e2`；其 PR 描述仍引用旧主线 SHA，不能当作新 SHA 验收。
 - 本轮未取得同源真实银行 R1、目标信创 Linux 实机、DSH 主程序完整载荷和 Q3–Q9 证据。95 单元全部继续保留原严格准入结论，Q2 仅历史工程范围通过；**不发布百分比、BANK_FINAL=NO、C12=HOLD**。
 - 本次未创建重复 P0 Issue；#7 仍为现有责任追踪。下一次以完整 check-runs、正式 N8/N10 修复提交、同 SHA R1 为核销条件。
+
+## 2026-11-05 独立增量审计 — 主线 d4981d3a925e71fe876bfbe42b813b9e077bf725
+
+- 本轮重新读取主线 HEAD 和最近 8 次提交；QA HEAD 在本轮写入前为 e83fde1c4378951620384125f59799ed14273f4c。PR #9 OPEN/DRAFT，Issue #7 OPEN。
+- **纠正上一轮事实**：正式 `rc72_mission_factory.py` 已明确实例化 `NativeN8ProductRecoveryService` 并传入 `ReleaseBatchDriver(n8_pipeline=n8)`；同时实例化 `NativeCoverageRepairService`、`NativeCoverageRerunService` 并注入 `NativeN10ControlService(repair=repair, rerun=rerun)`。正式 `rc72_release_driver.py` 已存在 N8 的 review/execute/audit、`_validated_n8_continue`、N8 `complete`、失败后继续执行的非 bypass 分支。因此旧审计中“正式入口未接线”的静态结论**不再适用于当前 HEAD**。这是 PRODUCT_WIRING_CANDIDATE，不是 PRODUCT_INTEGRATED 或 ENGINEERING_VERIFIED。
+- 同 SHA GitHub Actions：run 42062862176 Construction Qualification SUCCESS；42062862306 C09 Journey Isolated Qualification SUCCESS；42062861758 Platform Qualification Baseline IN_PROGRESS。9 个 check-runs 中 phase-contract Python3.8/3.11、inherited Python3.8、C09 Python3.8/3.11 与 real Chromium CDP 均 SUCCESS；Windows/Linux Python3.8 工程作业 IN_PROGRESS；`q1-browser-py38-${{ matrix.os }}` SKIPPED。不存在覆盖所有目标 OS×Python3.8/3.11 的已完成同源证据。
+- 与主线比较：core ahead 0/behind 814；runtime 0/791；journey 115/923（23 个 diff 文件）；economy 2/743（1 个 diff 文件）。ahead/behind 不可直接解释为未集成功能。
+- C01/C02 必须以正式入口真实执行的 N5 物理修复、独立 DataRef 复验、N6 重编译、全新 Attempt、原失败保留、权限不可复活、冷恢复幂等的**正/负/恢复 R1**逐项核销。仅发现装配代码，尚未获得完整独立运行证据；Issue #7 保持 OPEN，等待复验后再判定关闭，不重复创建。
+- Q1 仍 HOLD（平台作业进行中），Q2 仅沿用限定工程范围历史结论；Q3–Q9、目标信创 Linux 实机、RC7.1 全载荷/DSH/工具与银行现场均未核销。C11/C12 不晋级；BANK_FINAL=NO。95 项对账记录全部刷新至当前 SHA；未提供条款权重，不计算实现率。
+- 本轮未改动 A/B/C/D 生产入口，未合并 PR。此记录是审计快照，不能代替未来 HEAD 的复验。
