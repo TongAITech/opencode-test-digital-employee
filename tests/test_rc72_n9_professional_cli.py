@@ -187,3 +187,37 @@ def test_n9_gate_exit_does_not_accept_invented_bank_final_or_n10(
     assert value["bank_final"] is True  # untrusted test signal; NOT accepted
     assert "MISSION_COMPLETION_STATUS" not in value
     assert ledger.read_bytes() == before
+
+
+@pytest.mark.parametrize("workflow,report", [
+    ("rc7.2-abcd-v5-qualification.yml", "--junitxml=rc72-v5-native-independent.xml"),
+    ("rc7.2-abd-integration.yml", "--junitxml=rc72-abd-integration.xml"),
+    ("rc72-c04-professional-n9-gate.yml", "--junitxml=c04-professional-n9.xml"),
+])
+def test_four_platform_ci_shell_cannot_comment_out_the_professional_gate(
+        workflow, report):
+    """Guard the actual folded run command, not just a YAML filename match.
+
+    A standalone '# C04 ...' inside YAML 'run: >-' folds into one shell
+    command and silently comments out all following pytest arguments,
+    creating a false PASS. Require a continuous executable argument list.
+    """
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] /
+              ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+    command_end = source.index("          " + report)
+    command_start = source.rfind("          python -m pytest -q\n", 0, command_end)
+    assert command_start >= 0
+    run = source[command_start:command_end + len("          " + report)]
+    expected = (
+        "tests/test_rc72_n9_reproduction_resolution_audit.py",
+        "tests/test_rc72_n9_professional_disposition_gate.py",
+        "tests/test_rc72_n9_professional_cli.py",
+    )
+    for test in expected:
+        assert "          " + test + "\n" in run
+    lines = run.splitlines()
+    assert all(not line.lstrip().startswith("#") for line in lines), (
+        "folded YAML run comments can silently skip all mandatory C04 tests")
+    assert lines[0].strip() == "python -m pytest -q"
+    assert lines[-1].strip() == report
