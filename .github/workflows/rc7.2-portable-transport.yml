@@ -1,6 +1,9 @@
 name: RC7.2 Portable Transport Preparation
 
 on:
+  push:
+    branches:
+      - 'release/rc72-transport-d4981d3'
   workflow_dispatch:
     inputs:
       final_qualification:
@@ -14,15 +17,18 @@ permissions:
 
 jobs:
   portable-transport:
-    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
+    if: >-
+      (github.event_name == 'push' && github.ref_name == 'release/rc72-transport-d4981d3') ||
+      (github.event_name == 'workflow_dispatch' && inputs.final_qualification == true)
     runs-on: windows-latest
     timeout-minutes: 120
     env:
+      RC72_SOURCE_SHA: d4981d3a925e71fe876bfbe42b813b9e077bf725
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.RC72_SOURCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -44,14 +50,14 @@ jobs:
       - name: Build exact RC7.2 source and materialize offline runtimes
         shell: pwsh
         run: |
-          python -m rc7_release.rc72_package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
+          python -m rc7_release.rc72_package build --repo-root . --output dist --source-commit $env:RC72_SOURCE_SHA
           if ($LASTEXITCODE -ne 0) { throw 'RC7.2 build failed' }
           $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10').Path
           python -m rc7_release.runtime_payload_materializer --package-root $pkg
           if ($LASTEXITCODE -ne 0) { throw 'offline runtime materialization failed' }
           Copy-Item packaging/rc7.2/start-rc7.2.cmd (Join-Path $pkg 'start-rc7.2.cmd')
           Copy-Item packaging/rc7.2/TRANSPORT-README.md (Join-Path $pkg 'READ-ME-FIRST.md')
-          python -c "import pathlib,os; from rc7_release.rc72_package import _rewrite_manifest,verify_package; from rc7_release.runtime_payload_materializer import _repack; p=pathlib.Path(r'$pkg'); _rewrite_manifest(p,pathlib.Path('.').resolve(),os.environ['GITHUB_SHA']); verify_package(p,expected_source_commit=os.environ['GITHUB_SHA']); _repack(p,pathlib.Path('dist/RC72-PORTABLE-WIN10-'+os.environ['GITHUB_SHA'][:12]+'.zip'))"
+          python -c "import pathlib,os; from rc7_release.rc72_package import _rewrite_manifest,verify_package; from rc7_release.runtime_payload_materializer import _repack; p=pathlib.Path(r'$pkg'); _rewrite_manifest(p,pathlib.Path('.').resolve(),os.environ['RC72_SOURCE_SHA']); verify_package(p,expected_source_commit=os.environ['RC72_SOURCE_SHA']); _repack(p,pathlib.Path('dist/RC72-PORTABLE-WIN10-'+os.environ['RC72_SOURCE_SHA'][:12]+'.zip'))"
           if ($LASTEXITCODE -ne 0) { throw 'RC7.2 manifest reseal failed' }
       - name: Clean extraction and package-local verification
         shell: pwsh
@@ -68,7 +74,7 @@ jobs:
           try {
             $env:PYTHONPATH = ''
             $env:PYTHONNOUSERSITE = '1'
-            & $py -m rc7_release.rc72_package verify --package-root $pkg --expected-source-commit $env:GITHUB_SHA | Tee-Object (Join-Path $evidence 'package-identity.json')
+            & $py -m rc7_release.rc72_package verify --package-root $pkg --expected-source-commit $env:RC72_SOURCE_SHA | Tee-Object (Join-Path $evidence 'package-identity.json')
             if ($LASTEXITCODE -ne 0) { throw 'package identity/checksums failed' }
             & $py -m rc7_release.runtime_delivery_contract --package-root $pkg | Tee-Object (Join-Path $evidence 'physical-payload-inventory.json')
             if ($LASTEXITCODE -ne 0) { throw 'offline payload inventory incomplete' }
@@ -102,7 +108,7 @@ jobs:
       - name: Upload complete portable transport and engineering evidence
         uses: actions/upload-artifact@v4
         with:
-          name: RC72-PORTABLE-WIN10-${{ github.sha }}
+          name: RC72-PORTABLE-WIN10-${{ env.RC72_SOURCE_SHA }}
           path: |
             dist/RC72-PORTABLE-WIN10-*.zip
             dist/RC72-PORTABLE-WIN10-*.zip.sha256
@@ -113,7 +119,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: rc72-portable-build-failure-${{ github.sha }}
+          name: rc72-portable-build-failure-${{ env.RC72_SOURCE_SHA }}
           path: |
             rc7_release/vendor/*.manifest.json
             dist/evidence/*
