@@ -102,6 +102,11 @@ jobs:
           $env:RC72_PIP_MIRROR_ORIGINAL_STAGE = Join-Path $checkout 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10'
           $env:RC72_PIP_MIRROR_EVIDENCE = Join-Path $evidence 'pip-mirror-public'
           $junit = Join-Path $evidence 'pip-mirror-windows.xml'
+          # The workflow trigger commit only adjusts CI; the package source is pinned to the exact integrated main.
+          # The inherited Windows pip-mirror test binds its native R1 source to GITHUB_SHA, so make that
+          # test-only process environment refer to the verified ZIP's SOURCE_COMMIT instead of the trigger commit.
+          if ((Get-Content (Join-Path $pkg 'SOURCE_COMMIT') -Raw).Trim() -ne $env:RC72_SOURCE_SHA) { throw 'package/source identity diverged' }
+          $env:GITHUB_SHA = $env:RC72_SOURCE_SHA
           & $py -m pytest (Join-Path $checkout 'tests/test_rc72_bank_pc_pip_mirror_windows.py') -q "--junitxml=$junit"
           if ($LASTEXITCODE -ne 0) { throw 'final extracted package user-config mirror qualification failed' }
           'Preparation only: Q3/Q4/Field/BANK_FINAL qualification remains pending.' | Set-Content (Join-Path $evidence 'QUALIFICATION-BOUNDARY.txt')
