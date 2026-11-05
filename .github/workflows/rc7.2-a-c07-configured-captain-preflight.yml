@@ -1,0 +1,59 @@
+name: RC7.2 C07 Configured Captain No-Downgrade Qualification
+
+on:
+  push:
+    branches:
+      - work/rc7.2-a-c07-configured-captain-preflight
+    paths:
+      - 'rc7_release/rc72_configured_mission.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_configured_mission.py'
+      - '.github/workflows/rc7.2-a-c07-configured-captain-preflight.yml'
+  pull_request:
+    branches:
+      - work/rc7.2-abcd-v5-bsk-mobile-qualification
+    paths:
+      - 'rc7_release/rc72_configured_mission.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_configured_mission.py'
+      - '.github/workflows/rc7.2-a-c07-configured-captain-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  configured-captain-no-downgrade:
+    name: c07-config-captain-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned native qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile configured Captain admission and CLI
+        run: python -m py_compile rc7_release/rc72_configured_mission.py rc7_release/rc72_mission_cli.py tests/test_rc72_configured_mission.py
+      - name: Reject legacy Captain bypass and verify normal configured mission
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_configured_mission.py
+          tests/test_rc72_mission_economy_cli_ingress.py
+          tests/test_rc72_captain_dispatch_fencing.py
+          --junitxml=rc72-c07-configured-captain.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c07-config-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c07-configured-captain.xml
+          retention-days: 14
+          if-no-files-found: warn

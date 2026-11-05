@@ -72,7 +72,8 @@ def _controller_key(truth, directory):
         return raw
 
 
-def configured_mission_bindings(truth, *, release_id, source_commit, config_path):
+def configured_mission_bindings(truth, *, release_id, source_commit, config_path,
+                                release_batch_id=None):
     path = Path(config_path).expanduser().resolve()
     try:
         config = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_pairs)
@@ -88,6 +89,26 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
             or not isinstance(source_commit,str) or not re.fullmatch('[0-9a-f]{40}', source_commit) or config['source_commit'] != source_commit
             or config['release_id'] != release_id):
         raise ContractError('MISSION_CONFIG_RELEASE_SOURCE_MISMATCH')
+    # A capability JSON contains no authenticated DSH AgentTeams Captain
+    # identity or signed lease. If the canonical release already has a Captain
+    # generation, refusing here prevents an unfenced local controller key,
+    # DSH worker bootstrap, model budget, or later business I/O from starting.
+    # The trusted host module is the only supported Captain-bound entry.
+    from rc7_runtime.rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
+    install_captain_dispatch_overlay()
+    if release_batch_id is not None:
+        if not isinstance(release_batch_id, str) or not release_batch_id.strip():
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_REQUIRED')
+        batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+        if len(batches) != 1 or batches[0]['release_id'] != release_id:
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_SCOPE_MISMATCH')
+    else:
+        # Direct legacy config callers do not provide the batch: fail closed
+        # for the complete release rather than guessing which Mission they own.
+        batches = truth.query('rc72_release_batch', release_id=release_id)
+    if any(truth.query('rc72_captain_dispatch_lease', mission_id=batch['mission_id'])
+           for batch in batches):
+        raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
 
     def configured_path(name, *, file=False):
         value = config[name]

@@ -100,6 +100,78 @@ def test_invalid_config_fails_before_creating_authority_or_launching_workers(tmp
     assert truth.store.path.read_bytes()==before
 
 
+def test_existing_captain_release_refuses_unfenced_config_before_controller_bootstrap(tmp_path, monkeypatch):
+    """C07: JSON cannot impersonate the DSH Captain or create an unfenced worker."""
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_n2_test_support import MISSION
+
+    truth, _, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
+    fencer = CaptainDispatchFencer(truth, release_id=RELEASE)
+    fencer.acquire_initial(mission_id=MISSION, team_id='TEAM-CONFIG-DENY',
+                           captain_session_id='DSH-REAL-CAPTAIN-SESSION')
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED'):
+        configured_mission_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert truth.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
+    # Cold recovery must not drop the Captain lease and silently downgrade.
+    cold = TruthRuntime(truth.store.path)
+    with pytest.raises(ContractError, match='MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED'):
+        configured_mission_bindings(
+            cold, release_id=RELEASE, source_commit=COMMIT, config_path=path)
+    assert cold.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
+
+
+def test_configured_captain_preflight_restricts_exact_batch_not_sibling(tmp_path, monkeypatch):
+    """A prior Captain in another batch of the same release must not block this batch."""
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc72_n2_test_support import MISSION
+
+    truth, _, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
+    owner = CaptainDispatchFencer(truth, release_id=RELEASE)
+    owner.acquire_initial(mission_id=MISSION, team_id='TEAM-SIBLING',
+                          captain_session_id='DSH-SIBLING-CAPTAIN')
+    source = truth.query('rc72_release_batch', release_batch_id=BATCH)[0]
+    other = {k: v for k, v in source.items() if k != 'artifact_type'}
+    other.update(release_batch_id='RB-C07-INDEPENDENT', mission_id='MISSION-C07-INDEPENDENT',
+                 artifact_version=1)
+    truth.append_atomic('RC72_RELEASE_BATCH_UPSERTED', other)
+    before = truth.store.path.read_bytes()
+
+    # The actual CLI calls with its exact canonical batch ID.
+    scoped = configured_mission_bindings(
+        truth, release_id=RELEASE, source_commit=COMMIT, config_path=path,
+        release_batch_id='RB-C07-INDEPENDENT')
+    assert scoped.captain_binding is None
+    assert truth.store.path.read_bytes() == before
+
+    # The already Captain-owned batch cannot be downgraded, even after
+    # a fresh process projects the same R1.
+    cold = TruthRuntime(truth.store.path)
+    with pytest.raises(ContractError, match='MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED'):
+        configured_mission_bindings(
+            cold, release_id=RELEASE, source_commit=COMMIT, config_path=path,
+            release_batch_id=BATCH)
+    assert cold.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('bad_batch', ['', 'RB-MISSING', 42])
+def test_configured_captain_preflight_rejects_unknown_batch_before_key(
+        tmp_path, monkeypatch, bad_batch):
+    truth, _, path = _setup(tmp_path, monkeypatch)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='RELEASE_BATCH_'):
+        configured_mission_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT,
+            config_path=path, release_batch_id=bad_batch)
+    assert truth.store.path.read_bytes() == before
+    assert not (tmp_path / 'owned-state').exists()
+
+
 def test_full_carried_environment_is_owned_and_model_credentials_do_not_enter_runner(tmp_path,monkeypatch):
     from test_rc72_tool_environment import _paths
     from rc7_release.rc72_tool_environment import package_tool_environment
