@@ -69,6 +69,26 @@ class NativeN9ProfessionalIntakeService:
                 or receipt['reviewer_worker_id'] in {p['worker_id'],receipt['diagnosis_worker_id']}
                 or failure['evidence_id'] not in gate['evidence_refs']):
             raise ContractError('N9_PROFESSIONAL_INDEPENDENT_N8_GATE_REQUIRED')
+        # A signed diagnosis is historical evidence, not perpetual authority:
+        # the N8 Node can acquire a new active Delivery/Gate generation while
+        # retaining prior gate_refs. N9 must consume the exact current accepted
+        # Delivery, otherwise a stale old diagnosis can spawn new professional
+        # WorkItems against a superseded N7 execution epoch.
+        version=node.get('active_delivery_version')
+        if (not isinstance(version,int) or isinstance(version,bool)
+                or not isinstance(node.get('delivery_refs'),list)):
+            raise ContractError('N9_PROFESSIONAL_CURRENT_N8_DELIVERY_REQUIRED')
+        current=[delivery for delivery in self.truth.query(
+            'rc72_node_delivery',mission_node_id=node['mission_node_id'])
+            if delivery.get('mission_id')==p['mission_id']
+            and delivery.get('node_type')=='N8_DIAGNOSIS_RECOVERY'
+            and delivery.get('version')==version
+            and delivery.get('delivery_id') in node['delivery_refs']]
+        if (len(current)!=1 or current[0]['delivery_id']!=receipt['delivery_id']
+                or gate.get('mission_id')!=p['mission_id']
+                or gate.get('mission_node_id')!=node['mission_node_id']
+                or gate.get('node_type')!='N8_DIAGNOSIS_RECOVERY'):
+            raise ContractError('N9_PROFESSIONAL_CURRENT_N8_DELIVERY_CHANGED')
         gap=self._one('rc7_gap',gap_id=outcome['gap_id'])
         if (gap['mission_id']!=p['mission_id'] or gap['target_node']!='N9_DEFECT'
                 or gap['category']!='VALID_TEST_FAILURE'):
