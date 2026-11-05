@@ -101,7 +101,7 @@ class NativeN9ProfessionalDshAnalysisService:
             raise ContractError("N9_DSH_EVIDENCE_NOT_OBSERVED")
         return data
 
-    def _raw(self, ref, mission_id, assignment_id):
+    def _raw(self, ref, mission_id, assignment_id, *, provenance=False):
         if not isinstance(ref, str) or not ref.startswith("file://"):
             raise ContractError("N9_DSH_NATIVE_RAW_FILE_REQUIRED")
         expected = (self.launcher.state_root / "worker-evidence" /
@@ -126,6 +126,14 @@ class NativeN9ProfessionalDshAnalysisService:
         except UnicodeError:
             raise ContractError("N9_DSH_NATIVE_RAW_ENCODING_INVALID") from None
         candidate = DshHeadlessWorkerLauncher._final_json(events)
+        if provenance:
+            # R1 HANDOFF_RETURNED is not an independent witness of model
+            # output. Reconstruct the observed session and every tool call
+            # from these exact immutable raw bytes before trusting a
+            # professional finding or a cold-resumed receipt.
+            return (digest, candidate,
+                    DshHeadlessWorkerLauncher._session_id(events),
+                    DshHeadlessWorkerLauncher._tool_calls(events))
         return digest, candidate
 
     def _expected(self, scope, task, returned):
@@ -145,8 +153,12 @@ class NativeN9ProfessionalDshAnalysisService:
                if isinstance(r, str) and r.startswith("file://")]
         if len(raw) != 1:
             raise ContractError("N9_DSH_NATIVE_RAW_FILE_REQUIRED")
-        digest, candidate = self._raw(raw[0], task["mission_id"], returned["assignment_id"])
-        self._candidate(candidate, calls)
+        digest, candidate, raw_session, raw_calls = self._raw(
+            raw[0], task["mission_id"], returned["assignment_id"], provenance=True)
+        if (not raw_session or raw_session != returned.get("dsh_session_id")
+                or raw_calls != calls):
+            raise ContractError("N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED")
+        self._candidate(candidate, raw_calls)
         original_attempt_id = scope["original_attempt_id"]
         failed = self._one("rc72_n7_execution_preparation", preparation_id=scope["preparation_id"])
         if (returned.get("worker_instance_id") == failed["worker_id"]
@@ -197,10 +209,16 @@ class NativeN9ProfessionalDshAnalysisService:
         if not hmac.compare_digest(row.get("signature",""),
                                    self.pipeline.preparation.authority._sign(signed)):
             raise ContractError("N9_DSH_RECEIPT_SIGNATURE_CHANGED")
-        digest, parsed = self._raw(row["raw_output_ref"],row["mission_id"],row["assignment_id"])
-        if digest != row["raw_output_sha256"] or _hash(parsed) != row["candidate_sha256"]:
+        digest, parsed, raw_session, raw_calls = self._raw(
+            row["raw_output_ref"], row["mission_id"], row["assignment_id"],
+            provenance=True)
+        if (digest != row["raw_output_sha256"]
+                or _hash(parsed) != row["candidate_sha256"]):
             raise ContractError("N9_DSH_RAW_BYTES_CHANGED")
-        self._candidate(parsed,row["tool_calls"])
+        if (not raw_session or raw_session != row["dsh_session_id"]
+                or raw_calls != row["tool_calls"]):
+            raise ContractError("N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED")
+        self._candidate(parsed,raw_calls)
         return row
 
     def analyze(self, *, preparation_id, diagnosis_id):
