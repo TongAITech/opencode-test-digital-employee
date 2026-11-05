@@ -51,7 +51,16 @@ class DefectReproductionResult:
 
 
 class DefectReproductionExecutionService:
-    def __init__(self, *, evidence_root: str, timeout_seconds: int = 300) -> None:
+    def __init__(self, *, evidence_root: str, timeout_seconds: int = 300,
+                 approved_n9_human_gate=None) -> None:
+        # Legacy PRODUCT_DEFECT reproduction remains unchanged. The RC7.2
+        # VALID_TEST_FAILURE exception requires a typed, independently signed
+        # N8/N9 + bank HumanGate; it is never a free-form product claim.
+        if approved_n9_human_gate is not None:
+            from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
+            if not isinstance(approved_n9_human_gate, N9ReproductionHumanGateService):
+                raise RuntimeExecutionError("N9_REPRO_TRUSTED_HUMAN_GATE_REQUIRED")
+        self.approved_n9_human_gate = approved_n9_human_gate
         self.evidence_root = Path(evidence_root).resolve()
         self.timeout_seconds = int(timeout_seconds)
         if self.timeout_seconds <= 0:
@@ -70,6 +79,7 @@ class DefectReproductionExecutionService:
         cwd: str,
         env: Optional[Mapping[str, str]] = None,
         target_base_url: Optional[str] = None,
+        approved_n9_request_id: Optional[str] = None,
     ) -> DefectReproductionResult:
         task = control.scheduler.task(task_id)
         if task.node != "EXECUTION" or task.task_type != "DEFECT_REPRODUCTION":
@@ -88,8 +98,48 @@ class DefectReproductionExecutionService:
         gap_row = product_gap[0]
         if gap_row.get("mission_id") != control.mission_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SOURCE_GAP_MISSION_MISMATCH")
-        if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        if approved_n9_request_id is None:
+            if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        else:
+            gate = self.approved_n9_human_gate
+            if gate is None or control.truth is not gate.truth:
+                raise RuntimeExecutionError("N9_REPRO_TRUSTED_CANONICAL_HUMAN_GATE_REQUIRED")
+            gate.assert_fresh_approved(request_id=approved_n9_request_id)
+            matches = control.truth.query(
+                "rc72_n9_reproduction_authorization_request",
+                request_id=approved_n9_request_id)
+            if len(matches) != 1:
+                raise RuntimeExecutionError("N9_REPRO_ORIGINAL_REQUEST_REQUIRED")
+            request = matches[0]
+            contracts = control.truth.query(
+                "rc72_n6_executable_contract",
+                contract_id=request["original_contract_id"])
+            if len(contracts) != 1:
+                raise RuntimeExecutionError("N9_REPRO_ORIGINAL_N6_CONTRACT_REQUIRED")
+            contract = contracts[0]
+            # An original N8 discrepancy is not a product Defect. Only one
+            # exactly approved Case+Oracle+Attempt can enter a NEW reproduction.
+            if (gap_row.get("category") != "VALID_TEST_FAILURE"
+                    or gap_row.get("target_node") != "N9_DEFECT"
+                    or request["original_gap_id"] != source_product_gap_id
+                    or request["mission_id"] != control.mission_id
+                    or request["release_id"] != control.release_id
+                    or task.gap_refs != [source_product_gap_id]
+                    or task.input_artifact_refs != request["approved_case_artifact_refs"]
+                    or prepared.attempt_id == request["original_attempt_id"]
+                    or prepared.tc_id != request["original_case_id"]
+                    or bundle.spec.tc_id != request["original_case_id"]
+                    or bundle.frozen_case.get("tc_id") != request["original_case_id"]
+                    or bundle.frozen_case.get("status") != "FROZEN"
+                    or bundle.frozen_case.get("release_id") != request["release_id"]
+                    or bundle.frozen_case.get("oracle", {}).get("checks") != contract["oracles"]
+                    or prepared.oracle_snapshot.get("checks") != contract["oracles"]
+                    or (contract.get("preconditions")
+                        and not prepared.precondition_evidence)
+                    or (contract.get("data_refs")
+                        and not prepared.binding_evidence)):
+                raise RuntimeExecutionError("N9_REPRO_FRESH_FROZEN_CASE_OR_ORACLE_SCOPE_REQUIRED")
 
         DeterministicOracleRuntime.validate_contract(prepared.oracle_snapshot)
         runtime = ExecutionRuntime(
@@ -123,10 +173,19 @@ class DefectReproductionExecutionService:
         if not admission.ready:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_TOOL_ADMISSION_BLOCKED:%s" % admission.blocked)
 
-        leased = control.lease_next(
-            worker_ref=identity.worker_id,
-            capabilities=("test_execution",),
-        )
+        # The C04 route leases EXACTLY the newly approved reproduction Task:
+        # lease_next could accidentally take a ready sibling or stale repair.
+        if approved_n9_request_id is None:
+            leased = control.lease_next(
+                worker_ref=identity.worker_id,
+                capabilities=("test_execution",),
+            )
+        else:
+            leased = control.scheduler.lease_task(
+                control.mission_id, task_id,
+                worker_ref=identity.worker_id,
+                capabilities=("test_execution",),
+            )
         if leased is None or leased.task_id != task_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SCHEDULER_LEASE_MISMATCH")
         control.start(task_id, worker_ref=identity.worker_id)
@@ -238,6 +297,7 @@ class DefectReproductionExecutionService:
             dimensions={
                 "purpose": "DEFECT_REPRODUCTION",
                 "source_product_gap_id": source_product_gap_id,
+                "approved_n9_request_id": approved_n9_request_id,
                 "attempt_id": prepared.attempt_id,
                 "execution_status": record.status,
                 "integrity_passed": record.integrity_passed,
