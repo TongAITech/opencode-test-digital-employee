@@ -27,9 +27,10 @@ from .rc72_n7_execution_admission import _hash
 
 _KIND = "rc72_n9_captain_worker_invocation"
 _EVENT = "RC72_N9_CAPTAIN_WORKER_INVOCATION_ADMITTED"
-_FORBIDDEN_TOOLS = frozenset({
-    "api_http", "journey_bsk", "journey_playwright", "db_write",
-    "browser_write", "execute_case", "test_execution",
+_READONLY_TOOLS = frozenset({
+    "api_read_only", "read_only_diagnostic", "read_only_cat",
+    "read_only_db_query", "read_only_codegraph", "read_only_log_query",
+    "read_only_git_diff", "read_only_mcp_resource",
 })
 
 
@@ -81,7 +82,7 @@ class NativeN9CaptainSignedDshBridge:
                 or self.launcher.truth is not self.truth
                 or type(self.launcher.authority) is not RC72AuthorityRuntime
                 or self.scheduler.role_profiles.get("N9_QUALIFY") != frozenset(("defect_analysis",))
-                or set(service.allowed_tools) & _FORBIDDEN_TOOLS):
+                or not set(service.allowed_tools).issubset(_READONLY_TOOLS)):
             raise ContractError("N9_CAPTAIN_SIGNED_READONLY_DSH_HOST_REQUIRED")
         install_overlay()
 
@@ -124,7 +125,7 @@ class NativeN9CaptainSignedDshBridge:
         lease = intent["lease"]
         if (identity.get("worker_id") != admission["worker_id"]
                 or identity.get("session_id") != admission["session_id"]
-                or identity.get("role") != "FAILURE_DIAGNOSTIC"
+                or identity.get("role") != "N9_QUALIFY"
                 or identity.get("generation") != owner["generation"]
                 or lease.get("worker_id") != admission["worker_id"]
                 or lease.get("lease_id") != intent.get("lease_id")
@@ -257,14 +258,20 @@ class NativeN9CaptainSignedDshBridge:
                     or session.get("dsh_session_id") or session.get("task_lease_ref")):
                 raise ContractError("N9_CAPTAIN_DSH_ORPHAN_RUNTIME_BINDING")
 
+            # An already-expiring Captain cannot authorize a longer DSH
+            # subprocess. Require a genuine Host heartbeat before reserving
+            # a Worker or any external tool effect; fail closed without R1 IO.
+            remaining = owner["expires_at"] - _now()
+            if remaining <= self.launcher.timeout_seconds + 5:
+                return dict(result, reason="N9_CAPTAIN_DSH_CAPTAIN_TTL_INSUFFICIENT")
             identity = self.launcher.authority.adopt_identity(
-                worker_id=admission["worker_id"], role="FAILURE_DIAGNOSTIC",
+                worker_id=admission["worker_id"], role="N9_QUALIFY",
                 phase="MISSION_NODE_EXECUTION", layer=None,
                 generation=owner["generation"], session_id=session["session_id"])
             scope_ref = "task:" + wid
             lease = self.launcher.authority.issue_lease(
                 identity.worker_id, scope_ref, (), self.service.allowed_tools,
-                ttl_seconds=max(self.launcher.timeout_seconds + 120, 300))
+                ttl_seconds=min(self.launcher.timeout_seconds + 30, remaining - 1))
             assignment_id = "N9CAPASSIGN-" + uuid.uuid4().hex
             attempt_id = self.service._attempt_id(wid)
             invocation_id = "N9CAPINV-" + _hash([wid, diagnosis_id])[:24]

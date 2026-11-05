@@ -57,6 +57,7 @@ def _route(tmp_path, monkeypatch, *, exit_code=0, tool="read_only_diagnostic",
         coordinator_instance_id="APPROVED-N9-PROFESSIONAL-CONTROLLER",
         release_id=pipeline.release_id,
         state_root=str(tmp_path / "n9-private-dsh-worker"),
+        timeout_seconds=30,
         command_runner=command)
     specialist = NativeN9ProfessionalDshAnalysisService(
         pipeline, launcher=launcher, allowed_tools=approved_tools,
@@ -85,6 +86,14 @@ def test_real_captain_owns_one_signed_fresh_n9_worker_dsh_call_and_cold_no_repla
         assert result["field_verified"] is result["bank_final"] is False
         assert len(calls) == len(server.calls) == 1
         assert calls[0]["args"][0] == sys.executable
+        projected = calls[0]["kwargs"]["env"]
+        assert projected["PFC_RC7_MCP_MISSION_ID"] == plan["mission_id"]
+        assert projected["PFC_RC7_MCP_WORKER_ID"] == admitted["worker_id"]
+        assert projected["PFC_RC7_MCP_SCOPE_REF"] == "task:" + wid
+        assert projected["PFC_RC7_MCP_TASK_ID"] == wid
+        assert projected["PFC_RC7_DSH_SESSION_MODE"] == "LEASE_BOUND_WORKER"
+        assert set(json.loads(projected["PFC_RC7_DSH_ALLOWED_TOOLS"])) == {"read_only_diagnostic"}
+
         intent = truth.query("rc72_n9_captain_worker_invocation", workitem_id=wid)
         assert len(intent) == 1
         assert intent[0]["worker_id"] == admitted["worker_id"]
@@ -92,6 +101,12 @@ def test_real_captain_owns_one_signed_fresh_n9_worker_dsh_call_and_cold_no_repla
         assert intent[0]["captain_generation"] == owner["generation"]
         assert intent[0]["scope"] == "task:" + wid
         assert intent[0]["identity"]["worker_id"] == admitted["worker_id"]
+        assert intent[0]["identity"]["role"] == "N9_QUALIFY"
+        assert intent[0]["lease"]["allowed_artifact_types"] == []
+        from rc6_runtime.authority import AuthorityError
+        with pytest.raises(AuthorityError, match="ROLE_ARTIFACT_FORBIDDEN"):
+            route.professional_dsh.launcher.authority.authorize_artifact(
+                admitted["worker_id"], intent[0]["lease_id"], "defect")
         assert intent[0]["lease"]["allowed_tools"] == ["read_only_diagnostic"]
         assert intent[0]["state"] == "SIGNED_DSH_INTENT_NO_REPLAY"
         rows = truth.query("rc72_n9_professional_dsh_analysis")
@@ -271,6 +286,36 @@ def test_crash_after_real_dsh_handoff_recovers_candidate_from_existing_r1_withou
         assert truth.store.path.read_bytes() == before
         assert len(calls) == len(server.calls) == 1
         assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+
+@pytest.mark.parametrize("tool", ["shell_exec", "db_delete", "journey_bsk", "api_http"])
+def test_n9_whitelist_blocks_unverified_business_tools_before_any_agent_session(
+        tmp_path, monkeypatch, tool):
+    with pytest.raises(ContractError, match="N9_CAPTAIN_SIGNED_READONLY_DSH_HOST_REQUIRED"):
+        _route(tmp_path, monkeypatch, approved_tools=(tool,))
+
+
+def test_expiring_captain_cannot_issue_longer_n9_tool_lease_or_start_dsh(
+        tmp_path, monkeypatch):
+    truth, plan, prep, server, pipeline, route, calls, _, owner = _route(
+        tmp_path, monkeypatch)
+    try:
+        original = pipeline.complete(release_batch_id=BATCH)
+        assert original["qualification_worker_id"]
+        route.professional_dsh.launcher.timeout_seconds = 3600
+        before = truth.store.path.read_bytes()
+        held = route.complete(release_batch_id=BATCH)
+        assert held["status"] == "HOLD"
+        assert held["reason"] == "N9_CAPTAIN_DSH_CAPTAIN_TTL_INSUFFICIENT"
+        assert truth.store.path.read_bytes() == before
+        assert not calls
+        assert len(server.calls) == 1
+        assert not truth.query("rc72_n9_captain_worker_invocation")
+        assert not truth.query("rc7_defect")
     finally:
         server.shutdown()
         server.server_close()
