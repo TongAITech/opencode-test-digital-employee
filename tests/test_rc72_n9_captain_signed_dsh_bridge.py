@@ -176,7 +176,6 @@ def test_unapproved_captain_dsh_bridge_rejected_before_worker_or_business_io(
         with pytest.raises(ContractError, match="N9_CAPTAIN_SIGNED_READONLY_DSH_HOST_REQUIRED"):
             _route(tmp_path, monkeypatch, approved_tools=("api_http",))
     elif mutation == "missing_approved_profile":
-        from rc7_runtime.rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
         # The formal Factory must opt in; merely granting N9 tools on the
         # original Captain role profile is never permission to execute.
         truth, plan, prep, server, pipeline, route, calls, _, _ = _route(
