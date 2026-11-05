@@ -266,7 +266,7 @@ def test_c04_release_batch_driver_native_professional_gate_cannot_bypass_open_n8
             return DshHeadlessWorkerLauncher(
                 dsh_bin=sys.executable, patch_path=str(empty),
                 cwd=str(tmp_path), truth=truth,
-                authority=RC72AuthorityRuntime(("n9-product-"+role).encode()),
+                authority=RC72AuthorityRuntime(("n9-product-proof-"+role+"-signed-host").encode()),
                 coordinator_instance_id="n9-native-professional-product",
                 release_id=pipeline.release_id,
                 state_root=str(tmp_path / ("n9-product-"+role)),
