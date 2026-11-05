@@ -70,9 +70,15 @@ class MissionCaptainBinding:
 
 @dataclass(frozen=True)
 class MissionProfessionalDshBinding:
-    """Separate host-owned, tool-limited N9 analyst; never an N7 retry worker."""
+    """Separate host-owned, tool-limited N9 analyst; never an N7 retry worker.
+
+    The Host must explicitly opt in to binding a Captain's already-admitted
+    worker identity to a real DSH ToolLease and WorkerInvocation. Configuration
+    strings/default binding do not authorize this process.
+    """
     launcher: DshHeadlessWorkerLauncher
     tools: tuple
+    captain_governed_dsh: bool = False
 
 
 @dataclass(frozen=True)
@@ -229,6 +235,9 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
             raise ContractError('MISSION_FACTORY_N9_TYPED_INDEPENDENT_BINDING_REQUIRED')
         analyst = professional_dsh_binding.launcher
         analyst_tools = professional_dsh_binding.tools
+        if (type(professional_dsh_binding.captain_governed_dsh) is not bool
+                or (professional_dsh_binding.captain_governed_dsh and captain_binding is None)):
+            raise ContractError('MISSION_FACTORY_N9_CAPTAIN_EXPLICIT_HOST_REQUIRED')
         if (not isinstance(analyst, DshHeadlessWorkerLauncher)
                 or analyst.truth is not truth or analyst.release_id != release_id
                 or not isinstance(analyst.authority, RC72AuthorityRuntime)
@@ -273,7 +282,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     if professional_dsh_binding is not None:
         specialist = NativeN9ProfessionalDshAnalysisService(
             n7, launcher=professional_dsh_binding.launcher,
-            allowed_tools=professional_dsh_binding.tools)
+            allowed_tools=professional_dsh_binding.tools,
+            captain_governed_dsh=professional_dsh_binding.captain_governed_dsh)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}), professional_dsh=specialist)
