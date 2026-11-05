@@ -46,6 +46,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc72_n9_professional_disposition_gate.py
+          tests/test_rc72_n9_professional_cli.py
           tests/test_rc72_n9_reproduction_resolution_audit.py
           tests/test_rc72_n9_approved_reproduction_execution.py
           tests/test_rc7_defect_resolution_control.py
