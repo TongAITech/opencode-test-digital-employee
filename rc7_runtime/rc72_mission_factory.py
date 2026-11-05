@@ -306,10 +306,20 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
             N9ReproductionAuthorizationRequestService(specialist),
             approval_verifier=reproduction_human_binding.approval_verifier,
             trusted_field_verifier_kinds=reproduction_human_binding.trusted_field_verifier_kinds)
+    # C04 is a real, separately governed execution runner. The signer and
+    # HumanGate come from the same approved Mission Host, not model output.
+    repro_executor = None
+    if human_gate is not None:
+        from .rc72_n9_approved_reproduction_execution import N9ApprovedReproductionExecutionService
+        repro_executor = N9ApprovedReproductionExecutionService(
+            human_gate, evidence_root=root/'approved-reproduction',
+            captain_scheduler=n7.captain_scheduler,
+            captain_session_id=n7.captain_session_id,
+            captain_lease_id=n7.captain_lease_id, team_id=n7.team_id)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}), professional_dsh=specialist,
-        reproduction_human_gate=human_gate)
+        reproduction_human_gate=human_gate, reproduction_executor=repro_executor)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
