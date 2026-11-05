@@ -1,13 +1,13 @@
-"""C07 approved DSH AgentTeams Host -> canonical R1 Captain cold re-entry.
+"""C07 trusted AgentTeams Host -> first R1 Captain and signed cold re-entry.
 
-The external *trusted* DSH Host MUST observe the real active Captain session
-and issue a short-lived, host-signed receipt. A file, mission config, prompt,
-or an unverified session string can never initialize or replace a Captain.
+The external Host observes an ACTIVE DSH Captain session and signs the exact
+Mission/Team/Batch/source scope. A mission JSON, model prompt or unverified
+session string can neither start nor replace a Captain.
 
-This component is read-only. It binds the exact existing R1 Captain generation
-into A's native MissionFactory/N7 scheduler; it does not mint a session, lease,
-Worker PASS, Field result, or DSH process. New Captain bootstrap and actual
-provider-side liveness belong to the trusted AgentTeams Host.
+Reentry only reads an existing R1 Captain generation. First bootstrap is a
+distinct Host-signed, ledger-locked R1 generation-one lease: it never creates
+a DSH process, grants generic worker powers, reports test PASS or supplies
+actual bank-side provider/session liveness evidence.
 """
 from __future__ import annotations
 
