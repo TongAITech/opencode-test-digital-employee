@@ -1,0 +1,68 @@
+name: RC7.2 C07 Signed DSH Host Captain Cold Reentry
+
+on:
+  push:
+    branches: [work/rc7.2-c07-signed-host-reentry]
+    paths:
+      - 'rc7_release/rc72_captain_host_reentry.py'
+      - 'rc7_release/rc72_mission_bindings.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_captain_host_reentry.py'
+      - 'tests/test_rc72_mission_bindings.py'
+      - '.github/workflows/rc72-c07-signed-host-reentry.yml'
+  pull_request:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification]
+    paths:
+      - 'rc7_release/rc72_captain_host_reentry.py'
+      - 'rc7_release/rc72_mission_bindings.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_captain_host_reentry.py'
+      - 'tests/test_rc72_mission_bindings.py'
+      - '.github/workflows/rc72-c07-signed-host-reentry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-captain-host-reentry:
+    name: c07-host-reentry-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install approved native test harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile Captain Host and canonical CLI
+        run: >-
+          python -m py_compile
+          rc7_release/rc72_captain_host_reentry.py
+          rc7_release/rc72_mission_bindings.py
+          rc7_release/rc72_mission_cli.py
+          tests/test_rc72_captain_host_reentry.py
+          tests/test_rc72_mission_bindings.py
+      - name: Exercise signed R1 cold reentry, quiesce takeover and factory product route
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_captain_host_reentry.py
+          tests/test_rc72_mission_bindings.py
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_captain_dispatch_fencing.py
+          --junitxml=rc72-c07-signed-host.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c07-host-reentry-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c07-signed-host.xml
+          retention-days: 14
+          if-no-files-found: warn

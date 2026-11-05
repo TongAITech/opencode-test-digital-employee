@@ -122,3 +122,77 @@ def test_deleted_full_manifest_cannot_downgrade_cli_to_component_before_host_loa
     assert code==37 and result['status']=='HOLD'
     assert result['field_verified'] is result['bank_final'] is False
     assert truth.store.path.read_bytes()==before
+
+
+def test_canonical_host_loader_passes_exact_batch_and_reenters_signed_live_captain(
+        tmp_path, monkeypatch):
+    """Positive product ingress: approved Host, signed session, R1, factory N7."""
+    from rc7_release.rc72_captain_host_reentry import reenter_host_captain
+    from rc7_runtime.rc72_mission_factory import create_mission_driver
+    from test_rc72_captain_host_reentry import _fixture, _signed, _reenter
+
+    truth, host_key, lease = _fixture(tmp_path)
+    ticket = _signed(host_key, lease)
+    cold = __import__('rc6_runtime.truth', fromlist=['TruthRuntime']).TruthRuntime(
+        truth.store.path)
+    module = ModuleType('approved_dsh_host_batch_reentry')
+
+    def create(*, truth, release_id, source_commit, release_batch_id):
+        assert release_batch_id == BATCH
+        assert release_id == RELEASE and source_commit == COMMIT
+        _, options = _setup(tmp_path, truth=truth)
+        binding = reenter_host_captain(
+            truth, release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, observed=ticket,
+            host_authority=host_key,
+            approved_capabilities=('api_http',),
+            role_profiles={'L3_EXECUTE': ('api_http',)})
+        options['captain_binding'] = binding
+        return MissionHostBindings(**{k: v for k, v in options.items()
+            if k not in {'release_id', 'source_commit', 'evidence_root'}})
+
+    module.create_mission_bindings = create
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    before = truth.store.path.read_bytes()
+    bound = load_mission_bindings(
+        module.__name__, truth=cold, release_id=RELEASE,
+        source_commit=COMMIT, release_batch_id=BATCH)
+    assert bound.captain_binding.captain_lease_id == lease['lease_id']
+    _, options = _setup(tmp_path, truth=cold)
+    options['captain_binding'] = bound.captain_binding
+    driver = create_mission_driver(cold, **options)
+    driver._assert_captain_product_entry(lease['mission_id'])
+    assert truth.store.path.read_bytes() == before
+    assert cold.query('execution_attempt') == []
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('legacy_factory', 'CAPTAIN_BATCH_AWARE_FACTORY_REQUIRED'),
+    ('missing_captain', 'CAPTAIN_HOST_BINDING_REQUIRED'),
+])
+def test_captain_owned_batch_rejects_legacy_or_unbound_host_before_business_effects(
+        tmp_path, monkeypatch, mutation, reason):
+    from test_rc72_captain_host_reentry import _fixture
+    truth, _, lease = _fixture(tmp_path)
+    module = ModuleType('unbound_captain_host')
+    observed = []
+
+    if mutation == 'legacy_factory':
+        def create(*, truth, release_id, source_commit):
+            observed.append('LEGACY_FACTORY_EXECUTED')
+            raise AssertionError('must fail before caller code')
+    else:
+        def create(*, truth, release_id, source_commit, release_batch_id):
+            observed.append(release_batch_id)
+            _, options = _setup(tmp_path, truth=truth)
+            return MissionHostBindings(**{k: v for k, v in options.items()
+                if k not in {'release_id', 'source_commit', 'evidence_root'}})
+    module.create_mission_bindings = create
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='MISSION_BINDINGS_' + reason):
+        load_mission_bindings(module.__name__, truth=truth, release_id=RELEASE,
+                              source_commit=COMMIT, release_batch_id=BATCH)
+    assert observed == ([] if mutation == 'legacy_factory' else [BATCH])
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('execution_attempt')
