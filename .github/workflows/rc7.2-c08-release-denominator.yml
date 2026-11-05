@@ -11,6 +11,12 @@ on:
       - '.github/workflows/rc7.2-c08-release-denominator.yml'
   pull_request:
     branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_release_driver.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_release_driver.py'
+      - 'tests/test_rc72_mission_completion_denominator.py'
+      - '.github/workflows/rc7.2-c08-release-denominator.yml'
   workflow_dispatch:
 
 permissions:
