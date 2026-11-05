@@ -236,3 +236,41 @@ def test_captain_n9_rejects_false_tool_lease_signature_even_with_resealed_intent
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_crash_after_real_dsh_handoff_recovers_candidate_from_existing_r1_without_tool_replay(
+        tmp_path, monkeypatch):
+    """Signed DSH process completed; R1 receipt crash must not strand N9 forever."""
+    truth, plan, prep, server, pipeline, route, calls, _, owner = _route(
+        tmp_path, monkeypatch)
+    try:
+        first = pipeline.complete(release_batch_id=BATCH)
+        original_append = truth.append_atomic
+        def crash_only_before_n9_receipt(event, payload, *args, **kwargs):
+            if event == 'RC72_N9_PROFESSIONAL_DSH_ANALYSIS_UPSERTED':
+                raise RuntimeError('simulated process crash after real DSH HANDOFF')
+            return original_append(event, payload, *args, **kwargs)
+        monkeypatch.setattr(truth, 'append_atomic', crash_only_before_n9_receipt)
+        with pytest.raises(RuntimeError, match='simulated process crash'):
+            route.complete(release_batch_id=BATCH)
+        assert len(calls) == len(server.calls) == 1
+        assert truth.query('rc72_n9_captain_worker_invocation')
+        assert truth.query('agent_runtime_event', event_name='HANDOFF_RETURNED')
+        assert not truth.query('rc72_n9_professional_dsh_analysis')
+        monkeypatch.setattr(truth, 'append_atomic', original_append)
+        recovered = route.complete(release_batch_id=BATCH)
+        assert recovered['status'] == 'HOLD'
+        assert recovered['cause_candidate_only'] is True
+        assert recovered['defect_confirmed'] is False
+        assert len(truth.query('rc72_n9_professional_dsh_analysis')) == 1
+        assert len(calls) == len(server.calls) == 1
+        resumed_r1 = TruthRuntime(truth.store.path)
+        assert resumed_r1.query('rc72_n9_professional_dsh_analysis')[0]['analysis_id'] == recovered['analysis_id']
+        before = truth.store.path.read_bytes()
+        assert route.complete(release_batch_id=BATCH) == recovered
+        assert truth.store.path.read_bytes() == before
+        assert len(calls) == len(server.calls) == 1
+        assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
