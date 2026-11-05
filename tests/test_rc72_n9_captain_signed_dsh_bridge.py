@@ -25,12 +25,12 @@ from test_rc72_n9_captain_qualification import _setup_fenced_business_failure
 
 def _route(tmp_path, monkeypatch, *, exit_code=0, tool="read_only_diagnostic",
            approved_tools=("read_only_diagnostic",), captain_dsh=True,
-           command_hook=None):
+           command_hook=None, finding="INCONCLUSIVE"):
     truth, plan, prep, server, pipeline, owner = _setup_fenced_business_failure(
         tmp_path, monkeypatch)
     calls = []
     candidate = dict(
-        finding="INCONCLUSIVE",
+        finding=finding,
         hypotheses=["Only independently reproduced evidence can establish product causality"],
         reproduction_steps=["Obtain a separate authorized reproduction WorkItem"],
         tool_evidence_refs=["dsh-event://tool-call/1"])
