@@ -6,16 +6,20 @@ on:
     paths:
       - 'rc7_runtime/rc72_n9_captain_dsh_bridge.py'
       - 'rc7_runtime/rc72_n9_professional_dsh.py'
+      - 'rc7_runtime/rc72_authority.py'
       - 'rc7_runtime/rc72_mission_factory.py'
       - 'tests/test_rc72_c07_c04_governed_n9_dsh.py'
+      - 'tests/test_rc72_worker_process_environment.py'
       - '.github/workflows/rc72-c07-c04-governed-n9-dsh.yml'
   pull_request:
     branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification]
     paths:
       - 'rc7_runtime/rc72_n9_captain_dsh_bridge.py'
       - 'rc7_runtime/rc72_n9_professional_dsh.py'
+      - 'rc7_runtime/rc72_authority.py'
       - 'rc7_runtime/rc72_mission_factory.py'
       - 'tests/test_rc72_c07_c04_governed_n9_dsh.py'
+      - 'tests/test_rc72_worker_process_environment.py'
       - '.github/workflows/rc72-c07-c04-governed-n9-dsh.yml'
   workflow_dispatch:
 
@@ -46,8 +50,10 @@ jobs:
           python -m py_compile
           rc7_runtime/rc72_n9_captain_dsh_bridge.py
           rc7_runtime/rc72_n9_professional_dsh.py
+          rc7_runtime/rc72_authority.py
           rc7_runtime/rc72_mission_factory.py
           tests/test_rc72_c07_c04_governed_n9_dsh.py
+          tests/test_rc72_worker_process_environment.py
       - name: Test real signed Worker and inherited security and product regressions
         run: >-
           python -m pytest -q
@@ -56,6 +62,7 @@ jobs:
           tests/test_rc72_n9_captain_qualification.py
           tests/test_rc72_n9_professional_dsh_real_route.py
           tests/test_rc72_n9_professional_dsh_contract.py
+          tests/test_rc72_worker_process_environment.py
           tests/test_rc72_mission_factory.py
           --junitxml=rc72-c07-c04-governed-n9.xml
       - uses: actions/upload-artifact@v4
