@@ -215,10 +215,26 @@ class NativeN8ProductRecoveryService:
                 # defect, RCA acceptance or permission to rerun the old N7.
                 if qualified.get('status') != 'HOLD':
                     raise ContractError('N8_PRODUCT_N9_ANALYSIS_PREMATURE_PASS_FORBIDDEN')
+                # Only a separately signed, raw-verified independent DSH
+                # product-cause *hypothesis* may create a durable request for
+                # human/data approval of a new reproduction. A request is
+                # never a runnable N7 Attempt, Defect or N9 PASS.
+                reproduction = {}
+                if qualified.get('analysis_id'):
+                    from .rc72_n9_reproduction_authorization import N9ReproductionAuthorizationRequestService
+                    admitted = N9ReproductionAuthorizationRequestService(
+                        self.professional_dsh).request(
+                            preparation_id=p['preparation_id'],
+                            diagnosis_id=result['diagnosis_id'],
+                            analysis_id=qualified['analysis_id'])
+                    reproduction = dict(
+                        reproduction_request_id=admitted.get('request_id'),
+                        reproduction_admission_reason=admitted['reason'])
                 return dict(qualified,
                     preparation_id=p['preparation_id'],
                     failure_class='VALID_TEST_FAILURE',
-                    field_verified=False,bank_final=False)
+                    field_verified=False,bank_final=False,
+                    **reproduction)
             # Distinct N9 professional qualification needs real confirmed
             # independent RCA before product defect or fresh N7 execution.
             from .rc72_n9_professional_intake import NativeN9ProfessionalIntakeService
