@@ -83,7 +83,8 @@ def _accepted_ten_node_completion(node_rows, transitions=None, n7_gates=None, n7
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
-    parser.add_argument('command', choices=['status', 'run', 'mirror-check', 'review-reproduction'])
+    parser.add_argument('command', choices=['status', 'run', 'mirror-check', 'review-reproduction',
+        'review-professional', 'accept-professional-resolution', 'complete-professional-n9'])
     parser.add_argument('--ledger', required=True)
     parser.add_argument('--source-commit', required=True)
     parser.add_argument('--release-batch', required=True)
@@ -96,16 +97,37 @@ def main(argv=None):
     parser.add_argument('--bridge-user-config', action='store_true')
     parser.add_argument('--retry-returned-failure', action='store_true')
     parser.add_argument('--reproduction-request')
+    parser.add_argument('--defect-id')
     parser.add_argument('--attestation-ref')
     args = parser.parse_args(argv)
     if args.command != 'run' and args.economy_config:
         parser.error('economy-config is only valid for run')
+    # A real bank professional decision is never sourced from the ordinary
+    # JSON capability manifest. The trusted Host module must supply a typed
+    # MissionProfessionalReviewBinding and its independent verifier. The N9
+    # review, source-Gap adjudication and NodeGate are three separate steps;
+    # none is an implicit approval to replay a bank operation or pass N10.
     if args.command == 'review-reproduction':
         if (not args.bindings_module or args.mission_config
-                or not args.reproduction_request or not args.attestation_ref):
-            parser.error('review-reproduction requires trusted bindings-module, request and attestation ref')
-    elif args.reproduction_request or args.attestation_ref:
-        parser.error('reproduction approval references require review-reproduction')
+                or not args.reproduction_request or not args.attestation_ref
+                or args.defect_id):
+            parser.error('review-reproduction requires trusted Host binding, request and attestation (no defect)')
+    elif args.command == 'review-professional':
+        if (not args.bindings_module or args.mission_config
+                or not args.reproduction_request or not args.defect_id
+                or not args.attestation_ref):
+            parser.error('review-professional requires trusted Host binding, reproduction request, defect and attestation')
+    elif args.command == 'accept-professional-resolution':
+        if (not args.bindings_module or args.mission_config
+                or not args.reproduction_request or not args.defect_id
+                or args.attestation_ref):
+            parser.error('accept-professional-resolution requires an existing reviewed request and defect, not a new attestation')
+    elif args.command == 'complete-professional-n9':
+        if (not args.bindings_module or args.mission_config
+                or args.reproduction_request or args.defect_id or args.attestation_ref):
+            parser.error('complete-professional-n9 requires trusted Host binding and no caller-selected evidence')
+    elif args.reproduction_request or args.defect_id or args.attestation_ref:
+        parser.error('N9 approval references require the exact trusted Host professional command')
     if args.command != 'mirror-check' and (args.bridge_user_config or args.retry_returned_failure):
         parser.error('mirror options require mirror-check')
     path = Path(args.ledger).expanduser().resolve()
@@ -188,6 +210,29 @@ def main(argv=None):
                     release_batch_id=args.release_batch,
                     request_id=args.reproduction_request,
                     attestation_ref=args.attestation_ref)
+            elif args.command == 'review-professional':
+                # External trusted Human reviewer approves *existing* R1
+                # evidence; never builds a Defect, edits the failed N7 or
+                # makes another DSH/HTTP call.
+                result = driver.review_professional_resolution(
+                    release_batch_id=args.release_batch,
+                    request_id=args.reproduction_request,
+                    defect_id=args.defect_id,
+                    attestation_ref=args.attestation_ref)
+            elif args.command == 'accept-professional-resolution':
+                # This is a distinct explicit post-review R1 adjudication.
+                # The prior signed independent review is mandatory, and
+                # original N8 failed Attempts remain immutable.
+                result = driver.accept_professional_resolution(
+                    release_batch_id=args.release_batch,
+                    request_id=args.reproduction_request,
+                    defect_id=args.defect_id)
+            elif args.command == 'complete-professional-n9':
+                # Never treats a professional N9 Gate as a release N10 PASS.
+                # The service will re-audit actual RCA, fix, regression,
+                # original source Gap and every professional WorkItem.
+                result = driver.complete_professional_n9(
+                    release_batch_id=args.release_batch)
             elif args.command == 'mirror-check':
                 result = driver.bank_pip_mirror.run(release_batch_id=args.release_batch,
                     bridge_user_config=args.bridge_user_config,retry_returned_failure=args.retry_returned_failure)
@@ -262,6 +307,27 @@ def main(argv=None):
             and result.get('status') == 'HOLD'):
         # Command succeeded at recording human disposition. Mission remains
         # HOLD until independent new execution, RCA and N9 Gate pass.
+        return 0
+    if (args.command == 'review-professional'
+            and result.get('status') == 'HOLD'
+            and result.get('review_id')
+            and result.get('n9_gate_pass') is False
+            and result.get('bank_final') is False):
+        # Successful durable human signoff is still an N9 HOLD.
+        return 0
+    if (args.command == 'accept-professional-resolution'
+            and result.get('status') == 'ADJUDICATED'
+            and result.get('original_gap_evaluation_id')
+            and result.get('n9_gate_pass') is False
+            and result.get('bank_final') is False):
+        return 0
+    if (args.command == 'complete-professional-n9'
+            and result.get('status') == 'PASS'
+            and result.get('state') == 'N9_PASS'
+            and result.get('n9_gate_pass') is True
+            and result.get('field_verified') is False
+            and result.get('bank_final') is False):
+        # N9 success is not N10 convergence or FIELD_VERIFIED.
         return 0
     if (args.command == 'mirror-check' and result.get('status') == 'PASS'
             and result.get('bank_pc_mirror_field_fact') is True
