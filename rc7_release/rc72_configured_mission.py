@@ -73,7 +73,9 @@ def _controller_key(truth, directory):
 
 
 def configured_mission_bindings(truth, *, release_id, source_commit, config_path,
-                                release_batch_id=None):
+                                release_batch_id=None, observed_captain=None,
+                                host_authority=None, captain_role_profiles=None,
+                                captain_approved_capabilities=None):
     path = Path(config_path).expanduser().resolve()
     try:
         config = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_pairs)
@@ -106,9 +108,24 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
         # Direct legacy config callers do not provide the batch: fail closed
         # for the complete release rather than guessing which Mission they own.
         batches = truth.query('rc72_release_batch', release_id=release_id)
-    if any(truth.query('rc72_captain_dispatch_lease', mission_id=batch['mission_id'])
-           for batch in batches):
-        raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
+    # A JSON capability file cannot supply a Captain token or session.
+    # Only an approved in-process AgentTeams Host module may inject the
+    # separately signed, freshly observed ACTIVE R1 Captain generation.
+    # No fallback to legacy execution is permitted after a cold restart.
+    governed_batches = [batch for batch in batches if truth.query(
+        'rc72_captain_dispatch_lease', mission_id=batch['mission_id'])]
+    injected = (observed_captain is not None or host_authority is not None
+                or captain_role_profiles is not None
+                or captain_approved_capabilities is not None)
+    if governed_batches:
+        if not injected or any(value is None for value in (
+                observed_captain, host_authority, captain_role_profiles,
+                captain_approved_capabilities)):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
+        if release_batch_id is None or len(governed_batches) != 1:
+            raise ContractError('MISSION_CONFIG_CAPTAIN_EXACT_BATCH_REQUIRED')
+    elif injected:
+        raise ContractError('MISSION_CONFIG_CAPTAIN_UNOBSERVED_LEASE_FORBIDDEN')
 
     def configured_path(name, *, file=False):
         value = config[name]
@@ -149,6 +166,37 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
                                    for tool in group}):
             raise ContractError('MISSION_CONFIG_N9_EXACT_READ_ONLY_TOOLS_REQUIRED')
         n9_tools = tuple(proposed)
+    captain_binding = None
+    if governed_batches:
+        # The signed Host observation is verified before loading model
+        # credentials, controller-owned worker keys or starting any worker.
+        # Role grants must match capabilities of the bank-reviewed current
+        # execution registry; no role may inherit Full Access or other
+        # capabilities by naming them in config/AgentTeams.
+        from rc7_release.rc72_captain_host_reentry import reenter_host_captain
+        from rc7_runtime.rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+        if (not isinstance(captain_role_profiles, dict)
+                or not captain_role_profiles
+                or any(role not in CaptainFencedWorkItemScheduler._ETU_EXECUTOR_ROLES
+                       and role != 'N9_QUALIFY'
+                       for role in captain_role_profiles)):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_APPROVED_ROLE_REQUIRED')
+        expected_capabilities = set(registry)
+        if n9_tools is not None:
+            expected_capabilities.add('defect_analysis')
+        if (not isinstance(captain_approved_capabilities, (tuple, list, set, frozenset))
+                or set(captain_approved_capabilities) != expected_capabilities
+                or not all(set(caps).issubset(expected_capabilities)
+                           for caps in captain_role_profiles.values())
+                or ((n9_tools is not None) != ('N9_QUALIFY' in captain_role_profiles))
+                or ('N9_QUALIFY' in captain_role_profiles
+                    and set(captain_role_profiles['N9_QUALIFY']) != {'defect_analysis'})):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_ROLE_CAPABILITY_SCOPE_CHANGED')
+        captain_binding = reenter_host_captain(
+            truth, release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, observed=observed_captain,
+            host_authority=host_authority, role_profiles=captain_role_profiles,
+            approved_capabilities=captain_approved_capabilities)
     inputs = config['inputs']
     if not isinstance(inputs, list) or not inputs:
         raise ContractError('MISSION_CONFIG_ORIGINAL_INPUTS_REQUIRED')
@@ -213,9 +261,12 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
             coordinator_instance_id='rc72-controller-'+scope[:24],
             release_id=release_id, state_root=str(owned/'workers'/'n9-professional'),
             env=environment)
-        professional = MissionProfessionalDshBinding(analyst, n9_tools)
+        professional = MissionProfessionalDshBinding(
+            analyst, n9_tools,
+            captain_governed_dsh=captain_binding is not None)
     return MissionHostBindings(
         workers, mirror, execution, adapter, registry, tools_environment or None,
+        captain_binding=captain_binding,
         professional_dsh_binding=professional)
 
 
