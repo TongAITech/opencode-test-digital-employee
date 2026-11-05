@@ -314,7 +314,7 @@ class N9ProfessionalDispositionGateService:
             existing = self.truth.query("rc7_evaluation", evaluation_id=source_eval_id)
             source = Evaluation(
                 evaluation_id=source_eval_id, mission_id=request["mission_id"],
-                node="DEFECT",
+                node=gap.source_node,
                 artifact_refs=[artifact_id, proof["verification_artifact_id"]] +
                               list(proof["regression_artifact_ids"]),
                 result=EvaluationResult.PASS, evaluator_ref=row["reviewer_ref"],
@@ -388,7 +388,7 @@ class N9ProfessionalDispositionGateService:
                     or q["artifact_refs"] != [artifact_id]
                     or q["dimensions"].get("proof_sha256") != review["proof_sha256"]
                     or e["mission_id"] != request["mission_id"]
-                    or e["node"] != "DEFECT" or e["result"] != "PASS"
+                    or e["node"] != gap["source_node"] or e["result"] != "PASS"
                     or e["evaluator_ref"] != review["reviewer_ref"]
                     or e["dimensions"].get("purpose") !=
                     "N9_ORIGINAL_DISCREPANCY_POST_FIX_ADJUDICATION"
