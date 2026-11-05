@@ -1,0 +1,205 @@
+name: RC7.2 ABCD-v5 Same-HEAD Product and Independent QA Qualification
+
+on:
+  push:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2-a6-c07-issue7-qualification]
+    paths:
+      - 'rc7_runtime/**'
+      - 'rc7_release/**'
+      - 'tests/test_rc72_*.py'
+      - 'tests/rc72_qa_c09_host.py'
+      - '.github/workflows/rc7.2-abcd-v5-qualification.yml'
+  workflow_dispatch:
+    inputs:
+      full_qualification:
+        description: 'Only at integration checkpoint: entire inherited suite + real Chromium'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-abcd-v5-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  c01-c10-engineering:
+    name: abcd-v5-native-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Pinned source qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile real A B C D E product and QA code
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release tests
+      - name: Run N8 multi-generation, CLI no-R1, D model, C09 signed browser, E independent product gates
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_n8_retry_continuation.py
+          tests/test_rc72_n8_multi_round.py
+          tests/test_rc72_n8_multi_round_contract_history.py
+          tests/test_rc72_n8_multi_round_executed_peer.py
+          tests/test_rc72_n8_multi_round_pending.py
+          tests/test_rc72_qa_c01_c02_independent.py
+          tests/test_rc72_configured_mission.py
+          tests/test_rc72_mission_bindings.py
+          tests/test_rc72_mission_factory.py
+          tests/test_rc72_n9_professional_dsh_contract.py
+          tests/test_rc72_n9_professional_dsh_real_route.py
+          tests/test_rc72_n9_reproduction_human_gate.py
+          tests/test_rc72_n9_approved_reproduction_execution.py
+          tests/test_rc72_n9_reproduction_resolution_audit.py
+          tests/test_rc72_n9_professional_disposition_gate.py
+          tests/test_rc72_n9_professional_cli.py
+          tests/test_rc72_c07_n9_professional_dsh_fence.py
+          tests/test_rc72_journey_bsk_native_adapter.py
+          tests/test_rc72_journey_bsk_field_probe.py
+          tests/test_rc72_journey_bsk_field_attestation.py
+          tests/test_rc72_journey_bsk_full_chain_contract.py
+          tests/test_rc7_plugin_payload.py
+          tests/test_rc7_runtime_payload_materializer.py
+          tests/test_rc72_qa_product_wiring.py
+          tests/test_rc72_qa_c09_product_dispatch.py
+          tests/test_rc72_qa_bcd_core_integration.py
+          tests/test_rc72_c09_playwright_product_binding.py
+          tests/test_rc72_c09_ab_product_binding.py
+          tests/test_rc72_production_economy_wiring.py
+          tests/test_rc72_native_delta_prompt.py
+          tests/test_rc72_production_economy_ingress.py
+          --junitxml=rc72-v5-native-independent.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-v5-native-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-v5-native-independent.xml
+          retention-days: 14
+          if-no-files-found: warn
+
+  complete-rc7-with-real-chromium:
+    name: abcd-v5-ubuntu-3.11-complete-source-real-chromium
+    # Full inherited Chromium is admitted only by an explicit manual request
+    # or a dedicated integration-checkpoint commit. Routine feature pushes
+    # retain their bounded four-platform gates and never repeat the full suite.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.full_qualification == true)
+      || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python and actual Chromium/CDP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
+          python -m playwright install --with-deps chromium
+      - name: Prove real CDP, DOM, POST/Response network origin and Oracle
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_c09_real_chromium_cdp_smoke.py
+          tests/test_rc72_journey_drift_and_failure.py
+          tests/test_rc72_journey_playwright_adapter.py
+          --junitxml=rc72-v5-real-chromium.xml
+      - name: Run every inherited RC7 and RC7.2 test module, with no case exclusion
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t cases < <(find tests -maxdepth 1 -type f -name 'test_rc7*.py' -print | sort)
+          test "${#cases[@]}" -gt 0
+          echo "FULL_INHERITED_TEST_MODULES=${#cases[@]}"
+          python -m pytest -q "${cases[@]}" --junitxml=rc72-v5-all-inherited.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-v5-all-inherited-chromium-${{ github.sha }}
+          path: |
+            rc72-v5-real-chromium.xml
+            rc72-v5-all-inherited.xml
+          retention-days: 14
+          if-no-files-found: warn
+
+  c07-issue7-product-admission:
+    name: c07-issue7-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned native qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile actual Mission, Captain, N8 and N10 production
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release
+      - name: Execute signed Captain Host cold takeover and real N8 N10 product QA regression
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_captain_host_reentry.py
+          tests/test_rc72_configured_mission.py
+          tests/test_rc72_captain_dispatch_fencing.py
+          tests/test_rc72_captain_scheduling.py
+          tests/test_rc72_captain_n7_pipeline.py
+          tests/test_rc72_n9_captain_qualification.py
+          tests/test_rc72_n9_captain_signed_dsh_bridge.py
+          tests/test_rc72_phase7_model_failover_contract.py
+          tests/test_rc72_n8_product_recovery.py
+          tests/test_rc72_release_driver_n8.py
+          tests/test_rc72_release_driver_n10.py
+          tests/test_rc72_native_coverage_rerun.py
+          tests/test_rc72_qa_product_wiring.py
+          --junitxml=rc72-a6-c07-issue7.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-a6-c07-issue7-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          path: rc72-a6-c07-issue7.xml
+          retention-days: 14
+          if-no-files-found: error
+
+  checkpoint-full-gate:
+    name: full-inherited-real-chromium-must-pass-on-qualification-checkpoint
+    # A skipped browser/full-source job must NEVER certify the checkpoint.
+    # Keep this gate off routine pushes; otherwise every small fix would
+    # re-run the entire inherited suite.
+    if: ${{ always() && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):') }}
+    needs: [complete-rc7-with-real-chromium]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Reject skipped, cancelled or failing full-source qualification
+        shell: bash
+        env:
+          FULL_JOB_RESULT: ${{ needs['complete-rc7-with-real-chromium'].result }}
+        run: |
+          set -euo pipefail
+          if [ "$FULL_JOB_RESULT" != "success" ]; then
+            echo "RC72_FULL_QUALIFICATION_NOT_PROVEN: full job was $FULL_JOB_RESULT" >&2
+            exit 1
+          fi
+          echo "RC72_FULL_QUALIFICATION_JOB_PASSED_ON_SAME_SHA=$GITHUB_SHA"

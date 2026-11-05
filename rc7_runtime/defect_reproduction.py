@@ -51,7 +51,16 @@ class DefectReproductionResult:
 
 
 class DefectReproductionExecutionService:
-    def __init__(self, *, evidence_root: str, timeout_seconds: int = 300) -> None:
+    def __init__(self, *, evidence_root: str, timeout_seconds: int = 300,
+                 approved_n9_human_gate=None) -> None:
+        # Legacy PRODUCT_DEFECT reproduction remains unchanged. The RC7.2
+        # VALID_TEST_FAILURE exception requires a typed, independently signed
+        # N8/N9 + bank HumanGate; it is never a free-form product claim.
+        if approved_n9_human_gate is not None:
+            from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
+            if not isinstance(approved_n9_human_gate, N9ReproductionHumanGateService):
+                raise RuntimeExecutionError("N9_REPRO_TRUSTED_HUMAN_GATE_REQUIRED")
+        self.approved_n9_human_gate = approved_n9_human_gate
         self.evidence_root = Path(evidence_root).resolve()
         self.timeout_seconds = int(timeout_seconds)
         if self.timeout_seconds <= 0:
@@ -70,12 +79,18 @@ class DefectReproductionExecutionService:
         cwd: str,
         env: Optional[Mapping[str, str]] = None,
         target_base_url: Optional[str] = None,
+        approved_n9_request_id: Optional[str] = None,
+        governed_dispatch=None,
+        governed_fencer=None,
     ) -> DefectReproductionResult:
         task = control.scheduler.task(task_id)
         if task.node != "EXECUTION" or task.task_type != "DEFECT_REPRODUCTION":
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_EXECUTION_TASK_REQUIRED")
-        if task.state != TaskStatus.READY:
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_TASK_NOT_READY")
+        if governed_dispatch is None:
+            if task.state != TaskStatus.READY:
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_TASK_NOT_READY")
+        elif task.state != TaskStatus.LEASED:
+            raise RuntimeExecutionError("N9_REPRO_GOVERNED_WORKITEM_NOT_LEASED")
         if prepared.status != "PREPARED":
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_PREPARED_ATTEMPT_REQUIRED")
         if prepared.tc_id != bundle.spec.tc_id or prepared.case_version != bundle.spec.case_version:
@@ -88,9 +103,84 @@ class DefectReproductionExecutionService:
         gap_row = product_gap[0]
         if gap_row.get("mission_id") != control.mission_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SOURCE_GAP_MISSION_MISMATCH")
-        if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        if approved_n9_request_id is None:
+            if governed_dispatch is not None:
+                raise RuntimeExecutionError("N9_REPRO_GOVERNED_DISPATCH_REQUIRES_APPROVAL")
+            if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        else:
+            gate = self.approved_n9_human_gate
+            if gate is None or control.truth is not gate.truth:
+                raise RuntimeExecutionError("N9_REPRO_TRUSTED_CANONICAL_HUMAN_GATE_REQUIRED")
+            gate.assert_fresh_approved(request_id=approved_n9_request_id)
+            matches = control.truth.query(
+                "rc72_n9_reproduction_authorization_request",
+                request_id=approved_n9_request_id)
+            if len(matches) != 1:
+                raise RuntimeExecutionError("N9_REPRO_ORIGINAL_REQUEST_REQUIRED")
+            request = matches[0]
+            contracts = control.truth.query(
+                "rc72_n6_executable_contract",
+                contract_id=request["original_contract_id"])
+            if len(contracts) != 1:
+                raise RuntimeExecutionError("N9_REPRO_ORIGINAL_N6_CONTRACT_REQUIRED")
+            contract = contracts[0]
+            # An original N8 discrepancy is not a product Defect. Only one
+            # exactly approved Case+Oracle+Attempt can enter a NEW reproduction.
+            if (gap_row.get("category") != "VALID_TEST_FAILURE"
+                    or gap_row.get("target_node") != "N9_DEFECT"
+                    or request["original_gap_id"] != source_product_gap_id
+                    or request["mission_id"] != control.mission_id
+                    or request["release_id"] != control.release_id
+                    or task.gap_refs != [source_product_gap_id]
+                    or task.input_artifact_refs != request["approved_case_artifact_refs"]
+                    or prepared.attempt_id == request["original_attempt_id"]
+                    or prepared.tc_id != request["original_case_id"]
+                    or bundle.spec.tc_id != request["original_case_id"]
+                    or bundle.frozen_case.get("tc_id") != request["original_case_id"]
+                    or bundle.frozen_case.get("status") != "FROZEN"
+                    or bundle.frozen_case.get("release_id") != request["release_id"]
+                    or bundle.frozen_case.get("oracle", {}).get("checks") != contract["oracles"]
+                    or prepared.oracle_snapshot.get("checks") != contract["oracles"]
+                    or (contract.get("preconditions")
+                        and not prepared.precondition_evidence)
+                    or (contract.get("data_refs")
+                        and not prepared.binding_evidence)):
+                raise RuntimeExecutionError("N9_REPRO_FRESH_FROZEN_CASE_OR_ORACLE_SCOPE_REQUIRED")
 
+        if approved_n9_request_id is not None:
+            from .rc72_captain_scheduling import GovernedFreshDispatch
+            from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+            from .rc72_authority import RC72AuthorityRuntime
+            captain_leases = control.truth.query(
+                "rc72_captain_dispatch_lease", mission_id=control.mission_id)
+            if captain_leases:
+                if (not isinstance(governed_dispatch, GovernedFreshDispatch)
+                        or not isinstance(governed_fencer, CaptainDispatchFencer)
+                        or governed_fencer.truth is not control.truth
+                        or not isinstance(authority, RC72AuthorityRuntime)):
+                    raise RuntimeExecutionError("N9_REPRO_CAPTAIN_OWNED_DISPATCH_REQUIRED")
+                owner = governed_fencer.assert_owner(
+                    mission_id=control.mission_id,
+                    lease_id=governed_dispatch.captain_lease_id,
+                    captain_session_id=governed_dispatch.captain_session_id)
+                admission = control.truth.query(
+                    "rc72_captain_etu_admission",
+                    admission_id=governed_dispatch.admission_id)
+                if (len(admission) != 1
+                        or admission[0]["worker_id"] != governed_dispatch.worker_id
+                        or admission[0]["session_id"] != governed_dispatch.session_id
+                        or admission[0]["workitem_id"] != task_id
+                        or admission[0]["etu_id"] != request["original_etu_id"]
+                        or admission[0]["captain_lease_id"] != owner["lease_id"]
+                        or admission[0]["captain_generation"] != owner["generation"]
+                        or owner["team_id"] != governed_dispatch.team_id
+                        or governed_dispatch.mission_id != control.mission_id
+                        or governed_dispatch.role != bundle.spec.layer + "_EXECUTE"
+                        or task.lease_owner != governed_dispatch.worker_id):
+                    raise RuntimeExecutionError("N9_REPRO_CAPTAIN_FRESH_WORKER_SCOPE_CHANGED")
+            elif governed_dispatch is not None:
+                raise RuntimeExecutionError("N9_REPRO_GOVERNED_DISPATCH_WITHOUT_CAPTAIN")
         DeterministicOracleRuntime.validate_contract(prepared.oracle_snapshot)
         runtime = ExecutionRuntime(
             authority=authority,
@@ -98,13 +188,17 @@ class DefectReproductionExecutionService:
             oracle_evaluator=DeterministicOracleRuntime(),
         )
         profile = runtime.profiles.get(bundle.spec.layer)
-        identity = authority.issue_identity(
-            profile.role,
-            "EXECUTION",
-            profile.layer,
-            0,
-            "defect-reproduction-" + uuid.uuid4().hex,
-        )
+        if governed_dispatch is not None:
+            identity = authority.adopt_identity(
+                worker_id=governed_dispatch.worker_id,
+                role=profile.role, phase="EXECUTION",
+                layer=profile.layer, generation=0,
+                session_id=governed_dispatch.session_id)
+        else:
+            identity = authority.issue_identity(
+                profile.role, "EXECUTION", profile.layer,
+                0, "defect-reproduction-" + uuid.uuid4().hex)
+
         lease = authority.issue_lease(
             identity.worker_id,
             "case:%s@%s" % (bundle.spec.tc_id, bundle.spec.case_version),
@@ -123,10 +217,30 @@ class DefectReproductionExecutionService:
         if not admission.ready:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_TOOL_ADMISSION_BLOCKED:%s" % admission.blocked)
 
-        leased = control.lease_next(
-            worker_ref=identity.worker_id,
-            capabilities=("test_execution",),
-        )
+        # The C04 route leases EXACTLY the newly approved reproduction Task:
+        # lease_next could accidentally take a ready sibling or stale repair.
+        if governed_dispatch is not None:
+            leased = control.scheduler.task(task_id)
+            if (leased.lease_owner != identity.worker_id
+                    or leased.state != TaskStatus.LEASED):
+                raise RuntimeExecutionError("N9_REPRO_CAPTAIN_TASK_LEASE_CHANGED")
+            # A handoff between allocation and process start must not regain
+            # the old Captain's business authority.
+            governed_fencer.assert_owner(
+                mission_id=control.mission_id,
+                lease_id=governed_dispatch.captain_lease_id,
+                captain_session_id=governed_dispatch.captain_session_id)
+        elif approved_n9_request_id is None:
+            leased = control.lease_next(
+                worker_ref=identity.worker_id,
+                capabilities=("test_execution",),
+            )
+        else:
+            leased = control.scheduler.lease_task(
+                control.mission_id, task_id,
+                worker_ref=identity.worker_id,
+                capabilities=task.required_capabilities,
+            )
         if leased is None or leased.task_id != task_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SCHEDULER_LEASE_MISMATCH")
         control.start(task_id, worker_ref=identity.worker_id)
@@ -238,6 +352,7 @@ class DefectReproductionExecutionService:
             dimensions={
                 "purpose": "DEFECT_REPRODUCTION",
                 "source_product_gap_id": source_product_gap_id,
+                "approved_n9_request_id": approved_n9_request_id,
                 "attempt_id": prepared.attempt_id,
                 "execution_status": record.status,
                 "integrity_passed": record.integrity_passed,

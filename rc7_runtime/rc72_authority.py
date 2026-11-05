@@ -58,6 +58,9 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     # verified DataRef, binding, lease, node PASS, or downstream release.
     _ROLE_ARTIFACTS[DATA_VERIFIER] = set()
     _ROLE_ARTIFACTS["RC72_COVERAGE_AUDITOR"] = set()
+    # The governed N9 professional is qualified by its canonical Team role.
+    # It does not inherit FAILURE_DIAGNOSTIC defect-writing permissions.
+    _ROLE_ARTIFACTS["N9_QUALIFY"] = set()
 
     def worker_process_environment(self, *, identity, lease, worker_instance_id, mission_id, scope, explicit, home):
         """Project a live native worker's environment, never the Captain's home."""
@@ -103,6 +106,12 @@ class RC72AuthorityRuntime(AuthorityRuntime):
             if (not isinstance(projected, list) or any(not isinstance(tool, str) for tool in projected)
                     or len(set(projected)) != len(projected) or set(projected) != set(lease.allowed_tools)):
                 raise AuthorityError('WORKER_PROCESS_TOOL_PROJECTION_MISMATCH')
+        # Scope checks are ineffective unless the actual child receives the
+        # signed worker and TaskLease identity. These are authority-owned,
+        # never caller-controlled; Windows aliases were normalized above.
+        values.update(binding)
+        values.setdefault('PFC_RC7_DSH_ALLOWED_TOOLS', json.dumps(
+            list(lease.allowed_tools), ensure_ascii=False, separators=(',', ':')))
         identifier = hashlib.sha256(json.dumps([identity.worker_id, identity.session_id, lease.lease_id, scope],
             ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()[:32]
         private = Path(home).resolve() / identifier

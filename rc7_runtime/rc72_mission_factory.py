@@ -26,12 +26,14 @@ from .rc72_n7_execution_preparation import ExecutionPreparationService
 from .rc72_formal_runner import FormalN7RunnerAdapter
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_official_journey_execution import OfficialJourneyExecutionService
-from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter, SignedN7OfficialJourneyAdapter
 from .rc72_journey_bsk import JourneyBSKAdapter
+from .rc72_journey_playwright import JourneyPlaywrightAdapter
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
+from .rc72_n9_professional_disposition_gate import N9ProfessionalDispositionGateService
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
 from .rc72_native_coverage_intake import NativeCoverageGapIntakeService
@@ -69,9 +71,29 @@ class MissionCaptainBinding:
 
 @dataclass(frozen=True)
 class MissionProfessionalDshBinding:
-    """Separate host-owned, tool-limited N9 analyst; never an N7 retry worker."""
+    """Separate host-owned, tool-limited N9 analyst; never an N7 retry worker.
+
+    The Host must explicitly opt in to binding a Captain's already-admitted
+    worker identity to a real DSH ToolLease and WorkerInvocation. Configuration
+    strings/default binding do not authorize this process.
+    """
     launcher: DshHeadlessWorkerLauncher
     tools: tuple
+    captain_governed_dsh: bool = False
+
+
+@dataclass(frozen=True)
+class MissionReproductionHumanBinding:
+    """Trusted bank Host verifier, not a JSON or model-supplied approval."""
+    approval_verifier: object
+    trusted_field_verifier_kinds: tuple
+
+
+@dataclass(frozen=True)
+class MissionProfessionalReviewBinding:
+    """External bank Host professional verifier, never a model-side approval."""
+    review_verifier: object
+    trusted_verifier_kinds: tuple
 
 
 @dataclass(frozen=True)
@@ -86,14 +108,20 @@ class MissionHostBindings:
     captain_binding: object = None
     capability_policies: object = None
     official_bsk_execution: object = None
+    official_playwright_execution: object = None
     professional_dsh_binding: object = None
+    reproduction_human_binding: object = None
+    professional_review_binding: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
                           bank_pip_mirror, execution_authority,
                           execution_environment, tool_registry, evidence_root,
                           execution_env=None, captain_binding=None, capability_policies=None,
-                          official_bsk_execution=None, professional_dsh_binding=None):
+                          official_bsk_execution=None, official_playwright_execution=None,
+                          professional_dsh_binding=None,
+                          reproduction_human_binding=None,
+                          professional_review_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -199,12 +227,36 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         official_journey_adapters['journey_bsk'] = SignedN7OfficialBSKAdapter(
             official_bsk_execution)
 
+    # Playwright/CDP is an approved signed Journey, never the generic HTTP
+    # runner. A registry name cannot invent a B-owned browser or 4A identity.
+    playwright_registered = 'journey_playwright' in allowed_execution_tools
+    if playwright_registered != (official_playwright_execution is not None):
+        raise ContractError('MISSION_FACTORY_PLAYWRIGHT_APPROVED_TOOL_AND_EXECUTOR_REQUIRED')
+    if playwright_registered:
+        execution = official_playwright_execution
+        if (type(execution) is not OfficialJourneyExecutionService
+                or execution.truth is not truth
+                or execution.release_id != release_id
+                or type(execution.adapter) is not JourneyPlaywrightAdapter
+                or execution.adapter.pool is not execution.browser_pool
+                or execution.browser_pool.truth is not truth
+                or execution.browser_pool.release_id != release_id
+                or execution.adapter_kind != 'PLAYWRIGHT_CDP_LOCAL'
+                or execution.trusted_field_adapter_kinds
+                or execution.adapter.field_verified is not False):
+            raise ContractError('MISSION_FACTORY_PLAYWRIGHT_NATIVE_HOST_OWNERSHIP_REQUIRED')
+        official_journey_adapters['journey_playwright'] = SignedN7OfficialJourneyAdapter(
+            execution)
+
     specialist = None
     if professional_dsh_binding is not None:
         if not isinstance(professional_dsh_binding, MissionProfessionalDshBinding):
             raise ContractError('MISSION_FACTORY_N9_TYPED_INDEPENDENT_BINDING_REQUIRED')
         analyst = professional_dsh_binding.launcher
         analyst_tools = professional_dsh_binding.tools
+        if (type(professional_dsh_binding.captain_governed_dsh) is not bool
+                or (professional_dsh_binding.captain_governed_dsh and captain_binding is None)):
+            raise ContractError('MISSION_FACTORY_N9_CAPTAIN_EXPLICIT_HOST_REQUIRED')
         if (not isinstance(analyst, DshHeadlessWorkerLauncher)
                 or analyst.truth is not truth or analyst.release_id != release_id
                 or not isinstance(analyst.authority, RC72AuthorityRuntime)
@@ -249,10 +301,46 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     if professional_dsh_binding is not None:
         specialist = NativeN9ProfessionalDshAnalysisService(
             n7, launcher=professional_dsh_binding.launcher,
-            allowed_tools=professional_dsh_binding.tools)
+            allowed_tools=professional_dsh_binding.tools,
+            captain_governed_dsh=professional_dsh_binding.captain_governed_dsh)
+    human_gate = None
+    if reproduction_human_binding is not None:
+        if (not isinstance(reproduction_human_binding, MissionReproductionHumanBinding)
+                or specialist is None
+                or not isinstance(reproduction_human_binding.trusted_field_verifier_kinds, tuple)
+                or not reproduction_human_binding.trusted_field_verifier_kinds):
+            raise ContractError('MISSION_FACTORY_N9_HUMAN_TRUSTED_HOST_BINDING_REQUIRED')
+        from .rc72_n9_reproduction_authorization import N9ReproductionAuthorizationRequestService
+        from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
+        human_gate = N9ReproductionHumanGateService(
+            N9ReproductionAuthorizationRequestService(specialist),
+            approval_verifier=reproduction_human_binding.approval_verifier,
+            trusted_field_verifier_kinds=reproduction_human_binding.trusted_field_verifier_kinds)
+    # C04 is a real, separately governed execution runner. The signer and
+    # HumanGate come from the same approved Mission Host, not model output.
+    repro_executor = None
+    if human_gate is not None:
+        from .rc72_n9_approved_reproduction_execution import N9ApprovedReproductionExecutionService
+        repro_executor = N9ApprovedReproductionExecutionService(
+            human_gate, evidence_root=root/'approved-reproduction',
+            captain_scheduler=n7.captain_scheduler,
+            captain_session_id=n7.captain_session_id,
+            captain_lease_id=n7.captain_lease_id, team_id=n7.team_id)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
-        policies=capability_policies or {}), professional_dsh=specialist)
+        policies=capability_policies or {}), professional_dsh=specialist,
+        reproduction_human_gate=human_gate, reproduction_executor=repro_executor)
+    n9_professional = None
+    if professional_review_binding is not None:
+        if (not isinstance(professional_review_binding, MissionProfessionalReviewBinding)
+                or repro_executor is None or human_gate is None or specialist is None
+                or not isinstance(professional_review_binding.trusted_verifier_kinds, tuple)
+                or not professional_review_binding.trusted_verifier_kinds):
+            raise ContractError('MISSION_FACTORY_N9_PROFESSIONAL_HOST_REVIEW_BINDING_REQUIRED')
+        n9_professional = N9ProfessionalDispositionGateService(
+            n8,
+            review_verifier=professional_review_binding.review_verifier,
+            trusted_verifier_kinds=professional_review_binding.trusted_verifier_kinds)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
@@ -270,4 +358,5 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         n2_evaluator=DshRequirementEvaluator(launcher('requirement_review'), allowed_tools=tools('requirement_review')),
         n3_pipeline=n3, n4_pipeline=n4, n5_pipeline=n5, n7_pipeline=n7,
         n8_pipeline=n8,
-        n9_pipeline=n9, expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)
+        n9_pipeline=n9, n9_professional_pipeline=n9_professional,
+        expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)

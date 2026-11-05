@@ -11,6 +11,8 @@ from rc7_runtime.rc72_domain import (
     MissionNodeRecord,
     MissionNodeState,
     NodeDelivery,
+    NodeGate,
+    NodeGateDecision,
     ReleaseBatch,
     TestObligation,
 )
@@ -201,6 +203,30 @@ def _persist_diagnosis_case(truth, orchestrator):
     return diagnosis_id
 
 
+
+def _accept_repair_delivery(repo, runtime, delivery):
+    """Commit a real accepted upstream repair generation in the test R1."""
+    node = runtime.node_by_type("M-1", AutonomousMissionNode.N3_CODE_ANALYSIS)
+    repo.persist(MissionNodeRecord(
+        mission_node_id=node["mission_node_id"], mission_id="M-1",
+        node_type=AutonomousMissionNode.N3_CODE_ANALYSIS,
+        scope_ref=node["scope_ref"], state=MissionNodeState.PASS,
+        active_delivery_version=delivery.version,
+        delivery_refs=[delivery.delivery_id], gate_refs=["GATE-" + delivery.delivery_id],
+        revision=int(node.get("revision") or 1) + 1,
+    ), artifact_version=int(node.get("artifact_version") or 1) + 1)
+    repo.persist(NodeGate(
+        gate_id="GATE-" + delivery.delivery_id, mission_id="M-1",
+        mission_node_id=node["mission_node_id"],
+        node_type=AutonomousMissionNode.N3_CODE_ANALYSIS,
+        delivery_id=delivery.delivery_id, decision=NodeGateDecision.PASS,
+        reviewer_worker_id="independent-upstream-reviewer",
+        reviewer_session_id="independent-review-session",
+        criteria=["repaired code analysis independently reviewed"],
+        passed=["repaired code analysis independently reviewed"],
+        evidence_refs=["EVD-FAIL-1"]))
+
+
 def test_upstream_repair_persists_impact_and_marks_old_execution_assets_stale(tmp_path: Path):
     truth, runtime, repo, orchestrator = _setup(tmp_path)
     diagnosis_id = _persist_diagnosis_case(truth, orchestrator)
@@ -219,6 +245,7 @@ def test_upstream_repair_persists_impact_and_marks_old_execution_assets_stale(tm
         created_by_workitems=["WI-N3-REPAIR"],
     )
     repo.persist(repair_delivery)
+    _accept_repair_delivery(repo, runtime, repair_delivery)
 
     repair = orchestrator.record_upstream_repair(
         diagnosis_id=diagnosis_id,
@@ -279,6 +306,7 @@ def test_repair_then_new_attempt_records_immutable_attempt_lineage_and_replays(t
         created_by_workitems=["WI-N3-REPAIR"],
     )
     repo.persist(repair_delivery)
+    _accept_repair_delivery(repo, runtime, repair_delivery)
     repair = orchestrator.record_upstream_repair(
         diagnosis_id=diagnosis_id,
         repair_delivery_id=repair_delivery.delivery_id,
@@ -342,3 +370,48 @@ def test_replacement_rejects_repair_from_other_failure(tmp_path, changes):
         orchestrator.record_replacement_attempt(diagnosis_id=diagnosis_id,
             replacement_binding_id="BIND-2")
     assert (tmp_path / "r1.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize("defect", [
+    "ungated", "gate_fail", "stale_delivery_version",
+    "foreign_node_gate", "gate_without_evidence",
+])
+def test_n8_upstream_repair_rejects_missing_or_noncurrent_independent_gate(
+        tmp_path: Path, monkeypatch, defect):
+    truth, runtime, repo, orchestrator = _setup(tmp_path)
+    diagnosis_id = _persist_diagnosis_case(truth, orchestrator)
+    node = runtime.node_by_type("M-1", AutonomousMissionNode.N3_CODE_ANALYSIS)
+    delivery = NodeDelivery(
+        delivery_id="ND-N3-REPAIR-2", mission_id="M-1",
+        mission_node_id=node["mission_node_id"],
+        node_type=AutonomousMissionNode.N3_CODE_ANALYSIS, version=2,
+        producer_ref="worker://fresh-code-analyst",
+        artifact_refs=["analysis://v2"],
+        evidence_refs=["EVD-FAIL-1"], created_by_workitems=["WI-N3-REPAIR"])
+    repo.persist(delivery)
+    if defect != "ungated":
+        _accept_repair_delivery(repo, runtime, delivery)
+    original = truth.query
+    def changed(kind, **filters):
+        rows = original(kind, **filters)
+        if kind == "rc72_node_gate":
+            if defect == "gate_fail":
+                return [dict(row, decision="FAIL") for row in rows]
+            if defect == "foreign_node_gate":
+                return [dict(row, mission_id="M-OTHER") for row in rows]
+            if defect == "gate_without_evidence":
+                return [dict(row, evidence_refs=[]) for row in rows]
+        if kind == "rc72_mission_node" and defect == "stale_delivery_version":
+            return [dict(row, active_delivery_version=1)
+                    if row.get("node_type") == "N3_CODE_ANALYSIS" else row
+                    for row in rows]
+        return rows
+    monkeypatch.setattr(truth, "query", changed)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(Exception, match="UPSTREAM_REPAIR_"):
+        orchestrator.record_upstream_repair(
+            diagnosis_id=diagnosis_id, repair_delivery_id=delivery.delivery_id,
+            changed_refs=["Service#create"], reason="rejected repair")
+    assert truth.store.path.read_bytes() == before
+    assert not original("rc72_diagnosis_repair")
+    assert not original("rc72_impact_set")

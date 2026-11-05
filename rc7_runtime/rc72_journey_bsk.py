@@ -26,6 +26,19 @@ from .rc72_browser_resources import BrowserAccessMode, BrowserPool
 from .rc72_journey_playwright import _atomic_json, _public_url, _safe_id
 from .rc72_journey_png import verify_png_file
 
+
+# BrowserSkill 0.4.1 CLI built-in device presets, audited against upstream
+# Rust release. These are host-approved options, never read from a Journey step.
+_MOBILE_PRESETS = {
+    "iphone-14": (390, 844, 3.0, "iPhone"),
+    "iphone-14-pro-max": (430, 932, 3.0, "iPhone"),
+    "iphone-se": (375, 667, 2.0, "iPhone"),
+    "pixel-7": (412, 915, 2.625, "Pixel 7"),
+    "galaxy-s23": (360, 780, 3.0, "SM-S911B"),
+    "ipad-mini": (744, 1133, 2.0, "iPad"),
+    "galaxy-tab-s8": (800, 1280, 2.0, "SM-X700"),
+}
+
 class JourneyBSKAdapter:
     adapter_kind = "BROWSERSKILL_NATIVE"
     field_verified = False
@@ -44,6 +57,8 @@ class JourneyBSKAdapter:
         trusted_business_verifier_kinds: Sequence[str] = (),
         runner: Optional[Callable[[Any], Mapping[str, Any]]] = None,
         timeout_seconds: int = 45,
+        mobile_device: Optional[str] = None,
+        mobile_orientation: str = "portrait",
     ) -> None:
         if not isinstance(browser_pool, BrowserPool):
             raise ContractError("JOURNEY_BSK_BROWSER_POOL_REQUIRED")
@@ -56,6 +71,15 @@ class JourneyBSKAdapter:
             raise ContractError("JOURNEY_BSK_OFFLINE_EXECUTABLE_MISSING")
         if type(timeout_seconds) is not int or not 5 <= timeout_seconds <= 120:
             raise ContractError("JOURNEY_BSK_TIMEOUT_INVALID")
+        if mobile_device is not None and mobile_device not in _MOBILE_PRESETS:
+            raise ContractError("JOURNEY_BSK_MOBILE_DEVICE_NOT_APPROVED")
+        if mobile_orientation not in {"portrait", "landscape"}:
+            raise ContractError("JOURNEY_BSK_MOBILE_ORIENTATION_INVALID")
+        if mobile_device is None and mobile_orientation != "portrait":
+            raise ContractError("JOURNEY_BSK_MOBILE_DEVICE_REQUIRED")
+        self.mobile_device = mobile_device
+        self.mobile_orientation = mobile_orientation
+        self._mobile_key = None
         self.pool = browser_pool
         self.root = Path(evidence_root).resolve()
         self.binary = binary
@@ -80,6 +104,9 @@ class JourneyBSKAdapter:
         # B group owns the actual BSK session; this method only invalidates
         # the adapter's ownership cache, never kills a shared daemon.
         self._run_id = self._attempt = self._session = self._tab_id = self._fingerprint = None
+        # Browser/daemon belong to B group. Never forcibly turn off a shared
+        # tab's emulation during close; just invalidate local capability cache.
+        self._mobile_key = None
 
     def _guard(self, context: Mapping[str, Any]) -> Dict[str, Any]:
         for field in ("mission_id", "workitem_id", "attempt_id", "worker_id", "session_id", "browser_lease_id"):
@@ -198,6 +225,83 @@ class JourneyBSKAdapter:
                 and reply["session_id"] != session):
             raise ContractError("JOURNEY_BSK_CONTROL_SESSION_MISMATCH")
         return reply["context_id"]
+
+    def _ensure_mobile(self, context: Mapping[str, Any],
+                       binding: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        """Apply approved device metrics on the owned tab; prove live H5 state.
+
+        Emulation is per-tab, not inherited by new tabs. Never call this
+        before the durable, fsynced dispatch intent. A CLI success alone
+        is not proof of the browser's actual viewport or touch support.
+        """
+        if self.mobile_device is None:
+            return None
+        width, height, dpr, ua_marker = _MOBILE_PRESETS[self.mobile_device]
+        if self.mobile_orientation == "landscape":
+            width, height = height, width
+        tab_id, session = binding["tab_id"], binding["session"]
+        key = (context["attempt_id"], context["browser_lease_id"],
+               session, tab_id, self.mobile_device, self.mobile_orientation)
+        if key != self._mobile_key:
+            argv = ["emulate", "--session", session, "--tab-id", str(tab_id),
+                    "--device", self.mobile_device]
+            if self.mobile_orientation == "landscape":
+                argv += ["--width", str(width), "--height", str(height)]
+            reply = self._run(argv + ["--json"])
+            applied = reply.get("applied")
+            if (reply.get("tab_id") != tab_id
+                    or reply.get("cleared") is not False
+                    or not isinstance(applied, Mapping)
+                    or applied.get("width") != width
+                    or applied.get("height") != height
+                    or applied.get("mobile") is not True
+                    or applied.get("touch") is not True
+                    or type(applied.get("max_touch_points")) is not int
+                    or applied["max_touch_points"] < 1
+                    or type(applied.get("device_scale_factor")) not in (int, float)
+                    or abs(applied["device_scale_factor"] - dpr) > 0.05
+                    or not isinstance(applied.get("user_agent"), str)
+                    or ua_marker not in applied["user_agent"]):
+                raise ContractError("JOURNEY_BSK_MOBILE_EMULATION_NOT_APPLIED")
+            self._guard(context)
+            self._mobile_key = key
+
+        # Re-check the actual page on every step. Human navigation, tab
+        # takeover and external viewport changes cannot become silent PASS.
+        # Strict control contexts are single-use: caller re-syncs after this.
+        probe_context = self._sync(session, tab_id)
+        expression = """(() => ({
+          viewport_width: window.innerWidth, viewport_height: window.innerHeight,
+          device_pixel_ratio: window.devicePixelRatio,
+          user_agent: navigator.userAgent,
+          max_touch_points: navigator.maxTouchPoints
+        }))()"""
+        observed = self._run(["evaluate", expression,
+                              "--session", session, "--tab-id", str(tab_id),
+                              "--context", probe_context, "--json"])
+        state = observed.get("value")
+        if (observed.get("ok") is not True
+                or observed.get("tab_id") != tab_id
+                or not isinstance(state, Mapping)):
+            raise ContractError("JOURNEY_BSK_MOBILE_LIVE_PROBE_UNVERIFIED")
+        numeric = ("viewport_width", "viewport_height", "device_pixel_ratio",
+                   "max_touch_points")
+        if (any(type(state.get(k)) not in (int, float) or
+                not math.isfinite(state[k]) for k in numeric)
+                or abs(state["viewport_width"] - width) > 2
+                or abs(state["viewport_height"] - height) > 2
+                or abs(state["device_pixel_ratio"] - dpr) > 0.05
+                or state["max_touch_points"] < 1
+                or not isinstance(state.get("user_agent"), str)
+                or ua_marker not in state["user_agent"]):
+            raise ContractError("JOURNEY_BSK_MOBILE_LIVE_VIEWPORT_OR_TOUCH_MISMATCH")
+        self._guard(context)
+        return {
+            "device": self.mobile_device, "orientation": self.mobile_orientation,
+            "viewport_css": [width, height], "device_pixel_ratio": dpr,
+            "touch_verified": True, "user_agent_verified": True,
+            "tab_id": tab_id, "source": "BSK_0_4_1_LIVE_CDP_EMULATION",
+        }
 
     def _selector(self, raw_ref: str, context: Mapping[str, Any]) -> str:
         descriptor = self.resolve(raw_ref, "locator", context)
@@ -459,6 +563,7 @@ class JourneyBSKAdapter:
         started_at = int(time.time())
         evidence_refs = []
         png_proof = None
+        mobile_receipt = None
         try:
             binding = self._guard(context)
             if self._run_id is not None and (
@@ -493,6 +598,12 @@ class JourneyBSKAdapter:
             except FileExistsError as exc:
                 raise ContractError("JOURNEY_BSK_DUPLICATE_STEP_EFFECT_UNKNOWN") from exc
             evidence_refs.append(intent_path.resolve().as_uri())
+            mobile_receipt = self._ensure_mobile(context, binding)
+            if mobile_receipt is not None:
+                # New strict control context after emulation and read-only
+                # device probe; stale sync cannot authorize an H5 action.
+                control_context = self._sync(session, binding["tab_id"])
+                self._guard(context)
             step_result = self._action(step, context, session, control_context)
             # BSK's session may be stopped/borrow ownership revoked during the
             # action; never issue screenshot or PASS without a fresh lease guard.
@@ -540,6 +651,7 @@ class JourneyBSKAdapter:
                 intent_path.resolve().as_uri() if intent_path.is_file() else None),
             "started_at": started_at, "completed_at": int(time.time()),
             "result_category": step_result.get("action"),
+            "mobile_emulation": mobile_receipt,
             "business_oracle_evidence_refs": (
                 list(step_result.get("oracle_evidence_refs") or [])),
             "screenshot_sha256": png_proof["sha256"] if png_proof else None,

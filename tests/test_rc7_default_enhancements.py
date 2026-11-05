@@ -6,14 +6,21 @@ from pathlib import Path
 import pytest
 
 from rc7_release import dsh, dsh_plugins
-from rc7_release.plugin_payload import REQUIRED_PLUGIN_NAMES, package_path
+from rc7_release.plugin_payload import (
+    BSK_DSH_PLUGIN_NAME, BSK_DSH_PLUGIN_VERSION,
+    REQUIRED_PLUGIN_NAMES, inspect_vendor, package_path,
+)
 
 
 def _write_package(vendor: Path, name: str, main: str = "index.js") -> Path:
     root = package_path(vendor, name)
     root.mkdir(parents=True, exist_ok=True)
     (root / "package.json").write_text(
-        json.dumps({"name": name, "version": "test", "main": main}),
+        json.dumps({
+            "name": name,
+            "version": BSK_DSH_PLUGIN_VERSION if name == BSK_DSH_PLUGIN_NAME else "test",
+            "main": main,
+        }),
         encoding="utf-8",
     )
     entry = root / main
@@ -31,6 +38,21 @@ def _fake_home(tmp_path: Path) -> Path:
     _write_package(vendor, "dsh-memento", "index.mjs")
     _write_package(vendor, "@perrylink/dsh-plugin-doctor")
     return home
+
+
+def test_bsk_version_pin_rejects_stale_legacy_payload(tmp_path: Path) -> None:
+    home = _fake_home(tmp_path)
+    vendor = home / "workspace-template" / "runtime" / "dsh-plugins"
+    manifest_path = package_path(vendor, BSK_DSH_PLUGIN_NAME) / "package.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = "0.4.0"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    inspection = inspect_vendor(vendor)
+    assert inspection["status"] == "FAIL"
+    assert BSK_DSH_PLUGIN_NAME in inspection["missing"]
+    result = dsh_plugins.install(home, "web", dry_run=True)
+    assert result["status"] == "FAIL"
+    assert result["reason"] == "REQUIRED_DSH_PLUGIN_PAYLOAD_MISSING"
 
 
 def test_default_enhancements_are_bundled_and_runtime_enabled(tmp_path: Path) -> None:

@@ -28,6 +28,28 @@ class NativeN9ProfessionalIntakeService:
             raise ContractError('N9_PROFESSIONAL_R1_NOT_UNIQUE:' + kind)
         return rows[0]
 
+    def _assert_current_n8_delivery(self, node, receipt, gate, mission_id):
+        # A signed diagnosis is historical evidence, not perpetual authority:
+        # the N8 Node can acquire a new active Delivery/Gate generation while
+        # retaining prior gate_refs. N9 must consume the exact current accepted
+        # Delivery, otherwise a stale old diagnosis can spawn new professional
+        # WorkItems against a superseded N7 execution epoch.
+        version=node.get('active_delivery_version')
+        if (not isinstance(version,int) or isinstance(version,bool)
+                or not isinstance(node.get('delivery_refs'),list)):
+            raise ContractError('N9_PROFESSIONAL_CURRENT_N8_DELIVERY_REQUIRED')
+        current=[delivery for delivery in self.truth.query(
+            'rc72_node_delivery',mission_node_id=node['mission_node_id'])
+            if delivery.get('mission_id')==mission_id
+            and delivery.get('node_type')=='N8_DIAGNOSIS_RECOVERY'
+            and delivery.get('version')==version
+            and delivery.get('delivery_id') in node['delivery_refs']]
+        if (len(current)!=1 or current[0]['delivery_id']!=receipt['delivery_id']
+                or gate.get('mission_id')!=mission_id
+                or gate.get('mission_node_id')!=node['mission_node_id']
+                or gate.get('node_type')!='N8_DIAGNOSIS_RECOVERY'):
+            raise ContractError('N9_PROFESSIONAL_CURRENT_N8_DELIVERY_CHANGED')
+
     def queue_reproduction(self, *, preparation_id, diagnosis_id):
         p=self._one('rc72_n7_execution_preparation',preparation_id=preparation_id)
         if p['release_id']!=self.release_id or p['source_commit']!=self.source_commit:
@@ -69,10 +91,45 @@ class NativeN9ProfessionalIntakeService:
                 or receipt['reviewer_worker_id'] in {p['worker_id'],receipt['diagnosis_worker_id']}
                 or failure['evidence_id'] not in gate['evidence_refs']):
             raise ContractError('N9_PROFESSIONAL_INDEPENDENT_N8_GATE_REQUIRED')
+        self._assert_current_n8_delivery(node, receipt, gate, p['mission_id'])
         gap=self._one('rc7_gap',gap_id=outcome['gap_id'])
         if (gap['mission_id']!=p['mission_id'] or gap['target_node']!='N9_DEFECT'
                 or gap['category']!='VALID_TEST_FAILURE'):
             raise ContractError('N9_PROFESSIONAL_ORIGINAL_GAP_REQUIRED')
+        # A historical N8 PASS and an R1 Gap label alone are not N9 authority.
+        # Revalidate the *entire* immutable semantic route, including its
+        # exact original N8 delivery.  Without these checks a replaced Gap or
+        # BackEdge can smuggle an independent-analyst Task past the review gate
+        # when the original business failure is no longer its source.
+        if (outcome.get('action')!='SEMANTIC_BACK_EDGE'
+                or not outcome.get('back_edge_id')
+                or not outcome.get('transition_id')
+                or outcome.get('source_delivery_id')!=receipt['delivery_id']
+                or gap.get('source_node')!='N8_DIAGNOSIS_RECOVERY'
+                or gap.get('description')!=outcome.get('rationale')):
+            raise ContractError('N9_PROFESSIONAL_SEMANTIC_ROUTE_REQUIRED')
+        edge=self._one('rc72_back_edge',back_edge_id=outcome['back_edge_id'])
+        transition=self._one('rc72_node_transition',transition_id=outcome['transition_id'])
+        if (edge.get('mission_id')!=p['mission_id']
+                or edge.get('gap_id')!=gap['gap_id']
+                or edge.get('from_node')!='N8_DIAGNOSIS_RECOVERY'
+                or edge.get('from_delivery_id')!=receipt['delivery_id']
+                or edge.get('return_node')!='N9_DEFECT'
+                or edge.get('reason')!='VALID_TEST_FAILURE'
+                or edge.get('invalidated_refs')!=outcome.get('affected_refs')
+                or transition.get('mission_id')!=p['mission_id']
+                or transition.get('kind')!='BACK_EDGE'
+                or transition.get('from_node_type')!='N8_DIAGNOSIS_RECOVERY'
+                or transition.get('from_mission_node_id')!=node['mission_node_id']
+                or transition.get('to_node_type')!='N9_DEFECT'
+                or transition.get('back_edge_id')!=edge['back_edge_id']
+                or transition.get('reason')!='VALID_TEST_FAILURE'
+                or transition.get('evidence_refs')!=outcome.get('evidence_refs')):
+            raise ContractError('N9_PROFESSIONAL_SEMANTIC_ROUTE_CHANGED')
+        target=self.pipeline.diagnosis.runtime.node_by_type(
+            p['mission_id'],AutonomousMissionNode.N9_DEFECT)
+        if transition.get('to_mission_node_id')!=target['mission_node_id']:
+            raise ContractError('N9_PROFESSIONAL_SEMANTIC_ROUTE_CHANGED')
         wid='N9QUAL-'+_hash([p['mission_id'],p['attempt_id'],diagnosis_id])[:24]
         plan=self._one('rc72_n7_execution_plan',plan_id=p['plan_id'])
         members=[item for item in plan['items'] if item['workitem_id']==p['workitem_id']]

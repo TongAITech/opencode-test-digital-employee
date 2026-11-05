@@ -13,18 +13,27 @@ def _make(tmp_path, members):
     with zipfile.ZipFile(str(path), "w", compression=zipfile.ZIP_STORED) as archive:
         for name, data in members:
             archive.writestr(name, data)
-    # On Windows ZipInfo normalizes literal backslashes into forward slashes
-    # BEFORE writing the ZIP. Mutate ONLY the filename bytes in the two ZIP
-    # headers, so this negative case exercises a real malicious ZIP entry
-    # rather than Python's already-sanitized test fixture.
-    for name, _ in members:
-        if "\\" in name:
-            normalized = name.replace("\\", "/").encode("utf-8")
-            malicious = name.encode("utf-8")
-            raw = path.read_bytes()
-            if normalized != malicious and normalized in raw:
-                assert raw.count(normalized) == 2  # local + central headers
-                path.write_bytes(raw.replace(normalized, malicious))
+    # Windows zipfile may rewrite backslash member names to slashes before
+    # persisting. Assert the ON-DISK archive has precisely the requested
+    # adversarial names. Rebuild the local/central header bytes when needed.
+    # This does not weaken the production preflight; it fixes the ZIP fixture.
+    with zipfile.ZipFile(str(path), "r") as archive:
+        stored_names = [entry.orig_filename for entry in archive.infolist()]
+    assert len(stored_names) == len(members)
+    raw = path.read_bytes()
+    for (requested, _), observed in zip(members, stored_names):
+        if requested == observed:
+            continue
+        before, after = observed.encode("utf-8"), requested.encode("utf-8")
+        assert len(before) == len(after), "ZIP_TEST_NAME_REWRITE_LENGTH_CHANGED"
+        assert raw.count(before) == 2, "ZIP_TEST_LOCAL_CENTRAL_HEADERS_NOT_UNIQUE"
+        raw = raw.replace(before, after)
+    if raw != path.read_bytes():
+        path.write_bytes(raw)
+    with zipfile.ZipFile(str(path), "r") as archive:
+        assert [entry.orig_filename for entry in archive.infolist()] == [name for name, _ in members], (
+            "ZIP_TEST_DID_NOT_PRESERVE_ADVERSARIAL_MEMBER_NAMES"
+        )
     return path
 
 

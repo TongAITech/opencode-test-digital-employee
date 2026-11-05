@@ -27,7 +27,10 @@ def _handoff():
     service.allowed_tools = ("api_read_only",)
     service.release_id = "RC7.2"
     service.source_commit = "a" * 40
-    service._raw = lambda ref, mission_id, assignment_id: ("a" * 64, _candidate())
+    service._raw = lambda ref, mission_id, assignment_id, **kw: (
+        ("a" * 64, _candidate(), "session-n9-distinct",
+         [{"tool_name": "api_read_only", "call_ref": "dsh-event://tool-call/0"}])
+        if kw.get("provenance") else ("a" * 64, _candidate()))
     service._one = lambda kind, **scope: {"worker_id": "ORIGINAL-N7-WORKER"}
     workitem = "N9QUAL-ORIGINAL-REAL-GAP"
     scope = {
@@ -91,8 +94,10 @@ def test_n9_real_handoff_rejects_wrong_identity_unobserved_tool_and_oracle_bypas
     elif mutation == "unapproved_tool":
         returned["tool_calls"][0]["tool_name"] = "api_mutating_delete"
     elif mutation == "unobserved_evidence":
-        service._raw = lambda ref, mission_id, assignment_id: (
-            "a" * 64, dict(_candidate(), tool_evidence_refs=["dsh-event://tool-call/999"]))
+        service._raw = lambda ref, mission_id, assignment_id, **kw: (
+            "a" * 64, dict(_candidate(), tool_evidence_refs=["dsh-event://tool-call/999"]),
+            "session-n9-distinct",
+            [{"tool_name": "api_read_only", "call_ref": "dsh-event://tool-call/0"}])
     elif mutation == "replayed_dsh_session":
         returned["dsh_session_id"] = None
     with pytest.raises(ContractError):
@@ -117,3 +122,76 @@ def test_n9_raw_dsh_evidence_must_be_exact_private_launcher_file_on_windows_and_
                     "file:///C:/untrusted/foreign.jsonl"):
         with pytest.raises(ContractError, match="N9_DSH_NATIVE_RAW_PATH_CHANGED"):
             service._raw(foreign, "M-REAL", "ASSIGN-N9")
+
+
+
+@pytest.mark.parametrize("forgery", [
+    "foreign_session", "raw_other_session", "missing_raw_session",
+    "raw_other_tool", "raw_missing_tool", "raw_extra_tool",
+])
+def test_professional_handoff_requires_exact_real_raw_dsh_session_and_tool_trace(forgery):
+    """No R1 signed HANDOFF can make missing/foreign DSH tools real."""
+    service, scope, task, returned = _handoff()
+    real_call = {"tool_name": "api_read_only", "call_ref": "dsh-event://tool-call/0"}
+    raw_session = "session-n9-distinct"
+    raw_calls = [dict(real_call)]
+    if forgery == "foreign_session":
+        returned["dsh_session_id"] = "session-foreign-host"
+    elif forgery == "raw_other_session":
+        raw_session = "session-foreign-host"
+    elif forgery == "missing_raw_session":
+        raw_session = ""
+    elif forgery == "raw_other_tool":
+        raw_calls = [{"tool_name": "api_write", "call_ref": "dsh-event://tool-call/0"}]
+    elif forgery == "raw_missing_tool":
+        raw_calls = []
+    elif forgery == "raw_extra_tool":
+        raw_calls.append({"tool_name": "api_read_only", "call_ref": "dsh-event://tool-call/1"})
+    service._raw = lambda ref, mission_id, assignment_id, **kw: (
+        "a" * 64, _candidate(), raw_session, raw_calls)
+    with pytest.raises(ContractError, match="N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED"):
+        service._expected(scope, task, returned)
+
+
+@pytest.mark.parametrize("forgery", ["session", "tool_name", "tool_ref", "missing_tool"])
+def test_professional_signed_receipt_cold_audit_checks_raw_session_tool_trace(forgery):
+    """Never trust an R1-only tool/session claim on restart."""
+    from rc7_runtime.rc72_n7_execution_admission import _hash
+    service, scope, task, returned = _handoff()
+    expected = service._expected(scope, task, returned)
+    row = dict(expected, signature="fake-test-signature")
+    service.pipeline = SimpleNamespace(preparation=SimpleNamespace(
+        authority=SimpleNamespace(_sign=lambda payload: "fake-test-signature")))
+    raw_session = row["dsh_session_id"]
+    raw_calls = [dict(x) for x in row["tool_calls"]]
+    if forgery == "session":
+        raw_session = "session-foreign-host"
+    elif forgery == "tool_name":
+        raw_calls[0]["tool_name"] = "api_write"
+    elif forgery == "tool_ref":
+        raw_calls[0]["call_ref"] = "dsh-event://tool-call/99"
+    elif forgery == "missing_tool":
+        raw_calls.clear()
+    service._raw = lambda ref, mission_id, assignment_id, **kw: (
+        row["raw_output_sha256"], row["candidate"], raw_session, raw_calls)
+    with pytest.raises(ContractError, match="N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED"):
+        service._receipt(row)
+
+
+def test_dsh_raw_bytes_provenance_reconstructed_from_real_trace(tmp_path):
+    service = object.__new__(NativeN9ProfessionalDshAnalysisService)
+    service.launcher = SimpleNamespace(state_root=tmp_path)
+    out = tmp_path / "worker-evidence" / "M-REAL" / "ASSIGN-N9.jsonl"
+    out.parent.mkdir(parents=True)
+    out.write_text(
+        json.dumps({"type": "session", "session_id": "session-n9-real-worker"}) + "\n"
+        + json.dumps({"type": "tool_call", "tool_name": "api_read_only"}) + "\n"
+        + json.dumps({"type": "text", "text": json.dumps(_candidate())}) + "\n",
+        encoding="utf-8",
+    )
+    digest, candidate, session, calls = service._raw(
+        out.resolve().as_uri(), "M-REAL", "ASSIGN-N9", provenance=True)
+    assert digest == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert candidate == _candidate()
+    assert session == "session-n9-real-worker"
+    assert calls == [{"call_ref": "dsh-event://tool-call/1", "tool_name": "api_read_only"}]

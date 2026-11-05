@@ -1,0 +1,56 @@
+name: RC7.2 C07 Live Signed AgentTeams First Captain
+on:
+  push:
+    branches: [work/rc7.2-c07-live-host-first-captain]
+    paths:
+      - rc7_release/rc72_captain_host_reentry.py
+      - rc7_release/rc72_configured_mission.py
+      - tests/test_rc72_captain_host_reentry.py
+      - tests/test_rc72_configured_mission.py
+      - .github/workflows/rc72-c07-live-first-captain.yml
+  pull_request:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-host-first-captain:
+    name: c07-first-captain-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8','3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Approved pinned pytest harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile signed first Captain, config and cold R1
+        run: >-
+          python -m py_compile
+          rc7_release/rc72_captain_host_reentry.py
+          rc7_release/rc72_configured_mission.py
+          tests/test_rc72_captain_host_reentry.py
+          tests/test_rc72_configured_mission.py
+      - name: Real first Host -> R1 lease -> N7/N9 governed and cold reentry, no forgery
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_captain_host_reentry.py
+          tests/test_rc72_configured_mission.py
+          tests/test_rc72_captain_dispatch_fencing.py
+          tests/test_rc72_n9_captain_signed_dsh_bridge.py
+          --junitxml=rc72-c07-first-captain.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c07-first-captain-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c07-first-captain.xml
+          retention-days: 14
+          if-no-files-found: warn

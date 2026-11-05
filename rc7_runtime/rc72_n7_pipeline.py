@@ -34,22 +34,31 @@ class N7PipelineService:
         tools = {t for values in preparation.tool_registry.values() for t in values}
         # An approved browser Journey is NOT a generic API runner.  The
         # host must explicitly inject B's signed, WRITE-lease-fenced adapter.
-        from .rc72_journey_n7_adapter import SignedN7OfficialBSKAdapter
+        from .rc72_journey_n7_adapter import (
+            SignedN7OfficialBSKAdapter, SignedN7OfficialJourneyAdapter)
+        typed = {'journey_bsk': SignedN7OfficialBSKAdapter,
+                 'journey_playwright': SignedN7OfficialJourneyAdapter}
         official = official_journey_adapters if official_journey_adapters is not None else {}
-        if (not isinstance(official, dict) or set(official) - {'journey_bsk'}
-                or any(not isinstance(a, SignedN7OfficialBSKAdapter)
-                       for a in official.values())):
+        if (not isinstance(official, dict)
+                or any(route not in typed or type(adapter) is not typed[route]
+                       for route, adapter in official.items())):
             raise ContractError('RC72_N7_EXACT_OFFICIAL_JOURNEY_ADAPTER_REQUIRED')
         if 'journey_bsk' in tools and 'journey_bsk' not in official:
             raise ContractError('RC72_N7_BSK_NATIVE_ADAPTER_REQUIRED')
         if 'journey_bsk' in official and 'journey_bsk' not in tools:
             raise ContractError('RC72_N7_BSK_TOOL_NOT_IN_APPROVED_REGISTRY')
+        if 'journey_playwright' in tools and 'journey_playwright' not in official:
+            raise ContractError('RC72_N7_PLAYWRIGHT_NATIVE_ADAPTER_REQUIRED')
+        if 'journey_playwright' in official and 'journey_playwright' not in tools:
+            raise ContractError('RC72_N7_PLAYWRIGHT_TOOL_NOT_IN_APPROVED_REGISTRY')
         for route, adapter in official.items():
             if (adapter.tool_name != route or adapter.execution.truth is not self.truth
                     or adapter.execution.release_id != self.release_id
-                    or adapter.execution.browser_pool.truth is not self.truth):
-                raise ContractError('RC72_N7_BSK_CANONICAL_SCOPE_CHANGED')
-        adapters = {t: runner for t in tools if t != 'journey_bsk'}
+                    or adapter.execution.browser_pool.truth is not self.truth
+                    or adapter.execution.browser_pool.release_id != self.release_id):
+                raise ContractError('RC72_N7_JOURNEY_CANONICAL_SCOPE_CHANGED')
+        # Never send an approved browser tool to FormalN7RunnerAdapter.
+        adapters = {t: runner for t in tools if t not in typed}
         adapters.update(official)
         self.dispatch = SignedToolDispatchService(preparation, adapters=adapters)
         self.cleanup = ExecutionCleanupService(preparation, adapters={t: runner.environment_adapter.cleanup for t in tools})

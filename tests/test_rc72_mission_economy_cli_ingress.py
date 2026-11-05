@@ -1,4 +1,4 @@
-"""C10 real CLI run entry integration: binds native roles before the factory call."""
+"""C10 real CLI entry: admit Q7 before binding all native roles for dispatch."""
 from __future__ import annotations
 
 import json
@@ -40,7 +40,7 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
     package.mkdir()
     source_commit = "a" * 40
     (package / "SOURCE_COMMIT").write_text(source_commit, encoding="utf-8")
-    seen = {"bound": False, "factory": False}
+    seen = {"factory": False}
 
     monkeypatch.setattr(
         rc72_mission_cli, "release_batch_status",
@@ -50,13 +50,15 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
         },
     )
 
-    def host_bindings(*, truth, release_id, source_commit):
+    def host_bindings(*, truth, release_id, source_commit, release_batch_id):
         assert release_id == "REL-C10"
         assert source_commit == "a" * 40
+        assert release_batch_id == "B-C10"
         workers = {
             role: MissionWorkerBinding(_Launcher(truth, tmp_path / "workers", role), ("native-source-read",))
             for role in _ROLE_NODE
         }
+        seen["workers"] = workers
         return MissionHostBindings(
             workers=workers, bank_pip_mirror=None,
             execution_authority=None, execution_environment=None,
@@ -65,13 +67,36 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
 
     monkeypatch.setattr(rc72_mission_bindings, "load_mission_bindings", lambda module, **kwargs: host_bindings(**kwargs))
 
+    # The product must first compose the factory and pass the read-only Q7
+    # admission.  This test explicitly substitutes an accepted Field gate;
+    # it is not evidence that the real bank mirror was qualified.
+    from rc7_runtime import rc72_field_mission_start
+
+    class AcceptedFieldAdmission:
+        def __init__(self, truth, *, source_commit, bank_pip_mirror):
+            assert source_commit == "a" * 40
+            assert bank_pip_mirror.root == package.resolve()
+            self.truth = truth
+
+        def _batch(self, release_batch_id):
+            assert release_batch_id == "B-C10"
+            return {"release_batch_id": release_batch_id}
+
+        def _admission(self, batch):
+            assert batch["release_batch_id"] == "B-C10"
+            assert self.truth.query("rc72_token_budget", budget_id="M-CLI-C10") == []
+
+    monkeypatch.setattr(rc72_field_mission_start, "ReleaseBatchFieldMissionLauncher", AcceptedFieldAdmission)
+
     def fake_factory(truth, *, workers, **kwargs):
         assert len(workers) == 11
-        assert all(
+        # Composition precedes Field admission; budget and wrappers must not
+        # exist yet.  Both appear only after the accepted read-only admission.
+        assert not any(
             getattr(binding.launcher, "_rc72_production_economy_bound", False)
             for binding in workers.values()
         )
-        assert truth.query("rc72_token_budget", budget_id="M-CLI-C10")
+        assert truth.query("rc72_token_budget", budget_id="M-CLI-C10") == []
         seen["factory"] = True
         return SimpleNamespace(
             bank_pip_mirror=SimpleNamespace(root=package.resolve()),
@@ -91,6 +116,10 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
     assert exit_code == 37
     output = json.loads(capsys.readouterr().out)
     assert seen["factory"] is True
+    assert all(
+        getattr(binding.launcher, "_rc72_production_economy_bound", False)
+        for binding in seen["workers"].values()
+    )
     assert output["status"] == "HOLD"
     assert output["MISSION_COMPLETION_STATUS"] == "HOLD"
     assert output["MODEL_ECONOMY_STATUS"] == "HOLD"

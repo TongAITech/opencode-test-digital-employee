@@ -57,7 +57,7 @@ def install_overlay():
 class NativeN9ProfessionalDshAnalysisService:
     """Execute exactly one scoped professional DSH attempt per frozen N8 gap."""
 
-    def __init__(self, pipeline, *, launcher, allowed_tools):
+    def __init__(self, pipeline, *, launcher, allowed_tools, captain_governed_dsh=False):
         self.intake = NativeN9ProfessionalIntakeService(pipeline)
         self.pipeline, self.truth = pipeline, pipeline.truth
         self.release_id, self.source_commit = pipeline.release_id, pipeline.source_commit
@@ -71,6 +71,12 @@ class NativeN9ProfessionalDshAnalysisService:
                 or any(not isinstance(tool, str) or not tool.strip() or '*' in tool for tool in allowed_tools)):
             raise ContractError("N9_DSH_INDEPENDENT_SCOPED_LAUNCHER_REQUIRED")
         self.launcher, self.allowed_tools = launcher, allowed_tools
+        if type(captain_governed_dsh) is not bool:
+            raise ContractError("N9_DSH_CAPTAIN_EXECUTION_EXPLICIT_BOOLEAN_REQUIRED")
+        self.captain_dsh_bridge = None
+        if captain_governed_dsh:
+            from .rc72_n9_captain_worker_bridge import NativeN9CaptainSignedDshBridge
+            self.captain_dsh_bridge = NativeN9CaptainSignedDshBridge(self)
         install_overlay()
 
     def _one(self, kind, **filters):
@@ -95,7 +101,7 @@ class NativeN9ProfessionalDshAnalysisService:
             raise ContractError("N9_DSH_EVIDENCE_NOT_OBSERVED")
         return data
 
-    def _raw(self, ref, mission_id, assignment_id):
+    def _raw(self, ref, mission_id, assignment_id, *, provenance=False):
         if not isinstance(ref, str) or not ref.startswith("file://"):
             raise ContractError("N9_DSH_NATIVE_RAW_FILE_REQUIRED")
         expected = (self.launcher.state_root / "worker-evidence" /
@@ -120,6 +126,14 @@ class NativeN9ProfessionalDshAnalysisService:
         except UnicodeError:
             raise ContractError("N9_DSH_NATIVE_RAW_ENCODING_INVALID") from None
         candidate = DshHeadlessWorkerLauncher._final_json(events)
+        if provenance:
+            # R1 HANDOFF_RETURNED is not an independent witness of model
+            # output. Reconstruct the observed session and every tool call
+            # from these exact immutable raw bytes before trusting a
+            # professional finding or a cold-resumed receipt.
+            return (digest, candidate,
+                    DshHeadlessWorkerLauncher._session_id(events),
+                    DshHeadlessWorkerLauncher._tool_calls(events))
         return digest, candidate
 
     def _expected(self, scope, task, returned):
@@ -139,8 +153,12 @@ class NativeN9ProfessionalDshAnalysisService:
                if isinstance(r, str) and r.startswith("file://")]
         if len(raw) != 1:
             raise ContractError("N9_DSH_NATIVE_RAW_FILE_REQUIRED")
-        digest, candidate = self._raw(raw[0], task["mission_id"], returned["assignment_id"])
-        self._candidate(candidate, calls)
+        digest, candidate, raw_session, raw_calls = self._raw(
+            raw[0], task["mission_id"], returned["assignment_id"], provenance=True)
+        if (not raw_session or raw_session != returned.get("dsh_session_id")
+                or raw_calls != calls):
+            raise ContractError("N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED")
+        self._candidate(candidate, raw_calls)
         original_attempt_id = scope["original_attempt_id"]
         failed = self._one("rc72_n7_execution_preparation", preparation_id=scope["preparation_id"])
         if (returned.get("worker_instance_id") == failed["worker_id"]
@@ -191,10 +209,16 @@ class NativeN9ProfessionalDshAnalysisService:
         if not hmac.compare_digest(row.get("signature",""),
                                    self.pipeline.preparation.authority._sign(signed)):
             raise ContractError("N9_DSH_RECEIPT_SIGNATURE_CHANGED")
-        digest, parsed = self._raw(row["raw_output_ref"],row["mission_id"],row["assignment_id"])
-        if digest != row["raw_output_sha256"] or _hash(parsed) != row["candidate_sha256"]:
+        digest, parsed, raw_session, raw_calls = self._raw(
+            row["raw_output_ref"], row["mission_id"], row["assignment_id"],
+            provenance=True)
+        if (digest != row["raw_output_sha256"]
+                or _hash(parsed) != row["candidate_sha256"]):
             raise ContractError("N9_DSH_RAW_BYTES_CHANGED")
-        self._candidate(parsed,row["tool_calls"])
+        if (not raw_session or raw_session != row["dsh_session_id"]
+                or raw_calls != row["tool_calls"]):
+            raise ContractError("N9_DSH_RAW_SESSION_OR_TOOL_PROVENANCE_CHANGED")
+        self._candidate(parsed,raw_calls)
         return row
 
     def analyze(self, *, preparation_id, diagnosis_id):
@@ -205,6 +229,42 @@ class NativeN9ProfessionalDshAnalysisService:
         make progress. Its HANDOFF event or failed/started event prevents a
         new agent from replaying an unknown model/tool side effect.
         """
+        # C07: an ACTIVE/R1-registered Captain owns the only WorkItem lease.
+        # A professional DSH launcher cannot allocate a second Worker via the
+        # legacy scheduler or borrow the N7 execution lease. Until a native
+        # Captain -> signed DSH WorkerInvocation binding is implemented, the
+        # exact accepted N8 discrepancy may be admitted as a read-only
+        # Captain-owned N9 WorkItem, but the process MUST NOT be launched.
+        # This preflight precedes any N9 model/tool I/O or local task lease.
+        prepared = self._one("rc72_n7_execution_preparation",
+                             preparation_id=preparation_id)
+        owners = self.truth.query("rc72_captain_dispatch_lease",
+                                  mission_id=prepared["mission_id"])
+        governed = self.pipeline.captain_scheduler
+        if owners:
+            if governed is None:
+                raise ContractError("N9_DSH_EXISTING_CAPTAIN_UNFENCED_LEGACY_ROUTE")
+            from .rc72_n9_captain_qualification import NativeN9CaptainQualificationAdmission
+            admitted = NativeN9CaptainQualificationAdmission(self.pipeline).admit(
+                preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+            # The approved Host may explicitly bind the governed, signed
+            # N9 DSH process adapter. Without it, merely having an admitted
+            # Worker must never trigger a legacy/unfenced model call.
+            if self.captain_dsh_bridge is not None:
+                return self.captain_dsh_bridge.analyze(
+                    preparation_id=preparation_id, diagnosis_id=diagnosis_id,
+                    admitted=admitted)
+            return dict(admitted, status="HOLD",
+                        reason="N9_DSH_CAPTAIN_SIGNED_WORKER_BINDING_REQUIRED",
+                        diagnosis_id=diagnosis_id,
+                        original_attempt_id=prepared["attempt_id"],
+                        defect_confirmed=False, reproduction_completed=False,
+                        field_verified=False, bank_final=False)
+        if governed is not None:
+            # No real persisted Captain generation: never silently switch to
+            # unfenced/legacy DSH when a Host claimed AgentTeams governance.
+            raise ContractError("N9_DSH_CAPTAIN_LEASE_REQUIRED")
+
         assignment = None
         prompt = None
         # This performs the independent N8/process/Oracle audit. It owns its

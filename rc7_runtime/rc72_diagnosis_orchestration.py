@@ -18,7 +18,9 @@ from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
 from .rc72_domain import AutonomousMissionNode
-from .rc72_state_machine import DiagnosisRoute, FailureClass, RC72StateMachine
+from .rc72_state_machine import (
+    DiagnosisRoute, FailureClass, RC72StateMachine, _NODE_ROUTE, _EXTERNAL_ROUTE,
+)
 from .rc72_worker_lifecycle import WorkerLifecycleService, install_rc72_worker_lifecycle_overlay
 
 
@@ -484,6 +486,70 @@ class DiagnosisOrchestrator:
             if delivery['mission_id'] != case['mission_id'] or delivery['node_type'] != 'N8_DIAGNOSIS_RECOVERY':
                 raise ContractError('DIAGNOSIS_CLASSIFICATION_DELIVERY_CONFLICT')
             row = previous[0]
+            # A persisted Outcome must not be treated as an accepted route
+            # when its canonical Gap/BackEdge/Transition was lost or replaced
+            # between process invocations. This replay check is read-only and
+            # catches route corruption before any replacement Attempt or
+            # upstream/business side effect is authorized.
+            target_type = _NODE_ROUTE.get(failure_class)
+            expected_action = ("SEMANTIC_BACK_EDGE" if target_type is not None
+                               else _EXTERNAL_ROUTE[failure_class])
+            should_replace = target_type in {
+                AutonomousMissionNode.N1_REALITY,
+                AutonomousMissionNode.N2_REQUIREMENT,
+                AutonomousMissionNode.N3_CODE_ANALYSIS,
+                AutonomousMissionNode.N4_TEST_DESIGN,
+                AutonomousMissionNode.N5_TEST_DATA,
+                AutonomousMissionNode.N6_EXECUTABLE_READINESS,
+            }
+            if (row.get("action") != expected_action
+                    or row.get("mission_id") != case["mission_id"]
+                    or row.get("source_attempt_id") != case["source_attempt_id"]
+                    or row.get("replacement_attempt_required") is not should_replace):
+                raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT")
+            link_ids = ("gap_id", "back_edge_id", "transition_id", "responsible_node")
+            if target_type is None:
+                if any(row.get(key) for key in link_ids):
+                    raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT")
+            else:
+                if (row.get("responsible_node") != target_type.value
+                        or not all(row.get(key) for key in link_ids)):
+                    raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT")
+                links = (
+                    ("rc7_gap", "gap_id", row["gap_id"]),
+                    ("rc72_back_edge", "back_edge_id", row["back_edge_id"]),
+                    ("rc72_node_transition", "transition_id", row["transition_id"]),
+                )
+                verified = []
+                for kind, field, identity in links:
+                    found = self.truth.query(kind, **{field: identity})
+                    if len(found) != 1:
+                        raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_INCOMPLETE")
+                    verified.append(found[0])
+                gap, edge, transition = verified
+                if (gap.get("mission_id") != case["mission_id"]
+                        or gap.get("category") != failure_class.value
+                        or gap.get("target_node") != target_type.value
+                        or gap.get("source_node") != "N8_DIAGNOSIS_RECOVERY"
+                        or edge.get("mission_id") != case["mission_id"]
+                        or edge.get("gap_id") != row["gap_id"]
+                        or edge.get("from_delivery_id") != source_delivery_id
+                        or edge.get("from_node") != "N8_DIAGNOSIS_RECOVERY"
+                        or edge.get("return_node") != target_type.value
+                        or edge.get("invalidated_refs") != row["affected_refs"]
+                        or transition.get("mission_id") != case["mission_id"]
+                        or transition.get("kind") != "BACK_EDGE"
+                        or transition.get("back_edge_id") != row["back_edge_id"]
+                        or transition.get("from_node_type") != "N8_DIAGNOSIS_RECOVERY"
+                        or transition.get("to_node_type") != target_type.value
+                        or transition.get("evidence_refs") != evidence):
+                    raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT")
+                n8 = self.state_machine.node_by_type(
+                    case["mission_id"], AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
+                target = self.state_machine.node_by_type(case["mission_id"], target_type)
+                if (transition.get("from_mission_node_id") != n8["mission_node_id"]
+                        or transition.get("to_mission_node_id") != target["mission_node_id"]):
+                    raise ContractError("DIAGNOSIS_CLASSIFICATION_REPLAY_ROUTE_CONFLICT")
             if case['state'] == 'DISPATCHED':
                 self.truth.append_atomic('RC72_DIAGNOSIS_CASE_UPSERTED',
                     dict(case, state='CLASSIFIED', artifact_version=case['artifact_version'] + 1))
@@ -559,6 +625,29 @@ class DiagnosisOrchestrator:
             raise ContractError("UPSTREAM_REPAIR_REQUIRES_SEMANTIC_BACK_EDGE")
         if not outcome.get("replacement_attempt_required"):
             raise ContractError("UPSTREAM_REPAIR_NOT_REQUIRED_FOR_DIAGNOSIS")
+        changed = list(changed_refs)
+        if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
+            raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ContractError("REPAIR_REASON_REQUIRED")
+        # A cold retry after a durable repair intent must reject an altered
+        # request BEFORE probing a different Delivery or its current Gate.
+        # This is immutable R1 intent fencing, not authorization to bypass
+        # the independently accepted upstream PASS Gate below.
+        intent = dict(diagnosis_id=diagnosis_id, mission_id=case["mission_id"],
+            repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
+            changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
+        intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
+        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+        if len(previous) > 1:
+            raise ContractError("DIAGNOSIS_REPAIR_NOT_UNIQUE")
+        if (len(intents) > 1 or (intents and any(
+                intents[0].get(key) != value for key, value in intent.items()))):
+            # Preserve distinct refusal semantics: a completed repair is an
+            # immutable replay, while interrupted registration owns only an
+            # intent. Neither mismatch may write or reopen an ImpactSet.
+            raise ContractError("DIAGNOSIS_REPAIR_REPLAY_CONFLICT" if previous
+                                else "DIAGNOSIS_REPAIR_INTENT_CONFLICT")
         delivery = self._one("rc72_node_delivery", delivery_id=repair_delivery_id)
         if delivery.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPAIR_DELIVERY_MISSION_MISMATCH")
@@ -567,13 +656,31 @@ class DiagnosisOrchestrator:
         responsible = outcome.get("responsible_node")
         if responsible and delivery.get("node_type") != responsible:
             raise ContractError("REPAIR_DELIVERY_NODE_MISMATCH")
-        changed = list(changed_refs)
-        if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
-            raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ContractError("REPAIR_REASON_REQUIRED")
-
-        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+        if not responsible or delivery.get("node_type") != responsible:
+            raise ContractError("REPAIR_DELIVERY_RESPONSIBLE_NODE_REQUIRED")
+        # A persisted Delivery is not a completed repair. Require the real
+        # current upstream PASS Gate before propagating STALE or authorizing a
+        # fresh Attempt. For cold replay of an already accepted repair retain
+        # the historical Gate even after dependent nodes became STALE.
+        node = self.state_machine.node_by_type(
+            case["mission_id"], AutonomousMissionNode(responsible))
+        gates = [
+            gate for gate in self.truth.query("rc72_node_gate", delivery_id=repair_delivery_id)
+            if (gate.get("gate_id") in node.get("gate_refs", [])
+                    and gate.get("mission_id") == case["mission_id"]
+                    and gate.get("mission_node_id") == node["mission_node_id"]
+                    and gate.get("node_type") == responsible
+                    and gate.get("decision") == "PASS"
+                    and gate.get("evidence_refs"))
+        ]
+        if len(gates) != 1:
+            raise ContractError("UPSTREAM_REPAIR_ACCEPTED_GATE_REQUIRED")
+        if (delivery.get("mission_node_id") != node["mission_node_id"]
+                or (not previous and (
+                    node.get("state") != "PASS"
+                    or node.get("active_delivery_version") != delivery.get("version")
+                    or repair_delivery_id not in node.get("delivery_refs", [])))):
+            raise ContractError("UPSTREAM_REPAIR_CURRENT_DELIVERY_REQUIRED")
         if previous:
             if (len(previous) != 1 or previous[0]["mission_id"] != case["mission_id"]
                     or previous[0]["repair_delivery_id"] != repair_delivery_id
@@ -587,14 +694,7 @@ class DiagnosisOrchestrator:
                     or impact_row["changed_refs"] != changed or impact_row["reason"] != reason):
                 raise ContractError("DIAGNOSIS_REPAIR_IMPACT_CONFLICT")
         else:
-            intent = dict(diagnosis_id=diagnosis_id, mission_id=case["mission_id"],
-                repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
-                changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
-            intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
-            if intents:
-                if (len(intents) != 1 or any(intents[0].get(key) != value for key, value in intent.items())):
-                    raise ContractError("DIAGNOSIS_REPAIR_INTENT_CONFLICT")
-            else:
+            if not intents:
                 self.truth.append_atomic("RC72_DIAGNOSIS_REPAIR_INTENT_UPSERTED", intent)
             impact = self.state_machine.propagate_stale(
                 source_delivery_id=repair_delivery_id, changed_refs=changed, reason=reason)
