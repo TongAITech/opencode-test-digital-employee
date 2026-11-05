@@ -61,6 +61,68 @@ def test_real_n9_qualification_refuses_broken_n8_semantic_route_readonly(
         server.server_close()
 
 
+@pytest.mark.parametrize('tamper', [
+    'replaced_active_generation', 'old_delivery_ref', 'missing_delivery',
+    'duplicate_delivery', 'foreign_delivery_mission', 'foreign_gate_node',
+    'swapped_active_delivery',
+])
+def test_real_n9_current_delivery_gate_rejects_stale_or_forged_r1_without_io(
+        tmp_path, monkeypatch, tamper):
+    """Exercise the exact production gate using an actual signed N8 diagnosis."""
+    truth, plan, prep, server, url, pipeline = _failed_business(tmp_path, monkeypatch)
+    try:
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result['failure_class'] == 'VALID_TEST_FAILURE'
+        assert len(server.calls) == 1
+        original = truth.query
+        receipt = original('rc72_n8_process_diagnosis')[0]
+        node = original('rc72_mission_node', node_type='N8_DIAGNOSIS_RECOVERY')[0]
+        gate = next(g for g in original('rc72_node_gate',
+                    mission_node_id=node['mission_node_id'])
+                    if g['delivery_id'] == receipt['delivery_id'])
+        delivery = original('rc72_node_delivery', mission_node_id=node['mission_node_id'])[0]
+        intake = NativeN9ProfessionalIntakeService(pipeline)
+        assert delivery['version'] == node['active_delivery_version']
+        # Positive control must come from the same local HTTP failure and
+        # real signed N8 process/reviewer, not a fabricated PASS row.
+        intake._assert_current_n8_delivery(node, receipt, gate, node['mission_id'])
+        before = truth.store.path.read_bytes()
+
+        altered_node = dict(node)
+        altered_gate = dict(gate)
+        if tamper == 'replaced_active_generation':
+            altered_node['active_delivery_version'] += 1
+        elif tamper == 'old_delivery_ref':
+            altered_node['delivery_refs'] = ['N8-OLD-DELIVERY']
+        elif tamper == 'foreign_gate_node':
+            altered_gate['mission_node_id'] = 'N8-FOREIGN-NODE'
+
+        def changed(artifact_kind, **filters):
+            rows = original(artifact_kind, **filters)
+            if (artifact_kind == 'rc72_node_delivery'
+                    and filters.get('mission_node_id') == node['mission_node_id']):
+                if tamper == 'missing_delivery':
+                    return []
+                if tamper == 'duplicate_delivery':
+                    return rows + rows
+                if tamper == 'foreign_delivery_mission':
+                    return [dict(row, mission_id='MISSION-FOREIGN') for row in rows]
+                if tamper == 'swapped_active_delivery':
+                    return [dict(row, delivery_id='N8-OLD-DELIVERY') for row in rows]
+            return rows
+
+        monkeypatch.setattr(truth, 'query', changed)
+        with pytest.raises(ContractError, match='N9_PROFESSIONAL_CURRENT_N8_DELIVERY'):
+            intake._assert_current_n8_delivery(
+                altered_node, receipt, altered_gate, node['mission_id'])
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == 1
+        assert original('rc7_defect') == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_real_n9_qualification_accepts_original_signed_route_without_new_effect(
         tmp_path, monkeypatch):
     truth, plan, prep, server, url, pipeline = _failed_business(tmp_path, monkeypatch)
