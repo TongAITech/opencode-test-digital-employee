@@ -220,8 +220,32 @@ class NativeN9CaptainSignedDshBridge:
                     return dict(result, reason="N9_DSH_INTERRUPTED_NO_REPLAY")
                 receipts = self.truth.query("rc72_n9_professional_dsh_analysis",
                                             qualification_workitem_id=wid)
-                if len(receipts) != 1:
-                    return dict(result, reason="N9_CAPTAIN_DSH_HANDOFF_AWAITS_SIGNED_RECEIPT")
+                if len(receipts) > 1:
+                    raise ContractError("N9_CAPTAIN_DSH_DUPLICATE_ANALYSIS_RECEIPT")
+                if not receipts:
+                    # A process can return its signed HANDOFF and persist raw
+                    # tool bytes, then crash before N9 candidate certification.
+                    # Recover by *reading and authenticating existing R1 only*;
+                    # never invoke the same DSH worker/tool a second time.
+                    if (session.get("runtime_worker_id") != intent["worker_id"]
+                            or session.get("runtime_assignment_id") != intent["assignment_id"]
+                            or session.get("task_lease_ref") != intent["lease_id"]
+                            or session.get("dsh_session_id") not in
+                               (None, [e for e in events if
+                                e.get("event_name") == "HANDOFF_RETURNED"][0]["dsh_session_id"])):
+                        raise ContractError("N9_CAPTAIN_DSH_RECOVERY_SESSION_CHANGED")
+                    self.truth.append_atomic(
+                        "RC72_N9_PROFESSIONAL_DSH_ANALYSIS_UPSERTED",
+                        dict(expected,
+                             signature=self.pipeline.preparation.authority._sign(expected),
+                             artifact_version=1))
+                    if session.get("dsh_session_id") is None:
+                        returned = [e for e in events
+                                    if e.get("event_name") == "HANDOFF_RETURNED"][0]
+                        self.scheduler.lifecycle._update_session(
+                            session, dsh_session_id=returned["dsh_session_id"])
+                    return dict(result, analysis_id=expected["analysis_id"],
+                                cause_candidate_only=True)
                 receipt = self.service._receipt(receipts[0])
                 if any(receipt.get(k) != v for k,v in expected.items()):
                     raise ContractError("N9_CAPTAIN_DSH_RECEIPT_LINEAGE_CHANGED")
