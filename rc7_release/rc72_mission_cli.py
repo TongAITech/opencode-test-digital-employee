@@ -83,7 +83,7 @@ def _accepted_ten_node_completion(node_rows, transitions=None, n7_gates=None, n7
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
-    parser.add_argument('command', choices=['status', 'run', 'mirror-check'])
+    parser.add_argument('command', choices=['status', 'run', 'mirror-check', 'review-reproduction'])
     parser.add_argument('--ledger', required=True)
     parser.add_argument('--source-commit', required=True)
     parser.add_argument('--release-batch', required=True)
@@ -95,9 +95,17 @@ def main(argv=None):
     parser.add_argument('--economy-config', help='trusted JSON for bank cost windows and soft mission economy targets')
     parser.add_argument('--bridge-user-config', action='store_true')
     parser.add_argument('--retry-returned-failure', action='store_true')
+    parser.add_argument('--reproduction-request')
+    parser.add_argument('--attestation-ref')
     args = parser.parse_args(argv)
     if args.command != 'run' and args.economy_config:
         parser.error('economy-config is only valid for run')
+    if args.command == 'review-reproduction':
+        if (not args.bindings_module or args.mission_config
+                or not args.reproduction_request or not args.attestation_ref):
+            parser.error('review-reproduction requires trusted bindings-module, request and attestation ref')
+    elif args.reproduction_request or args.attestation_ref:
+        parser.error('reproduction approval references require review-reproduction')
     if args.command != 'mirror-check' and (args.bridge_user_config or args.retry_returned_failure):
         parser.error('mirror options require mirror-check')
     path = Path(args.ledger).expanduser().resolve()
@@ -173,7 +181,14 @@ def main(argv=None):
                     mission_id=snapshot['mission_id'],
                     policy=read_mission_economy_config(args.economy_config),
                 )
-            if args.command == 'mirror-check':
+            if args.command == 'review-reproduction':
+                # This is a trusted Host-controlled HumanGate R1 write; it
+                # never spends mission tokens, invokes DSH, or executes N7.
+                result = driver.review_reproduction(
+                    release_batch_id=args.release_batch,
+                    request_id=args.reproduction_request,
+                    attestation_ref=args.attestation_ref)
+            elif args.command == 'mirror-check':
                 result = driver.bank_pip_mirror.run(release_batch_id=args.release_batch,
                     bridge_user_config=args.bridge_user_config,retry_returned_failure=args.retry_returned_failure)
                 result = dict(result,field_verified=False,bank_final=False)
@@ -241,6 +256,12 @@ def main(argv=None):
                     VERIFIED_PROMPT_TOKEN_SAVINGS=None)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
+        return 0
+    if (args.command == 'review-reproduction'
+            and result.get('human_decision') in {'APPROVED','REJECTED'}
+            and result.get('status') == 'HOLD'):
+        # Command succeeded at recording human disposition. Mission remains
+        # HOLD until independent new execution, RCA and N9 Gate pass.
         return 0
     if (args.command == 'mirror-check' and result.get('status') == 'PASS'
             and result.get('bank_pc_mirror_field_fact') is True

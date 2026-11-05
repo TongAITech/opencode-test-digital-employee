@@ -1,0 +1,61 @@
+name: RC7.2 C04 N9 Human-Gated Real Reproduction Admission
+on:
+  push:
+    branches: [work/rc7.2-c04-human-repro-gate]
+    paths:
+      - rc7_runtime/rc72_n9_reproduction_human_gate.py
+      - rc7_runtime/rc72_n8_product_recovery.py
+      - rc7_runtime/rc72_release_driver.py
+      - rc7_runtime/rc72_mission_factory.py
+      - rc7_release/rc72_mission_cli.py
+      - tests/test_rc72_n9_reproduction_human_gate.py
+      - .github/workflows/rc72-c04-n9-repro-human-gate.yml
+  pull_request:
+    branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  n9-human-gate:
+    name: c04-n9-human-repro-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install approved pinned harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile actual Host and N8-N9 new HumanGate contracts
+        run: >-
+          python -m py_compile
+          rc7_runtime/rc72_n9_reproduction_human_gate.py
+          rc7_runtime/rc72_n8_product_recovery.py
+          rc7_runtime/rc72_release_driver.py
+          rc7_runtime/rc72_mission_factory.py
+          rc7_release/rc72_mission_cli.py
+          tests/test_rc72_n9_reproduction_human_gate.py
+      - name: Actual N8-N9 signed human review, foreign scope, UNKNOWN effects, cold no replay
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_n9_reproduction_human_gate.py
+          tests/test_rc72_n9_reproduction_authorization.py
+          tests/test_rc72_n9_captain_signed_dsh_bridge.py
+          tests/test_rc72_n9_professional_dsh_contract.py
+          tests/test_rc72_mission_factory.py
+          --junitxml=rc72-c04-n9-human-gate.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c04-human-gate-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c04-n9-human-gate.xml
+          retention-days: 14
+          if-no-files-found: warn

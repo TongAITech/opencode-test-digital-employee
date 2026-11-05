@@ -181,6 +181,11 @@ class ReleaseBatchDriver:
                     or n8.professional_dsh.truth is not self.truth
                     or n8.professional_dsh.release_id != self.n7_pipeline.release_id
                     or n8.professional_dsh.source_commit != self.source_commit))
+                or (n8.reproduction_human_gate is not None and (
+                    n8.professional_dsh is None
+                    or n8.reproduction_human_gate.requests.analyst is not n8.professional_dsh
+                    or n8.reproduction_human_gate.truth is not self.truth
+                    or n8.reproduction_human_gate.source_commit != self.source_commit))
                 or (n8.capability_broker is not None and (
                     n8.capability_broker.truth is not self.truth
                     or n8.capability_broker.release_id != self.n7_pipeline.release_id
@@ -189,6 +194,21 @@ class ReleaseBatchDriver:
                 or n8.source_commit!=self.source_commit
                 or n8.release_id!=self.n7_pipeline.release_id):
             raise ContractError('RC72_RELEASE_DRIVER_N8_NATIVE_SCOPE_MISMATCH')
+
+    def review_reproduction(self, *, release_batch_id, request_id, attestation_ref):
+        """Host-approved HumanGate only, not a substitute for real reproduction.
+
+        This public production operation requires the same current Captain
+        owner fencing as ReleaseBatchDriver.run before any canonical write.
+        """
+        self._assert_n8_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if self.n8_pipeline is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_HUMAN_GATE_PROVIDER_REQUIRED')
+        return self.n8_pipeline.review_reproduction(
+            release_batch_id=release_batch_id,
+            request_id=request_id, attestation_ref=attestation_ref)
 
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
