@@ -134,6 +134,30 @@ class N9ProfessionalDispositionGateService:
         gate = self._one("rc72_node_gate", gate_id=n8_gate_id)
         self.n8.professional_dsh.intake._assert_current_n8_delivery(
             node, diagnosis, gate, request["mission_id"])
+        # A genuine failed N7/N8 path enters N9 as NEEDS_REVISION via a
+        # persisted semantic BackEdge; it is *not* an ordinary READY stage.
+        # Recheck current N8 -> exact N9 source transition before permitting
+        # that node to become READY for an independent professional Gate.
+        outcome = self._one("rc72_diagnosis_outcome",
+                            diagnosis_id=request["diagnosis_id"])
+        edge = self._one("rc72_back_edge",
+                         back_edge_id=outcome["back_edge_id"])
+        transition = self._one("rc72_node_transition",
+                               transition_id=outcome["transition_id"])
+        target = self.runtime.node_by_type(request["mission_id"], Node.N9_DEFECT)
+        if (outcome["gap_id"] != request["original_gap_id"]
+                or outcome["source_delivery_id"] != diagnosis["delivery_id"]
+                or edge["gap_id"] != request["original_gap_id"]
+                or edge["from_delivery_id"] != diagnosis["delivery_id"]
+                or edge["from_node"] != "N8_DIAGNOSIS_RECOVERY"
+                or edge["return_node"] != "N9_DEFECT"
+                or transition["kind"] != "BACK_EDGE"
+                or transition["back_edge_id"] != edge["back_edge_id"]
+                or transition["to_mission_node_id"] != target["mission_node_id"]
+                or transition["to_node_type"] != "N9_DEFECT"
+                or transition["from_mission_node_id"] != node["mission_node_id"]
+                or transition["mission_id"] != request["mission_id"]):
+            raise ContractError("N9_PROFESSIONAL_CURRENT_N8_BACKEDGE_REQUIRED")
         qual = self._one("rc7_task", task_id=request["qualification_workitem_id"])
         prepared = self._one("rc72_n7_execution_preparation",
                              preparation_id=request["preparation_id"])
@@ -437,7 +461,7 @@ class N9ProfessionalDispositionGateService:
         request = self._one("rc72_n9_reproduction_authorization_request",
                             request_id=review["request_id"])
         node = self.runtime.node_by_type(request["mission_id"], Node.N9_DEFECT)
-        if node["state"] not in {"READY", "RUNNING", "REVIEW_PENDING", "PASS"}:
+        if node["state"] not in {"NEEDS_REVISION", "READY", "RUNNING", "REVIEW_PENDING", "PASS"}:
             return dict(status="HOLD", reason="N9_PROFESSIONAL_NODE_NOT_READY",
                         field_verified=False, bank_final=False)
         receipt_id = signed["review_id"]
@@ -484,6 +508,14 @@ class N9ProfessionalDispositionGateService:
             if delivery_rows:
                 if any(delivery_rows[0].get(k) != v for k, v in expected.items()):
                     raise ContractError("N9_PROFESSIONAL_DELIVERY_CHANGED")
+            if node["state"] == "NEEDS_REVISION":
+                # This is the canonical N8 semantic back-edge state. The
+                # proof was verified before the lock, and the exact R1
+                # transition is rechecked before turning the N9 node READY.
+                self.runtime.transition_state(
+                    node["mission_node_id"], State.READY,
+                    reason="independently adjudicated current N8 failure back-edge")
+                node = self.runtime.node(node["mission_node_id"])
             if node["state"] == "READY":
                 self.runtime.transition_state(
                     node["mission_node_id"], State.RUNNING,
