@@ -5,7 +5,11 @@ on:
     paths:
       - rc7_runtime/defect_reproduction.py
       - rc7_runtime/rc72_n9_approved_reproduction_execution.py
+      - rc7_runtime/rc72_n8_product_recovery.py
+      - rc7_runtime/rc72_mission_factory.py
+      - rc7_runtime/rc72_release_driver.py
       - tests/test_rc72_n9_approved_reproduction_execution.py
+      - tests/test_rc72_n9_reproduction_human_gate.py
       - .github/workflows/rc72-c04-approved-real-reproduction.yml
   pull_request:
     branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification]
