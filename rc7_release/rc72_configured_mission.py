@@ -96,8 +96,18 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     # The trusted host module is the only supported Captain-bound entry.
     from rc7_runtime.rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
     install_captain_dispatch_overlay()
+    if release_batch_id is not None:
+        if not isinstance(release_batch_id, str) or not release_batch_id.strip():
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_REQUIRED')
+        batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+        if len(batches) != 1 or batches[0]['release_id'] != release_id:
+            raise ContractError('MISSION_CONFIG_RELEASE_BATCH_SCOPE_MISMATCH')
+    else:
+        # Direct legacy config callers do not provide the batch: fail closed
+        # for the complete release rather than guessing which Mission they own.
+        batches = truth.query('rc72_release_batch', release_id=release_id)
     if any(truth.query('rc72_captain_dispatch_lease', mission_id=batch['mission_id'])
-           for batch in truth.query('rc72_release_batch', release_id=release_id)):
+           for batch in batches):
         raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
 
     def configured_path(name, *, file=False):
