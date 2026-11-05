@@ -345,3 +345,172 @@ def test_configured_v2_n9_denies_implicit_full_access_before_controller_key_or_r
             truth, release_id=RELEASE, source_commit=COMMIT, config_path=path)
     assert truth.store.path.read_bytes() == before
     assert not (tmp_path / 'owned-state').exists()
+
+
+
+def _observed_live_captain(truth, *, team="BANK-DSH-TEAM"):
+    """Deterministic signed Host observation; no fake bank Field PASS."""
+    from dataclasses import replace
+    import time
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc7_release.rc72_captain_host_reentry import ObservedDshCaptain
+    from rc72_n2_test_support import MISSION
+    start_n1(truth)
+    lease = CaptainDispatchFencer(truth, release_id=RELEASE).acquire_initial(
+        mission_id=MISSION, team_id=team,
+        captain_session_id="LIVE-DSH-AGENTTEAMS-CAPTAIN",
+        ttl_seconds=300)
+    host = RC72AuthorityRuntime(b"isolated-bank-approved-agentteams-host-observer")
+    claimed = ObservedDshCaptain(
+        release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, mission_id=MISSION,
+        team_id=lease["team_id"],
+        captain_session_id=lease["captain_session_id"],
+        captain_lease_id=lease["lease_id"],
+        captain_generation=lease["generation"],
+        dsh_session_ref="dsh://agentteams/host-observed-live-session",
+        observed_at=int(time.time()), state="ACTIVE", signature="pending")
+    observed = replace(claimed, signature=host._sign(claimed.signed_fields()))
+    return lease, host, observed
+
+
+def _live_capabilities(host, observed, *, include_n9=False):
+    roles = {"L3_EXECUTE": ("api_http",)}
+    allowed = ("api_http",)
+    if include_n9:
+        roles["N9_QUALIFY"] = ("defect_analysis",)
+        allowed = ("api_http", "defect_analysis")
+    return dict(observed_captain=observed, host_authority=host,
+                captain_role_profiles=roles, captain_approved_capabilities=allowed)
+
+
+def test_configured_host_live_captain_governs_real_factory_and_cold_restart(
+        tmp_path, monkeypatch):
+    """One exact ACTIVE DSH Captain and scoped N9, no unfenced local fallback."""
+    from dataclasses import fields
+    from rc7_release.rc72_configured_mission import SCHEMA_V2
+    from rc7_runtime.rc72_n9_captain_worker_bridge import NativeN9CaptainSignedDshBridge
+
+    truth, config, path = _setup(tmp_path, monkeypatch)
+    config["schema"] = SCHEMA_V2
+    config["n9_read_only_tools"] = ["read_only_diagnostic"]
+    path.write_text(json.dumps(config))
+    lease, host, observed = _observed_live_captain(truth)
+    scope = _live_capabilities(host, observed, include_n9=True)
+    before = truth.store.path.read_bytes()
+    first = configured_mission_bindings(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, config_path=path, **scope)
+    assert first.captain_binding.captain_lease_id == lease["lease_id"]
+    assert first.captain_binding.captain_session_id == lease["captain_session_id"]
+    assert first.captain_binding.team_id == lease["team_id"]
+    assert first.captain_binding.scheduler.role_profiles["N9_QUALIFY"] == frozenset(("defect_analysis",))
+    assert first.professional_dsh_binding.captain_governed_dsh is True
+    assert first.professional_dsh_binding.tools == ("read_only_diagnostic",)
+    driver = create_mission_driver(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        evidence_root=tmp_path/"governed-evidence",
+        **{field.name: getattr(first, field.name) for field in fields(first)})
+    assert driver.n7_pipeline.captain_scheduler is first.captain_binding.scheduler
+    assert driver.n8_pipeline.professional_dsh.captain_dsh_bridge is not None
+    assert isinstance(driver.n8_pipeline.professional_dsh.captain_dsh_bridge,
+                      NativeN9CaptainSignedDshBridge)
+    driver._assert_captain_product_entry(lease["mission_id"])
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query("execution_attempt")
+    assert not truth.query("rc72_captain_etu_admission")
+    assert not truth.query("rc72_n9_professional_dsh_analysis")
+    assert not truth.query("rc7_defect")
+
+    cold = TruthRuntime(truth.store.path)
+    again = configured_mission_bindings(
+        cold, release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, config_path=path, **scope)
+    assert again.captain_binding.scheduler.truth is cold
+    assert again.captain_binding.captain_lease_id == lease["lease_id"]
+    assert again.professional_dsh_binding.captain_governed_dsh
+    assert again.professional_dsh_binding.launcher.truth is cold
+    assert (again.professional_dsh_binding.launcher.authority._sign({"proof": 1})
+            == first.professional_dsh_binding.launcher.authority._sign({"proof": 1}))
+    assert truth.store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("missing", "CAPTAIN_HOST_BINDING_REQUIRED"),
+    ("unsigned", "OBSERVATION_SIGNATURE_INVALID"),
+    ("other_host", "OBSERVATION_SIGNATURE_INVALID"),
+    ("other_batch", "OBSERVED_SESSION_SCOPE_CHANGED"),
+    ("other_team", "OBSERVATION_SIGNATURE_INVALID"),
+    ("role_escalation", "ROLE_CAPABILITY_SCOPE_CHANGED"),
+    ("tool_escalation", "ROLE_CAPABILITY_SCOPE_CHANGED"),
+    ("wrong_n9_role", "ROLE_CAPABILITY_SCOPE_CHANGED"),
+    ("no_batch", "CAPTAIN_EXACT_BATCH_REQUIRED"),
+])
+def test_configured_host_denies_unverified_captain_or_escalation_before_controller_bootstrap(
+        tmp_path, monkeypatch, mutation, reason):
+    from dataclasses import replace
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc7_release.rc72_configured_mission import SCHEMA_V2
+
+    truth, config, path = _setup(tmp_path, monkeypatch)
+    config["schema"] = SCHEMA_V2
+    config["n9_read_only_tools"] = ["read_only_diagnostic"]
+    path.write_text(json.dumps(config))
+    lease, host, observed = _observed_live_captain(truth)
+    params = _live_capabilities(host, observed, include_n9=True)
+    batch = BATCH
+    if mutation == "missing":
+        params = {}
+    elif mutation == "unsigned":
+        params["observed_captain"] = replace(observed, signature="INVALID")
+    elif mutation == "other_host":
+        params["host_authority"] = RC72AuthorityRuntime(b"foreign-host-not-authorized")
+    elif mutation == "other_batch":
+        changed = replace(observed, release_batch_id="RB-OTHER")
+        params["observed_captain"] = replace(
+            changed, signature=host._sign(changed.signed_fields()))
+    elif mutation == "other_team":
+        params["observed_captain"] = replace(observed, team_id="FOREIGN-TEAM")
+    elif mutation == "role_escalation":
+        params["captain_role_profiles"] = {"L3_EXECUTE": ("api_http", "db_write"),
+                                           "N9_QUALIFY": ("defect_analysis",)}
+    elif mutation == "tool_escalation":
+        params["captain_approved_capabilities"] = ("api_http", "defect_analysis", "db_write")
+    elif mutation == "wrong_n9_role":
+        params["captain_role_profiles"] = {"L3_EXECUTE": ("api_http",),
+                                           "N9_QUALIFY": ("api_http",)}
+    elif mutation == "no_batch":
+        batch = None
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match=reason):
+        configured_mission_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT,
+            config_path=path, release_batch_id=batch, **params)
+    assert truth.store.path.read_bytes() == before
+    assert not (tmp_path/"owned-state").exists()
+    assert not truth.query("rc72_captain_etu_admission")
+
+
+def test_signed_host_configured_entry_can_be_loaded_by_official_batch_aware_module(
+        tmp_path, monkeypatch):
+    """The fixed host-module API, not a JSON session string, is the CLI entry."""
+    from rc7_release.rc72_mission_bindings import load_mission_bindings
+    truth, config, path = _setup(tmp_path, monkeypatch)
+    lease, host, observed = _observed_live_captain(truth)
+    signed = _live_capabilities(host, observed)
+    module = ModuleType("bank_approved_c07_agentteams_host")
+    module.create_mission_bindings = (
+        lambda *, truth, release_id, source_commit, release_batch_id:
+        configured_mission_bindings(
+            truth, release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, config_path=path, **signed))
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    before = truth.store.path.read_bytes()
+    bindings = load_mission_bindings(
+        module.__name__, truth=truth, release_id=RELEASE,
+        source_commit=COMMIT, release_batch_id=BATCH)
+    assert bindings.captain_binding.captain_lease_id == lease["lease_id"]
+    assert bindings.professional_dsh_binding is None
+    assert truth.store.path.read_bytes() == before
+
