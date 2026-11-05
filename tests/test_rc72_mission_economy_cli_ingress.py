@@ -50,9 +50,10 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
         },
     )
 
-    def host_bindings(*, truth, release_id, source_commit):
+    def host_bindings(*, truth, release_id, source_commit, release_batch_id):
         assert release_id == "REL-C10"
         assert source_commit == "a" * 40
+        assert release_batch_id == "B-C10"
         workers = {
             role: MissionWorkerBinding(_Launcher(truth, tmp_path / "workers", role), ("native-source-read",))
             for role in _ROLE_NODE
