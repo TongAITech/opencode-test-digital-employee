@@ -59,13 +59,11 @@ jobs:
           tests/test_rc72_mission_factory.py
           tests/test_rc72_n9_professional_dsh_contract.py
           tests/test_rc72_n9_professional_dsh_real_route.py
-          # C04 hard admission: independent HumanGate and new physical Attempt,
-          # original R1 failure preserved, real RCA / fix / impact proof,
-          # professional N9 reviewed disposition and native NodeGate.
           tests/test_rc72_n9_reproduction_human_gate.py
           tests/test_rc72_n9_approved_reproduction_execution.py
           tests/test_rc72_n9_reproduction_resolution_audit.py
           tests/test_rc72_n9_professional_disposition_gate.py
+          tests/test_rc72_n9_professional_cli.py
           tests/test_rc72_c07_n9_professional_dsh_fence.py
           tests/test_rc72_journey_bsk_native_adapter.py
           tests/test_rc72_journey_bsk_field_probe.py
