@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import time
 from pathlib import Path
 
@@ -357,13 +358,58 @@ class N9ApprovedReproductionExecutionService:
         artifact = self._one("rc7_artifact", artifact_id=row["execution_artifact_id"])
         task = self._one("rc7_task", task_id=row["reproduction_workitem_id"])
         if (task["state"] != "PASS"
+                or task["lease_owner"] != row["worker_id"]
+                or task["task_type"] != "DEFECT_REPRODUCTION"
+                or task["mission_id"] != row["mission_id"]
                 or evaluation["mission_id"] != row["mission_id"]
                 or artifact["mission_id"] != row["mission_id"]
                 or artifact["artifact_id"] not in evaluation["artifact_refs"]
                 or task["evaluation_id"] != row["evaluation_id"]
-                or any(len(self.truth.query("rc7_evidence", evidence_id=eid)) != 1
-                       for eid in row["evidence_ids"])):
+                or artifact["producer_task_id"] != task["task_id"]):
             raise ContractError("N9_REPRO_DURABLE_EXECUTION_PROOF_CHANGED")
+        dims = evaluation.get("dimensions")
+        if (not isinstance(dims, dict)
+                or dims.get("purpose") != "DEFECT_REPRODUCTION"
+                or dims.get("source_product_gap_id") != row["original_gap_id"]
+                or dims.get("approved_n9_request_id") != request_id
+                or dims.get("attempt_id") != row["reproduction_attempt_id"]
+                or dims.get("conclusive") != row["conclusive"]
+                or dims.get("reproduced") != row["reproduced"]):
+            raise ContractError("N9_REPRO_FROZEN_ORACLE_EVALUATION_CHANGED")
+        content = artifact.get("content_ref")
+        if not isinstance(content, str) or not content.startswith("file://"):
+            raise ContractError("N9_REPRO_EXECUTION_FILE_REQUIRED")
+        path = Path(content[len("file://"):])
+        if not path.is_file():
+            raise ContractError("N9_REPRO_EXECUTION_FILE_MISSING")
+        raw = path.read_bytes()
+        if artifact.get("content_hash") != "sha256:" + hashlib.sha256(raw).hexdigest():
+            raise ContractError("N9_REPRO_EXECUTION_BYTES_CHANGED")
+        try:
+            record = json.loads(raw.decode("utf-8"))["record"]
+        except (UnicodeDecodeError, ValueError, KeyError, TypeError):
+            raise ContractError("N9_REPRO_EXECUTION_RECORD_INVALID") from None
+        if (record.get("attempt_id") != row["reproduction_attempt_id"]
+                or record.get("tc_id") != row["original_case_id"]
+                or record.get("worker_id") != row["worker_id"]
+                or record.get("status") != row["execution_status"]
+                or (record.get("integrity_passed") is True
+                    and record.get("assertion_passed") is False) != (
+                        row["reproduced"] is True)):
+            raise ContractError("N9_REPRO_EXECUTION_RECORD_SCOPE_CHANGED")
+        evidence = []
+        for eid in row["evidence_ids"]:
+            matches = self.truth.query("rc7_evidence", evidence_id=eid)
+            if len(matches) != 1 or matches[0]["mission_id"] != row["mission_id"]:
+                raise ContractError("N9_REPRO_EXECUTION_EVIDENCE_MISSING")
+            evidence.append(matches[0])
+        if not any(
+                e.get("kind") == "RUNTIME_EXECUTION_RECORD"
+                and e.get("content_ref") == content
+                and e.get("content_hash") == artifact["content_hash"]
+                and row["reproduction_attempt_id"] in e.get("subject_refs", [])
+                for e in evidence):
+            raise ContractError("N9_REPRO_FORMAL_RECORD_EVIDENCE_REQUIRED")
         return dict(status="HOLD",
                     reason=("N9_INDEPENDENT_REPRODUCTION_EVIDENCE_REQUIRES_RCA"
                             if row["conclusive"] else
