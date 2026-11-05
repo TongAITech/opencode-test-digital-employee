@@ -58,12 +58,11 @@ jobs:
           tests/test_rc72_n9_captain_qualification.py
           tests/test_rc72_n9_professional_dsh_contract.py
           tests/test_rc72_n9_professional_dsh_real_route.py
-          # C04 must remain a mandatory 4-platform product check after the
-          # ABCD candidate moves into the A2/ABD integration branch.
           tests/test_rc72_n9_reproduction_human_gate.py
           tests/test_rc72_n9_approved_reproduction_execution.py
           tests/test_rc72_n9_reproduction_resolution_audit.py
           tests/test_rc72_n9_professional_disposition_gate.py
+          tests/test_rc72_n9_professional_cli.py
           tests/test_rc72_n10_terminal.py
           --junitxml=rc72-abd-integration.xml
       - uses: actions/upload-artifact@v4
