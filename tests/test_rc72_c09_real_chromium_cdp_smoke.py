@@ -14,7 +14,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.parse import urlsplit
+from urllib.request import urlopen, url2pathname
 
 # Deliberately required: any CI suite collecting this module must provision
 # Python Playwright and the matching real Chromium. Never silently skip a
@@ -24,6 +25,22 @@ from playwright.sync_api import sync_playwright
 from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
 from rc7_runtime.rc72_journey_replay import JourneyReplayService
 from test_rc72_phase9_journey_replay_contract import _setup as replay_setup
+
+def _local_evidence_path(ref: str) -> Path:
+    """Parse canonical file URI on Linux AND Windows (never strip file://).
+
+    On Windows file:///C:/... must become C:\\..., not invalid \\C:\\...
+    This verifier is read-only and rejects nonlocal evidence locations.
+    """
+    parsed = urlsplit(ref)
+    assert parsed.scheme == "file" and parsed.netloc in ("", "localhost")
+    return Path(url2pathname(parsed.path))
+
+
+def test_local_evidence_uri_round_trip_with_spaces(tmp_path: Path):
+    target = tmp_path / "actual screen.png"
+    target.write_bytes(b"evidence-local-path")
+    assert _local_evidence_path(target.resolve().as_uri()).read_bytes() == b"evidence-local-path"
 
 
 _PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Actual Browser Test</title>
@@ -318,9 +335,9 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
             assert row["page_state_ref"].startswith("file://")
             assert row["dom_ref"].startswith("file://")
             assert row["screenshot_ref"].startswith("file://")
-            assert Path(row["screenshot_ref"][7:]).read_bytes().startswith(
+            assert _local_evidence_path(row["screenshot_ref"]).read_bytes().startswith(
                 b"\x89PNG\r\n\x1a\n")
-        response_path = Path(steps[1]["network_refs"][0][7:])
+        response_path = _local_evidence_path(steps[1]["network_refs"][0])
         responses = json.loads(response_path.read_text())["responses"]
         assert any(item["method"] == "POST" and
                    item["url"] == origin + "/api/save" and
