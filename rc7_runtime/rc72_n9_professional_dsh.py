@@ -57,7 +57,7 @@ def install_overlay():
 class NativeN9ProfessionalDshAnalysisService:
     """Execute exactly one scoped professional DSH attempt per frozen N8 gap."""
 
-    def __init__(self, pipeline, *, launcher, allowed_tools):
+    def __init__(self, pipeline, *, launcher, allowed_tools, captain_governed_dsh=False):
         self.intake = NativeN9ProfessionalIntakeService(pipeline)
         self.pipeline, self.truth = pipeline, pipeline.truth
         self.release_id, self.source_commit = pipeline.release_id, pipeline.source_commit
@@ -71,6 +71,12 @@ class NativeN9ProfessionalDshAnalysisService:
                 or any(not isinstance(tool, str) or not tool.strip() or '*' in tool for tool in allowed_tools)):
             raise ContractError("N9_DSH_INDEPENDENT_SCOPED_LAUNCHER_REQUIRED")
         self.launcher, self.allowed_tools = launcher, allowed_tools
+        if type(captain_governed_dsh) is not bool:
+            raise ContractError("N9_DSH_CAPTAIN_EXECUTION_EXPLICIT_BOOLEAN_REQUIRED")
+        self.captain_dsh_bridge = None
+        if captain_governed_dsh:
+            from .rc72_n9_captain_worker_bridge import NativeN9CaptainSignedDshBridge
+            self.captain_dsh_bridge = NativeN9CaptainSignedDshBridge(self)
         install_overlay()
 
     def _one(self, kind, **filters):
@@ -223,6 +229,13 @@ class NativeN9ProfessionalDshAnalysisService:
             from .rc72_n9_captain_qualification import NativeN9CaptainQualificationAdmission
             admitted = NativeN9CaptainQualificationAdmission(self.pipeline).admit(
                 preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+            # The approved Host may explicitly bind the governed, signed
+            # N9 DSH process adapter. Without it, merely having an admitted
+            # Worker must never trigger a legacy/unfenced model call.
+            if self.captain_dsh_bridge is not None:
+                return self.captain_dsh_bridge.analyze(
+                    preparation_id=preparation_id, diagnosis_id=diagnosis_id,
+                    admitted=admitted)
             return dict(admitted, status="HOLD",
                         reason="N9_DSH_CAPTAIN_SIGNED_WORKER_BINDING_REQUIRED",
                         diagnosis_id=diagnosis_id,
