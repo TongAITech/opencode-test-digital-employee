@@ -103,6 +103,23 @@ class NativeN8ProductRecoveryService:
             authority=authority, tool_broker=tool_broker, cwd=cwd,
             env=env, target_base_url=target_base_url)
 
+    def audit_reproduction_resolution(self, *, release_batch_id, request_id,
+                                      defect_id):
+        """Read-only product route: actual approved repro -> RCA/fix/regression R1.
+
+        Does NOT mark the original N8 discrepancy RESOLVED, bypass N9 Gate,
+        rerun any product operation, or grant bank field acceptance.
+        """
+        if self.reproduction_executor is None:
+            raise ContractError('N8_PRODUCT_N9_REPRODUCTION_EXECUTOR_REQUIRED')
+        from .rc72_n9_reproduction_resolution_audit import (
+            N9ApprovedReproductionResolutionAudit,
+        )
+        return N9ApprovedReproductionResolutionAudit(
+            self.reproduction_executor).audit(
+                release_batch_id=release_batch_id,
+                request_id=request_id, defect_id=defect_id)
+
     def _one(self, kind, **filters):
         rows=self.truth.query(kind, **filters)
         if len(rows)!=1:

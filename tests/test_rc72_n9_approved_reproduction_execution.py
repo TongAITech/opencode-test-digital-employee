@@ -315,6 +315,18 @@ def test_release_batch_driver_c04_product_entry_runs_genuine_new_http_process(
         assert truth.query("rc72_n9_approved_reproduction_execution")
         assert not truth.query("rc7_defect")
         assert not truth.query("rc72_node_gate", node_type="N9_DEFECT")
+        from rc7_runtime.models import ContractError
+        frozen = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="R1_NOT_UNIQUE:rc7_defect"):
+            n8.audit_reproduction_resolution(
+                release_batch_id=BATCH, request_id=req,
+                defect_id="NOT-A-QUALIFIED-DEFECT")
+        with pytest.raises(ContractError, match="R1_NOT_UNIQUE:rc7_defect"):
+            driver.audit_reproduction_resolution(
+                release_batch_id=BATCH, request_id=req,
+                defect_id="NOT-A-QUALIFIED-DEFECT")
+        assert truth.store.path.read_bytes() == frozen
+        assert len(server.calls) == 2
     finally:
         server.shutdown()
         server.server_close()

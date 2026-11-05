@@ -234,6 +234,21 @@ class ReleaseBatchDriver:
             tool_broker=tool_broker, cwd=cwd, env=env,
             target_base_url=target_base_url)
 
+    def audit_reproduction_resolution(self, *, release_batch_id, request_id,
+                                      defect_id):
+        """Cold-safe, read-only Host proof of RCA / actual fix / impact regression.
+
+        This route never executes a worker, obtains a new Captain lease,
+        replays the approved business call or produces a PASS NodeGate.
+        """
+        self._assert_n8_scope()
+        self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        if self.n8_pipeline is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_REPRODUCTION_PROVIDER_REQUIRED')
+        return self.n8_pipeline.audit_reproduction_resolution(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id)
+
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
         if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
