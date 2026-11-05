@@ -321,6 +321,10 @@ def test_release_batch_driver_c04_product_entry_runs_genuine_new_http_process(
             n8.audit_reproduction_resolution(
                 release_batch_id=BATCH, request_id=req,
                 defect_id="NOT-A-QUALIFIED-DEFECT")
+        with pytest.raises(ContractError, match="R1_NOT_UNIQUE:rc7_defect"):
+            driver.audit_reproduction_resolution(
+                release_batch_id=BATCH, request_id=req,
+                defect_id="NOT-A-QUALIFIED-DEFECT")
         assert truth.store.path.read_bytes() == frozen
         assert len(server.calls) == 2
     finally:
