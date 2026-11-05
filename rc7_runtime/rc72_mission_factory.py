@@ -33,6 +33,7 @@ from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_professional_dsh import NativeN9ProfessionalDshAnalysisService
 from .rc72_capability_broker import CapabilityBroker, CapabilityPolicyRule
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
+from .rc72_n9_professional_disposition_gate import N9ProfessionalDispositionGateService
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_libra_measurement import NativeLibraMeasurementService
 from .rc72_native_coverage_intake import NativeCoverageGapIntakeService
@@ -89,6 +90,13 @@ class MissionReproductionHumanBinding:
 
 
 @dataclass(frozen=True)
+class MissionProfessionalReviewBinding:
+    """External bank Host professional verifier, never a model-side approval."""
+    review_verifier: object
+    trusted_verifier_kinds: tuple
+
+
+@dataclass(frozen=True)
 class MissionHostBindings:
     """Approved host capabilities; no stage/evaluation/completion callbacks."""
     workers: dict
@@ -103,6 +111,7 @@ class MissionHostBindings:
     official_playwright_execution: object = None
     professional_dsh_binding: object = None
     reproduction_human_binding: object = None
+    professional_review_binding: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
@@ -111,7 +120,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                           execution_env=None, captain_binding=None, capability_policies=None,
                           official_bsk_execution=None, official_playwright_execution=None,
                           professional_dsh_binding=None,
-                          reproduction_human_binding=None):
+                          reproduction_human_binding=None,
+                          professional_review_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -306,10 +316,31 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
             N9ReproductionAuthorizationRequestService(specialist),
             approval_verifier=reproduction_human_binding.approval_verifier,
             trusted_field_verifier_kinds=reproduction_human_binding.trusted_field_verifier_kinds)
+    # C04 is a real, separately governed execution runner. The signer and
+    # HumanGate come from the same approved Mission Host, not model output.
+    repro_executor = None
+    if human_gate is not None:
+        from .rc72_n9_approved_reproduction_execution import N9ApprovedReproductionExecutionService
+        repro_executor = N9ApprovedReproductionExecutionService(
+            human_gate, evidence_root=root/'approved-reproduction',
+            captain_scheduler=n7.captain_scheduler,
+            captain_session_id=n7.captain_session_id,
+            captain_lease_id=n7.captain_lease_id, team_id=n7.team_id)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}), professional_dsh=specialist,
-        reproduction_human_gate=human_gate)
+        reproduction_human_gate=human_gate, reproduction_executor=repro_executor)
+    n9_professional = None
+    if professional_review_binding is not None:
+        if (not isinstance(professional_review_binding, MissionProfessionalReviewBinding)
+                or repro_executor is None or human_gate is None or specialist is None
+                or not isinstance(professional_review_binding.trusted_verifier_kinds, tuple)
+                or not professional_review_binding.trusted_verifier_kinds):
+            raise ContractError('MISSION_FACTORY_N9_PROFESSIONAL_HOST_REVIEW_BINDING_REQUIRED')
+        n9_professional = N9ProfessionalDispositionGateService(
+            n8,
+            review_verifier=professional_review_binding.review_verifier,
+            trusted_verifier_kinds=professional_review_binding.trusted_verifier_kinds)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
@@ -327,4 +358,5 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
         n2_evaluator=DshRequirementEvaluator(launcher('requirement_review'), allowed_tools=tools('requirement_review')),
         n3_pipeline=n3, n4_pipeline=n4, n5_pipeline=n5, n7_pipeline=n7,
         n8_pipeline=n8,
-        n9_pipeline=n9, expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)
+        n9_pipeline=n9, n9_professional_pipeline=n9_professional,
+        expected_scope=expected, n10_pipeline=n10, bank_pip_mirror=bank_pip_mirror)

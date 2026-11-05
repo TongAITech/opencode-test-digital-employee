@@ -36,6 +36,7 @@ from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
+from .rc72_n9_professional_disposition_gate import N9ProfessionalDispositionGateService
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_n10_control import NativeN10ControlService
 
@@ -99,7 +100,8 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
 
 class ReleaseBatchDriver:
     def __init__(self, truth, *, source_commit, n1_launcher, n1_tools,
-                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n8_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None):
+                 n2_launcher, n2_tools, n2_evaluator, n3_pipeline=None, n4_pipeline=None, n5_pipeline=None, n7_pipeline=None, n8_pipeline=None, n9_pipeline=None, expected_scope=None, n10_pipeline=None, bank_pip_mirror=None,
+                 n9_professional_pipeline=None):
         if not isinstance(source_commit, str) or not re.fullmatch('[0-9a-f]{40}', source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
         if not isinstance(n2_evaluator, DshRequirementEvaluator):
@@ -137,6 +139,7 @@ class ReleaseBatchDriver:
         self.n8_pipeline=n8_pipeline
         self._assert_n8_scope()
         self.n9_pipeline=n9_pipeline
+        self.n9_professional_pipeline=n9_professional_pipeline
         self._assert_n9_scope()
         self.expected_scope=expected_scope
         self._assert_expected_scope()
@@ -186,6 +189,11 @@ class ReleaseBatchDriver:
                     or n8.reproduction_human_gate.requests.analyst is not n8.professional_dsh
                     or n8.reproduction_human_gate.truth is not self.truth
                     or n8.reproduction_human_gate.source_commit != self.source_commit))
+                or (n8.reproduction_executor is not None and (
+                    n8.reproduction_human_gate is None
+                    or n8.reproduction_executor.gate is not n8.reproduction_human_gate
+                    or n8.reproduction_executor.truth is not self.truth
+                    or n8.reproduction_executor.captain_scheduler is not self.n7_pipeline.captain_scheduler))
                 or (n8.capability_broker is not None and (
                     n8.capability_broker.truth is not self.truth
                     or n8.capability_broker.release_id != self.n7_pipeline.release_id
@@ -210,9 +218,93 @@ class ReleaseBatchDriver:
             release_batch_id=release_batch_id,
             request_id=request_id, attestation_ref=attestation_ref)
 
+    def execute_reproduction(self, *, release_batch_id, request_id, bundle,
+                             prepared, authority, tool_broker, cwd,
+                             env=None, target_base_url=None):
+        """Explicit bank Host route to one real new Attempt; NEVER auto retry.
+
+        There is no Case/Defect/N9 PASS shortcut here. All business effects
+        still require the exact active Captain generation and HumanGate.
+        """
+        self._assert_n8_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if self.n8_pipeline is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_REPRODUCTION_PROVIDER_REQUIRED')
+        return self.n8_pipeline.execute_reproduction(
+            release_batch_id=release_batch_id, request_id=request_id,
+            bundle=bundle, prepared=prepared, authority=authority,
+            tool_broker=tool_broker, cwd=cwd, env=env,
+            target_base_url=target_base_url)
+
+    def audit_reproduction_resolution(self, *, release_batch_id, request_id,
+                                      defect_id):
+        """Cold-safe, read-only Host proof of RCA / actual fix / impact regression.
+
+        This route never executes a worker, obtains a new Captain lease,
+        replays the approved business call or produces a PASS NodeGate.
+        """
+        self._assert_n8_scope()
+        self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        if self.n8_pipeline is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_REPRODUCTION_PROVIDER_REQUIRED')
+        return self.n8_pipeline.audit_reproduction_resolution(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id)
+
+    def _professional_provider(self):
+        return self.n9_professional_pipeline or (self.n9_pipeline if isinstance(
+            self.n9_pipeline, N9ProfessionalDispositionGateService) else None)
+
+    def review_professional_resolution(self, *, release_batch_id, request_id,
+                                       defect_id, attestation_ref):
+        """Explicit signed bank professional review; cannot auto-complete N9."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        provider=self._professional_provider()
+        if provider is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return provider.review(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id, attestation_ref=attestation_ref)
+
+    def accept_professional_resolution(self, *, release_batch_id, request_id,
+                                       defect_id):
+        """Explicit post-review original Gap adjudication, no business replay."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        provider=self._professional_provider()
+        if provider is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return provider.accept_reviewed_resolution(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id)
+
+    def complete_professional_n9(self, *, release_batch_id):
+        """Audit the actual professional NodeGate, never treat N9 as N10."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        provider=self._professional_provider()
+        if provider is None:
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return provider.complete(release_batch_id=release_batch_id)
+
     def _assert_n9_scope(self):
+        p=self.n9_professional_pipeline
+        if p is not None and (not isinstance(p,N9ProfessionalDispositionGateService)
+                or p.n8 is not self.n8_pipeline or p.pipeline is not self.n7_pipeline
+                or p.truth is not self.truth or p.source_commit!=self.source_commit):
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_SCOPE_MISMATCH')
         n9=self.n9_pipeline
-        if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
+        if n9 is not None and (not isinstance(n9,(AcceptedScopeN9Service,N9ProfessionalDispositionGateService))
+                or (isinstance(n9,N9ProfessionalDispositionGateService) and n9.n8 is not self.n8_pipeline)
+                or n9.pipeline is not self.n7_pipeline
                 or n9.truth is not self.truth or n9.source_commit!=self.source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N9_PIPELINE_SCOPE_MISMATCH')
 
@@ -317,8 +409,18 @@ class ReleaseBatchDriver:
             return self.n8_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
             return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
-        if node_type=='N9_DEFECT' and self.n9_pipeline is not None:
-            return self.n9_pipeline.complete(release_batch_id=batch['release_batch_id'])
+        if node_type=='N9_DEFECT':
+            # N9's original accepted-scope path is only valid when no real
+            # professional discrepancy exists. A confirmed C04 reproduction
+            # MUST consume independent professional disposition; it may not
+            # take the ordinary empty-discrepancy shortcut.
+            if (self.n9_professional_pipeline is not None and
+                    self.truth.query('rc72_n9_approved_reproduction_execution',
+                        release_batch_id=batch['release_batch_id'])):
+                return self.n9_professional_pipeline.complete(
+                    release_batch_id=batch['release_batch_id'])
+            if self.n9_pipeline is not None:
+                return self.n9_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N1_REALITY':
             N1StrictDshHandoffService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
                 allowed_tools=self.n1_tools).audit_recorded_native_handoff(release_batch_id=batch['release_batch_id'])

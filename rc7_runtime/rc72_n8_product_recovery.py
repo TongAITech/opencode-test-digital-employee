@@ -17,7 +17,7 @@ from .rc72_n8_retry_continuation import DataRepairContinuationService
 
 class NativeN8ProductRecoveryService:
     def __init__(self, n7, *, capability_broker=None, professional_dsh=None,
-                 reproduction_human_gate=None):
+                 reproduction_human_gate=None, reproduction_executor=None):
         if (not isinstance(n7, N7PipelineService)
                 or not isinstance(n7.diagnosis, ExecutionDiagnosisService)
                 or n7.diagnosis.preparation is not n7.preparation):
@@ -48,9 +48,20 @@ class NativeN8ProductRecoveryService:
                     or reproduction_human_gate.release_id != self.release_id
                     or reproduction_human_gate.source_commit != self.source_commit):
                 raise ContractError('N8_PRODUCT_N9_HUMAN_GATE_SCOPE_REQUIRED')
+        if reproduction_executor is not None:
+            from .rc72_n9_approved_reproduction_execution import N9ApprovedReproductionExecutionService
+            if (not isinstance(reproduction_executor, N9ApprovedReproductionExecutionService)
+                    or reproduction_human_gate is None
+                    or reproduction_executor.gate is not reproduction_human_gate
+                    or reproduction_executor.truth is not self.truth
+                    or reproduction_executor.release_id != self.release_id
+                    or reproduction_executor.source_commit != self.source_commit
+                    or reproduction_executor.captain_scheduler is not n7.captain_scheduler):
+                raise ContractError('N8_PRODUCT_N9_ACTUAL_REPRODUCTION_SCOPE_REQUIRED')
         self.capability_broker = capability_broker
         self.professional_dsh = professional_dsh
         self.reproduction_human_gate = reproduction_human_gate
+        self.reproduction_executor = reproduction_executor
         # Reuse the same exact cleanup adapter as N7, but only through the
         # separately signed N8 repair-authority boundary.
         self.boundary = RepairBoundaryService(self.diagnosis, cleanup_adapters=n7.cleanup.adapters)
@@ -69,6 +80,45 @@ class NativeN8ProductRecoveryService:
             raise ContractError('N8_PRODUCT_N9_HUMAN_GATE_BATCH_SCOPE_CHANGED')
         return self.reproduction_human_gate.review(
             request_id=request_id, attestation_ref=attestation_ref)
+
+    def execute_reproduction(self, *, release_batch_id, request_id, bundle,
+                             prepared, authority, tool_broker, cwd,
+                             env=None, target_base_url=None):
+        """Perform a genuine second action under the original signed HumanGate.
+
+        The normal Mission.run() never silently replays a failed business
+        operation; an approved Host explicitly calls this exact batch route.
+        """
+        if self.reproduction_executor is None:
+            raise ContractError('N8_PRODUCT_N9_REPRODUCTION_EXECUTOR_REQUIRED')
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        request = self._one('rc72_n9_reproduction_authorization_request',
+                            request_id=request_id)
+        if (batch['release_id'] != self.release_id
+                or request['release_batch_id'] != release_batch_id
+                or request['mission_id'] != batch['mission_id']):
+            raise ContractError('N8_PRODUCT_N9_REPRODUCTION_BATCH_SCOPE_CHANGED')
+        return self.reproduction_executor.execute(
+            request_id=request_id, bundle=bundle, prepared=prepared,
+            authority=authority, tool_broker=tool_broker, cwd=cwd,
+            env=env, target_base_url=target_base_url)
+
+    def audit_reproduction_resolution(self, *, release_batch_id, request_id,
+                                      defect_id):
+        """Read-only product route: actual approved repro -> RCA/fix/regression R1.
+
+        Does NOT mark the original N8 discrepancy RESOLVED, bypass N9 Gate,
+        rerun any product operation, or grant bank field acceptance.
+        """
+        if self.reproduction_executor is None:
+            raise ContractError('N8_PRODUCT_N9_REPRODUCTION_EXECUTOR_REQUIRED')
+        from .rc72_n9_reproduction_resolution_audit import (
+            N9ApprovedReproductionResolutionAudit,
+        )
+        return N9ApprovedReproductionResolutionAudit(
+            self.reproduction_executor).audit(
+                release_batch_id=release_batch_id,
+                request_id=request_id, defect_id=defect_id)
 
     def _one(self, kind, **filters):
         rows=self.truth.query(kind, **filters)

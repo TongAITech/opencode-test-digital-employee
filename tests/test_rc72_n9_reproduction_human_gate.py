@@ -308,6 +308,11 @@ def test_factory_requires_explicit_typed_bank_human_verifier_binding(
     before = truth.store.path.read_bytes()
     driver = create_mission_driver(truth, **options)
     assert driver.n8_pipeline.reproduction_human_gate is not None
+    assert driver.n8_pipeline.reproduction_executor is not None
+    assert driver.n8_pipeline.reproduction_executor.gate is driver.n8_pipeline.reproduction_human_gate
+    assert driver.n8_pipeline.reproduction_executor.truth is truth
+    assert driver.n8_pipeline.reproduction_executor.captain_scheduler is driver.n7_pipeline.captain_scheduler
+    assert not truth.query("rc72_n9_approved_reproduction_execution")
     assert driver.n8_pipeline.reproduction_human_gate.requests.analyst is (
         driver.n8_pipeline.professional_dsh)
     assert truth.store.path.read_bytes() == before
