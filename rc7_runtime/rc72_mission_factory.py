@@ -82,6 +82,13 @@ class MissionProfessionalDshBinding:
 
 
 @dataclass(frozen=True)
+class MissionReproductionHumanBinding:
+    """Trusted bank Host verifier, not a JSON or model-supplied approval."""
+    approval_verifier: object
+    trusted_field_verifier_kinds: tuple
+
+
+@dataclass(frozen=True)
 class MissionHostBindings:
     """Approved host capabilities; no stage/evaluation/completion callbacks."""
     workers: dict
@@ -95,6 +102,7 @@ class MissionHostBindings:
     official_bsk_execution: object = None
     official_playwright_execution: object = None
     professional_dsh_binding: object = None
+    reproduction_human_binding: object = None
 
 
 def create_mission_driver(truth, *, release_id, source_commit, workers,
@@ -102,7 +110,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
                           execution_environment, tool_registry, evidence_root,
                           execution_env=None, captain_binding=None, capability_policies=None,
                           official_bsk_execution=None, official_playwright_execution=None,
-                          professional_dsh_binding=None):
+                          professional_dsh_binding=None,
+                          reproduction_human_binding=None):
     """Compose all implemented native routes against one ledger/source/release.
 
     Missing roles fail before constructing pipelines or touching the ledger.
@@ -284,9 +293,23 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
             n7, launcher=professional_dsh_binding.launcher,
             allowed_tools=professional_dsh_binding.tools,
             captain_governed_dsh=professional_dsh_binding.captain_governed_dsh)
+    human_gate = None
+    if reproduction_human_binding is not None:
+        if (not isinstance(reproduction_human_binding, MissionReproductionHumanBinding)
+                or specialist is None
+                or not isinstance(reproduction_human_binding.trusted_field_verifier_kinds, tuple)
+                or not reproduction_human_binding.trusted_field_verifier_kinds):
+            raise ContractError('MISSION_FACTORY_N9_HUMAN_TRUSTED_HOST_BINDING_REQUIRED')
+        from .rc72_n9_reproduction_authorization import N9ReproductionAuthorizationRequestService
+        from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
+        human_gate = N9ReproductionHumanGateService(
+            N9ReproductionAuthorizationRequestService(specialist),
+            approval_verifier=reproduction_human_binding.approval_verifier,
+            trusted_field_verifier_kinds=reproduction_human_binding.trusted_field_verifier_kinds)
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
-        policies=capability_policies or {}), professional_dsh=specialist)
+        policies=capability_policies or {}), professional_dsh=specialist,
+        reproduction_human_gate=human_gate)
     n9 = AcceptedScopeN9Service(n7)
     measurement = NativeLibraMeasurementService(expected, n9, capture_root=root/'coverage-captures')
     intake = NativeCoverageGapIntakeService(measurement)
