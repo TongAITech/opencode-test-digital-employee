@@ -143,7 +143,7 @@ def test_c04_real_causal_chain_requires_separate_professional_review_and_origina
         assert n7["state"] != "PASS"
 
         result = gate.complete(release_batch_id=request["release_batch_id"])
-        assert result["state"] == "N9_PASS"
+        assert result.get("state") == "N9_PASS", result
         assert result["n9_gate_pass"] is True
         assert result["field_verified"] is result["bank_final"] is False
         n9 = truth.query("rc72_mission_node", node_type="N9_DEFECT")[0]
@@ -229,7 +229,7 @@ def test_c04_professional_gate_rejects_provenance_change_after_pass_without_new_
             release_batch_id=request["release_batch_id"],
             request_id=request["request_id"], defect_id=native.DEFECT_ID)
         passed = gate.complete(release_batch_id=request["release_batch_id"])
-        assert passed["n9_gate_pass"]
+        assert passed.get("n9_gate_pass") is True, passed
         artifact = truth.query(
             "rc7_artifact", artifact_id=proof["verification_artifact_id"])[0]
         path = Path(artifact["content_ref"][len("file://"):])
