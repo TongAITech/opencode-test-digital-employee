@@ -46,7 +46,9 @@ def test_possible_product_cause_creates_one_signed_no_io_fresh_reproduction_requ
         row = rows[0]
         assert row["request_id"] == qualified["reproduction_request_id"]
         assert row["candidate_finding"] == "POSSIBLE_PRODUCT_CAUSE"
-        assert row["original_attempt_id"] == original["original_attempt_id"]
+        assert row["original_attempt_id"] == truth.query(
+            "rc72_n7_execution_preparation",
+            preparation_id=original["preparation_id"])[0]["attempt_id"]
         assert row["analysis_id"] == qualified["analysis_id"]
         assert row["analysis_tool_refs"] == ["dsh-event://tool-call/1"]
         assert row["analysis_raw_sha256"] == truth.query(
