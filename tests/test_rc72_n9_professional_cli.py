@@ -58,6 +58,7 @@ def _setup(tmp_path, monkeypatch):
     package.mkdir()
     (package / "SOURCE_COMMIT").write_text(SOURCE, encoding="utf-8")
     ledger = tmp_path / "canonical-r1.jsonl"
+    ledger.touch()  # the CLI requires an existing R1 transport, never creates one
     TruthRuntime(ledger)
     host = HostSpy(package)
     wiring = []
