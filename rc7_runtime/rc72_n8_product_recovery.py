@@ -16,7 +16,8 @@ from .rc72_n8_retry_continuation import DataRepairContinuationService
 
 
 class NativeN8ProductRecoveryService:
-    def __init__(self, n7, *, capability_broker=None, professional_dsh=None):
+    def __init__(self, n7, *, capability_broker=None, professional_dsh=None,
+                 reproduction_human_gate=None):
         if (not isinstance(n7, N7PipelineService)
                 or not isinstance(n7.diagnosis, ExecutionDiagnosisService)
                 or n7.diagnosis.preparation is not n7.preparation):
@@ -38,12 +39,36 @@ class NativeN8ProductRecoveryService:
                     or professional_dsh.release_id != self.release_id
                     or professional_dsh.source_commit != self.source_commit):
                 raise ContractError('N8_PRODUCT_N9_INDEPENDENT_DSH_SCOPE_REQUIRED')
+        if reproduction_human_gate is not None:
+            from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
+            if (not isinstance(reproduction_human_gate, N9ReproductionHumanGateService)
+                    or professional_dsh is None
+                    or reproduction_human_gate.requests.analyst is not professional_dsh
+                    or reproduction_human_gate.truth is not self.truth
+                    or reproduction_human_gate.release_id != self.release_id
+                    or reproduction_human_gate.source_commit != self.source_commit):
+                raise ContractError('N8_PRODUCT_N9_HUMAN_GATE_SCOPE_REQUIRED')
         self.capability_broker = capability_broker
         self.professional_dsh = professional_dsh
+        self.reproduction_human_gate = reproduction_human_gate
         # Reuse the same exact cleanup adapter as N7, but only through the
         # separately signed N8 repair-authority boundary.
         self.boundary = RepairBoundaryService(self.diagnosis, cleanup_adapters=n7.cleanup.adapters)
         self.continuation = DataRepairContinuationService(self.diagnosis)
+
+    def review_reproduction(self, *, release_batch_id, request_id, attestation_ref):
+        """Actual native Host HumanGate operation; never execute business IO."""
+        if self.reproduction_human_gate is None:
+            raise ContractError('N8_PRODUCT_N9_HUMAN_GATE_PROVIDER_REQUIRED')
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        request = self._one('rc72_n9_reproduction_authorization_request',
+                            request_id=request_id)
+        if (batch['release_id'] != self.release_id
+                or request['release_batch_id'] != release_batch_id
+                or request['mission_id'] != batch['mission_id']):
+            raise ContractError('N8_PRODUCT_N9_HUMAN_GATE_BATCH_SCOPE_CHANGED')
+        return self.reproduction_human_gate.review(
+            request_id=request_id, attestation_ref=attestation_ref)
 
     def _one(self, kind, **filters):
         rows=self.truth.query(kind, **filters)
