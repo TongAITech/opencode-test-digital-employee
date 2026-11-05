@@ -61,6 +61,66 @@ def test_real_n9_qualification_refuses_broken_n8_semantic_route_readonly(
         server.server_close()
 
 
+@pytest.mark.parametrize('tamper', [
+    'replaced_active_generation', 'old_delivery_ref', 'missing_delivery',
+    'duplicate_delivery', 'foreign_delivery_mission', 'foreign_gate_node',
+    'swapped_active_delivery',
+])
+def test_real_n9_qualifier_refuses_historical_n8_gate_after_delivery_drift(
+        tmp_path, monkeypatch, tamper):
+    """A formerly signed N8 PASS is not authority for a superseded N8 epoch."""
+    truth, plan, prep, server, url, pipeline = _failed_business(tmp_path, monkeypatch)
+    try:
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result['failure_class'] == 'VALID_TEST_FAILURE'
+        assert len(server.calls) == 1
+        original = truth.query
+        preparation = original('rc72_n7_execution_preparation')[0]
+        diagnosis = original('rc72_diagnosis_case')[0]
+        node = original('rc72_mission_node', node_type='N8_DIAGNOSIS_RECOVERY')[0]
+        delivery = original('rc72_node_delivery', mission_node_id=node['mission_node_id'])[0]
+        assert delivery['version'] == node['active_delivery_version']
+        before = truth.store.path.read_bytes()
+
+        def changed(kind, **filters):
+            rows = original(kind, **filters)
+            if kind == 'rc72_mission_node' and tamper in (
+                    'replaced_active_generation', 'old_delivery_ref'):
+                result_rows = []
+                for row in rows:
+                    if row.get('node_type') != 'N8_DIAGNOSIS_RECOVERY':
+                        result_rows.append(row)
+                    elif tamper == 'replaced_active_generation':
+                        result_rows.append(dict(row, active_delivery_version=row['active_delivery_version'] + 1))
+                    else:
+                        result_rows.append(dict(row, delivery_refs=['N8-OLD-DELIVERY']))
+                return result_rows
+            if kind == 'rc72_node_delivery' and filters.get('mission_node_id') == node['mission_node_id']:
+                if tamper == 'missing_delivery':
+                    return []
+                if tamper == 'duplicate_delivery':
+                    return rows + rows
+                if tamper == 'foreign_delivery_mission':
+                    return [dict(row, mission_id='MISSION-FOREIGN') for row in rows]
+                if tamper == 'swapped_active_delivery':
+                    return [dict(row, delivery_id='N8-OLD-DELIVERY') for row in rows]
+            if kind == 'rc72_node_gate' and tamper == 'foreign_gate_node':
+                return [dict(row, mission_node_id='N8-FOREIGN') for row in rows]
+            return rows
+
+        monkeypatch.setattr(truth, 'query', changed)
+        with pytest.raises(ContractError, match='N9_PROFESSIONAL_CURRENT_N8_DELIVERY'):
+            NativeN9ProfessionalIntakeService(pipeline).queue_reproduction(
+                preparation_id=preparation['preparation_id'],
+                diagnosis_id=diagnosis['diagnosis_id'])
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == 1
+        assert original('rc7_defect') == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_real_n9_qualification_accepts_original_signed_route_without_new_effect(
         tmp_path, monkeypatch):
     truth, plan, prep, server, url, pipeline = _failed_business(tmp_path, monkeypatch)
