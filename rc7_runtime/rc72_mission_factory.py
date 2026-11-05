@@ -273,7 +273,8 @@ def create_mission_driver(truth, *, release_id, source_commit, workers,
     if professional_dsh_binding is not None:
         specialist = NativeN9ProfessionalDshAnalysisService(
             n7, launcher=professional_dsh_binding.launcher,
-            allowed_tools=professional_dsh_binding.tools)
+            allowed_tools=professional_dsh_binding.tools,
+            captain_dsh_host_enabled=(captain_binding is not None))
     n8 = NativeN8ProductRecoveryService(n7, capability_broker=CapabilityBroker(
         truth, release_id=release_id, authority=execution_authority,
         policies=capability_policies or {}), professional_dsh=specialist)
