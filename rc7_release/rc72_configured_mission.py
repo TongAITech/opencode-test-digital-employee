@@ -74,6 +74,7 @@ def _controller_key(truth, directory):
 
 def configured_mission_bindings(truth, *, release_id, source_commit, config_path,
                                 release_batch_id=None, observed_captain=None,
+                                observed_captain_startup=None,
                                 host_authority=None, captain_role_profiles=None,
                                 captain_approved_capabilities=None):
     path = Path(config_path).expanduser().resolve()
@@ -114,16 +115,23 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
     # No fallback to legacy execution is permitted after a cold restart.
     governed_batches = [batch for batch in batches if truth.query(
         'rc72_captain_dispatch_lease', mission_id=batch['mission_id'])]
-    injected = (observed_captain is not None or host_authority is not None
-                or captain_role_profiles is not None
+    injected = (observed_captain is not None or observed_captain_startup is not None
+                or host_authority is not None or captain_role_profiles is not None
                 or captain_approved_capabilities is not None)
     if governed_batches:
-        if not injected or any(value is None for value in (
-                observed_captain, host_authority, captain_role_profiles,
-                captain_approved_capabilities)):
+        if (not injected or observed_captain_startup is not None
+                or any(value is None for value in (
+                    observed_captain, host_authority, captain_role_profiles,
+                    captain_approved_capabilities))):
             raise ContractError('MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED')
         if release_batch_id is None or len(governed_batches) != 1:
             raise ContractError('MISSION_CONFIG_CAPTAIN_EXACT_BATCH_REQUIRED')
+    elif observed_captain_startup is not None:
+        if (release_batch_id is None or len(batches) != 1
+                or observed_captain is not None
+                or any(value is None for value in (
+                    host_authority, captain_role_profiles, captain_approved_capabilities))):
+            raise ContractError('MISSION_CONFIG_CAPTAIN_FIRST_START_EXACT_HOST_REQUIRED')
     elif injected:
         raise ContractError('MISSION_CONFIG_CAPTAIN_UNOBSERVED_LEASE_FORBIDDEN')
 
@@ -167,13 +175,14 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
             raise ContractError('MISSION_CONFIG_N9_EXACT_READ_ONLY_TOOLS_REQUIRED')
         n9_tools = tuple(proposed)
     captain_binding = None
-    if governed_batches:
+    if governed_batches or observed_captain_startup is not None:
         # The signed Host observation is verified before loading model
         # credentials, controller-owned worker keys or starting any worker.
         # Role grants must match capabilities of the bank-reviewed current
         # execution registry; no role may inherit Full Access or other
         # capabilities by naming them in config/AgentTeams.
-        from rc7_release.rc72_captain_host_reentry import reenter_host_captain
+        from rc7_release.rc72_captain_host_reentry import (
+            reenter_host_captain, bootstrap_host_captain)
         from rc7_runtime.rc72_captain_scheduling import CaptainFencedWorkItemScheduler
         if (not isinstance(captain_role_profiles, dict)
                 or not captain_role_profiles
@@ -192,11 +201,17 @@ def configured_mission_bindings(truth, *, release_id, source_commit, config_path
                 or ('N9_QUALIFY' in captain_role_profiles
                     and set(captain_role_profiles['N9_QUALIFY']) != {'defect_analysis'})):
             raise ContractError('MISSION_CONFIG_CAPTAIN_ROLE_CAPABILITY_SCOPE_CHANGED')
-        captain_binding = reenter_host_captain(
-            truth, release_id=release_id, source_commit=source_commit,
-            release_batch_id=release_batch_id, observed=observed_captain,
-            host_authority=host_authority, role_profiles=captain_role_profiles,
+        arguments = dict(
+            truth=truth, release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, host_authority=host_authority,
+            role_profiles=captain_role_profiles,
             approved_capabilities=captain_approved_capabilities)
+        if governed_batches:
+            captain_binding = reenter_host_captain(
+                observed=observed_captain, **arguments)
+        else:
+            captain_binding = bootstrap_host_captain(
+                startup=observed_captain_startup, **arguments)
     inputs = config['inputs']
     if not isinstance(inputs, list) or not inputs:
         raise ContractError('MISSION_CONFIG_ORIGINAL_INPUTS_REQUIRED')
