@@ -65,12 +65,23 @@ def _bypassed_n8():
     return rows, edge
 
 
+def _current_n7_proof(rows):
+    n7 = next(row for row in rows if row['node_type'] == 'N7_EXECUTION')
+    delivery = dict(mission_id=n7['mission_id'], mission_node_id=n7['mission_node_id'],
+        node_type='N7_EXECUTION', delivery_id=n7['delivery_refs'][0],
+        version=n7['active_delivery_version'])
+    gate = dict(mission_id=n7['mission_id'], mission_node_id=n7['mission_node_id'],
+        node_type='N7_EXECUTION', decision='PASS',
+        delivery_id=delivery['delivery_id'], gate_id=n7['gate_refs'][0])
+    return dict(n7_gates=[gate], n7_deliveries=[delivery])
+
+
 def test_valid_n7_forward_n9_must_not_require_synthetic_n8_pass():
     rows, edge = _bypassed_n8()
-    assert _accepted_ten_node_completion(rows, transitions=[edge]) is True
-    assert _accepted_ten_node_completion(list(reversed(rows)), transitions=[edge]) is True
+    assert _accepted_ten_node_completion(rows, transitions=[edge], **_current_n7_proof(rows)) is True
+    assert _accepted_ten_node_completion(list(reversed(rows)), transitions=[edge], **_current_n7_proof(rows)) is True
     assert _accepted_ten_node_completion(rows) is False
-    assert _accepted_ten_node_completion(rows, transitions=[]) is False
+    assert _accepted_ten_node_completion(rows, transitions=[], **_current_n7_proof(rows)) is False
 
 
 @pytest.mark.parametrize('corruption', [
@@ -80,6 +91,7 @@ def test_valid_n7_forward_n9_must_not_require_synthetic_n8_pass():
 ])
 def test_n8_bypass_rejects_wrong_or_missing_signed_forward_route(corruption):
     rows, edge = _bypassed_n8()
+    proof = _current_n7_proof(rows)
     n8 = next(r for r in rows if r['node_type'] == 'N8_DIAGNOSIS_RECOVERY')
     n7 = next(r for r in rows if r['node_type'] == 'N7_EXECUTION')
     n9 = next(r for r in rows if r['node_type'] == 'N9_DEFECT')
@@ -107,4 +119,32 @@ def test_n8_bypass_rejects_wrong_or_missing_signed_forward_route(corruption):
         rows.remove(n8)
     elif corruption == 'untrusted_edge':
         edge = 'N7-N9'
-    assert _accepted_ten_node_completion(rows, transitions=[edge]) is False
+    assert _accepted_ten_node_completion(rows, transitions=[edge], **proof) is False
+
+
+@pytest.mark.parametrize('broken', [
+    'stale_gate', 'stale_delivery', 'wrong_delivery_version',
+    'wrong_delivery_node', 'forged_gate_decision', 'duplicate_current_gate',
+    'wrong_gate_delivery', 'no_delivery_proof',
+])
+def test_historical_or_forged_n7_gate_cannot_authorize_n8_bypass(broken):
+    rows, edge = _bypassed_n8()
+    proof = _current_n7_proof(rows)
+    if broken == 'stale_gate':
+        proof['n7_gates'][0]['gate_id'] = 'GATE-OLD-N7'
+    elif broken == 'stale_delivery':
+        proof['n7_gates'][0]['delivery_id'] = 'DELIVERY-OLD'
+        proof['n7_deliveries'][0]['delivery_id'] = 'DELIVERY-OLD'
+    elif broken == 'wrong_delivery_version':
+        proof['n7_deliveries'][0]['version'] += 1
+    elif broken == 'wrong_delivery_node':
+        proof['n7_deliveries'][0]['mission_node_id'] = 'NODE-N6_EXECUTABLE_READINESS'
+    elif broken == 'forged_gate_decision':
+        proof['n7_gates'][0]['decision'] = 'FAIL'
+    elif broken == 'duplicate_current_gate':
+        proof['n7_gates'].append(dict(proof['n7_gates'][0]))
+    elif broken == 'wrong_gate_delivery':
+        proof['n7_gates'][0]['delivery_id'] = 'DELIVERY-OTHER'
+    elif broken == 'no_delivery_proof':
+        proof['n7_deliveries'] = []
+    assert _accepted_ten_node_completion(rows, transitions=[edge], **proof) is False
