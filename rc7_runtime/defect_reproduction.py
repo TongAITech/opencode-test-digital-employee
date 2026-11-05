@@ -239,7 +239,7 @@ class DefectReproductionExecutionService:
             leased = control.scheduler.lease_task(
                 control.mission_id, task_id,
                 worker_ref=identity.worker_id,
-                capabilities=("test_execution",),
+                capabilities=task.required_capabilities,
             )
         if leased is None or leased.task_id != task_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SCHEDULER_LEASE_MISMATCH")
