@@ -36,6 +36,7 @@ from .rc72_n6_pipeline import N6PipelineService
 from .rc72_n7_pipeline import N7PipelineService
 from .rc72_n8_product_recovery import NativeN8ProductRecoveryService
 from .rc72_n9_accepted_scope import AcceptedScopeN9Service
+from .rc72_n9_professional_disposition_gate import N9ProfessionalDispositionGateService
 from .rc72_expected_scope_input import ExpectedScopeInputService
 from .rc72_n10_control import NativeN10ControlService
 
@@ -249,9 +250,47 @@ class ReleaseBatchDriver:
             release_batch_id=release_batch_id, request_id=request_id,
             defect_id=defect_id)
 
+    def review_professional_resolution(self, *, release_batch_id, request_id,
+                                       defect_id, attestation_ref):
+        """Explicit signed bank professional review; cannot auto-complete N9."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if not isinstance(self.n9_pipeline, N9ProfessionalDispositionGateService):
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return self.n9_pipeline.review(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id, attestation_ref=attestation_ref)
+
+    def accept_professional_resolution(self, *, release_batch_id, request_id,
+                                       defect_id):
+        """Explicit post-review original Gap adjudication, no business replay."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if not isinstance(self.n9_pipeline, N9ProfessionalDispositionGateService):
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return self.n9_pipeline.accept_reviewed_resolution(
+            release_batch_id=release_batch_id, request_id=request_id,
+            defect_id=defect_id)
+
+    def complete_professional_n9(self, *, release_batch_id):
+        """Audit the actual professional NodeGate, never treat N9 as N10."""
+        self._assert_n8_scope()
+        self._assert_n9_scope()
+        batch = self._one('rc72_release_batch', release_batch_id=release_batch_id)
+        self._assert_captain_product_entry(batch['mission_id'])
+        if not isinstance(self.n9_pipeline, N9ProfessionalDispositionGateService):
+            raise ContractError('RC72_RELEASE_DRIVER_N9_PROFESSIONAL_PROVIDER_REQUIRED')
+        return self.n9_pipeline.complete(release_batch_id=release_batch_id)
+
     def _assert_n9_scope(self):
         n9=self.n9_pipeline
-        if n9 is not None and (not isinstance(n9,AcceptedScopeN9Service) or n9.pipeline is not self.n7_pipeline
+        if n9 is not None and (not isinstance(n9,(AcceptedScopeN9Service,N9ProfessionalDispositionGateService))
+                or (isinstance(n9,N9ProfessionalDispositionGateService) and n9.n8 is not self.n8_pipeline)
+                or n9.pipeline is not self.n7_pipeline
                 or n9.truth is not self.truth or n9.source_commit!=self.source_commit):
             raise ContractError('RC72_RELEASE_DRIVER_N9_PIPELINE_SCOPE_MISMATCH')
 
