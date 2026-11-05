@@ -447,3 +447,71 @@ def test_factory_c04_rejects_untrusted_or_execution_tainted_n9_worker(
         create_mission_driver(truth, **options)
     assert truth.store.path.read_bytes()==before
     assert not truth.query('rc7_defect')
+
+
+def test_factory_consumes_explicit_signed_captain_n9_dsh_bridge_without_minting_authority(
+        tmp_path):
+    """Real A product factory uses the same B Captain and independent N9 Host."""
+    from rc7_runtime.rc72_mission_factory import MissionProfessionalDshBinding
+    truth, options = _setup(tmp_path)
+    captain = _real_captain_binding(truth)
+    captain.scheduler.role_profiles['N9_QUALIFY'] = frozenset(('defect_analysis',))
+    patch = tmp_path / 'n9-host-patch.json'
+    patch.write_text('{}', encoding='utf-8')
+    def forbidden(*args, **kwargs):
+        pytest.fail('factory composition must not launch DSH')
+    n9 = DshHeadlessWorkerLauncher(
+        dsh_bin=sys.executable, patch_path=str(patch), cwd=str(tmp_path),
+        truth=truth, authority=RC72AuthorityRuntime(b'isolated-n9-real-host-key'),
+        coordinator_instance_id='independent-n9-approved-host',
+        release_id=RELEASE, state_root=str(tmp_path / 'n9-private-captain-dsh'),
+        command_runner=forbidden)
+    options['captain_binding'] = captain
+    options['professional_dsh_binding'] = MissionProfessionalDshBinding(
+        n9, ('read_only_diagnostic',), captain_governed_dsh=True)
+    before = truth.store.path.read_bytes()
+    driver = create_mission_driver(truth, **options)
+    analyst = driver.n8_pipeline.professional_dsh
+    assert analyst is not None
+    assert analyst.captain_dsh_bridge is not None
+    assert analyst.captain_dsh_bridge.scheduler is captain.scheduler
+    assert analyst.captain_dsh_bridge.launcher is n9
+    assert driver.n7_pipeline.captain_scheduler is captain.scheduler
+    assert driver.n9_pipeline.pipeline is driver.n7_pipeline
+    assert driver.n10_pipeline.rerun.pipeline is driver.n7_pipeline
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_n9_captain_worker_invocation')
+    assert not truth.query('execution_attempt')
+
+
+@pytest.mark.parametrize('mutation', ['no_captain','bogus_optin','role_escalation'])
+def test_factory_denies_captain_n9_dsh_without_typed_real_host_scope(
+        tmp_path, mutation):
+    from rc7_runtime.rc72_mission_factory import MissionProfessionalDshBinding
+    truth, options = _setup(tmp_path)
+    captain = _real_captain_binding(truth)
+    captain.scheduler.role_profiles['N9_QUALIFY'] = frozenset(('defect_analysis',))
+    patch = tmp_path / 'n9-forbidden-patch.json'
+    patch.write_text('{}', encoding='utf-8')
+    n9 = DshHeadlessWorkerLauncher(
+        dsh_bin=sys.executable, patch_path=str(patch), cwd=str(tmp_path),
+        truth=truth, authority=RC72AuthorityRuntime(b'isolated-factory-n9-key'),
+        coordinator_instance_id='independent-n9-approved-host',
+        release_id=RELEASE, state_root=str(tmp_path / 'private-n9'),
+        command_runner=lambda *args,**kwargs: pytest.fail('unapproved DSH'))
+    options['captain_binding'] = captain
+    enabled = True
+    if mutation == 'no_captain':
+        options['captain_binding'] = None
+    elif mutation == 'bogus_optin':
+        enabled = 'yes'
+    elif mutation == 'role_escalation':
+        captain.scheduler.role_profiles['N9_QUALIFY'] = frozenset(('api_http',))
+    options['professional_dsh_binding'] = MissionProfessionalDshBinding(
+        n9, ('read_only_diagnostic',), captain_governed_dsh=enabled)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match=('MISSION_FACTORY_N9_CAPTAIN_EXPLICIT_HOST_REQUIRED'
+            if mutation != 'role_escalation' else 'N9_CAPTAIN_SIGNED_READONLY_DSH_HOST_REQUIRED')):
+        create_mission_driver(truth, **options)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_n9_captain_worker_invocation')
