@@ -1,0 +1,54 @@
+name: RC7.2 C04 Real Professional N9 Disposition Gate
+on:
+  push:
+    branches: [work/rc7.2-a6-c04-professional-n9-gate]
+    paths:
+      - rc7_runtime/rc72_n9_professional_disposition_gate.py
+      - rc7_runtime/rc72_release_driver.py
+      - tests/test_rc72_n9_professional_disposition_gate.py
+      - .github/workflows/rc72-c04-professional-n9-gate.yml
+  pull_request:
+    branches: [work/rc7.2-c04-approved-real-reproduction]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  n9-professional:
+    name: c04-n9-professional-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile native professional service and public entry
+        run: >-
+          python -m py_compile rc7_runtime/rc72_n9_professional_disposition_gate.py
+          rc7_runtime/rc72_release_driver.py
+          tests/test_rc72_n9_professional_disposition_gate.py
+      - name: Actual C04 HTTP+DSH+R1 professional RCA fix impact Gate and regressions
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_n9_professional_disposition_gate.py
+          tests/test_rc72_n9_reproduction_resolution_audit.py
+          tests/test_rc72_n9_approved_reproduction_execution.py
+          tests/test_rc7_defect_resolution_control.py
+          tests/test_rc72_n9_accepted_scope.py
+          --junitxml=c04-professional-n9.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c04-professional-n9-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          path: c04-professional-n9.xml
+          if-no-files-found: warn
+          retention-days: 14
