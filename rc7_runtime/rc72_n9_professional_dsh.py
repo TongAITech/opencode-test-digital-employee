@@ -57,7 +57,7 @@ def install_overlay():
 class NativeN9ProfessionalDshAnalysisService:
     """Execute exactly one scoped professional DSH attempt per frozen N8 gap."""
 
-    def __init__(self, pipeline, *, launcher, allowed_tools):
+    def __init__(self, pipeline, *, launcher, allowed_tools, captain_dsh_host_enabled=False):
         self.intake = NativeN9ProfessionalIntakeService(pipeline)
         self.pipeline, self.truth = pipeline, pipeline.truth
         self.release_id, self.source_commit = pipeline.release_id, pipeline.source_commit
@@ -70,7 +70,10 @@ class NativeN9ProfessionalDshAnalysisService:
                 or len(set(allowed_tools)) != len(allowed_tools)
                 or any(not isinstance(tool, str) or not tool.strip() or '*' in tool for tool in allowed_tools)):
             raise ContractError("N9_DSH_INDEPENDENT_SCOPED_LAUNCHER_REQUIRED")
+        if type(captain_dsh_host_enabled) is not bool:
+            raise ContractError('N9_DSH_APPROVED_HOST_FLAG_REQUIRED')
         self.launcher, self.allowed_tools = launcher, allowed_tools
+        self.captain_dsh_host_enabled = captain_dsh_host_enabled
         install_overlay()
 
     def _one(self, kind, **filters):
@@ -205,13 +208,10 @@ class NativeN9ProfessionalDshAnalysisService:
         make progress. Its HANDOFF event or failed/started event prevents a
         new agent from replaying an unknown model/tool side effect.
         """
-        # C07: an ACTIVE/R1-registered Captain owns the only WorkItem lease.
-        # A professional DSH launcher cannot allocate a second Worker via the
-        # legacy scheduler or borrow the N7 execution lease. Until a native
-        # Captain -> signed DSH WorkerInvocation binding is implemented, the
-        # exact accepted N8 discrepancy may be admitted as a read-only
-        # Captain-owned N9 WorkItem, but the process MUST NOT be launched.
-        # This preflight precedes any N9 model/tool I/O or local task lease.
+        # C07: never allocate a second Worker when an R1 Captain is present.
+        # Only the explicitly host-enabled, separately scoped N9 launcher
+        # may adopt the already-admitted Fresh Worker and issue a signed
+        # diagnostic-only TaskLease. Default remains an immutable HOLD.
         prepared = self._one("rc72_n7_execution_preparation",
                              preparation_id=preparation_id)
         owners = self.truth.query("rc72_captain_dispatch_lease",
@@ -223,6 +223,11 @@ class NativeN9ProfessionalDshAnalysisService:
             from .rc72_n9_captain_qualification import NativeN9CaptainQualificationAdmission
             admitted = NativeN9CaptainQualificationAdmission(self.pipeline).admit(
                 preparation_id=preparation_id, diagnosis_id=diagnosis_id)
+            if self.captain_dsh_host_enabled:
+                from .rc72_n9_captain_dsh_bridge import GovernedN9DshInvocation
+                return GovernedN9DshInvocation(self).analyze(
+                    preparation_id=preparation_id, diagnosis_id=diagnosis_id,
+                    admitted=admitted)
             return dict(admitted, status="HOLD",
                         reason="N9_DSH_CAPTAIN_SIGNED_WORKER_BINDING_REQUIRED",
                         diagnosis_id=diagnosis_id,
