@@ -633,13 +633,40 @@ class DiagnosisOrchestrator:
         responsible = outcome.get("responsible_node")
         if responsible and delivery.get("node_type") != responsible:
             raise ContractError("REPAIR_DELIVERY_NODE_MISMATCH")
+        if not responsible or delivery.get("node_type") != responsible:
+            raise ContractError("REPAIR_DELIVERY_RESPONSIBLE_NODE_REQUIRED")
+        # A persisted Delivery is not a completed repair. Require the real
+        # current upstream PASS Gate before propagating STALE or authorizing a
+        # fresh Attempt. For cold replay of an already accepted repair retain
+        # the historical Gate even after dependent nodes became STALE.
+        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+        if len(previous) > 1:
+            raise ContractError("DIAGNOSIS_REPAIR_NOT_UNIQUE")
+        node = self.state_machine.node_by_type(
+            case["mission_id"], AutonomousMissionNode(responsible))
+        gates = [
+            gate for gate in self.truth.query("rc72_node_gate", delivery_id=repair_delivery_id)
+            if (gate.get("gate_id") in node.get("gate_refs", [])
+                    and gate.get("mission_id") == case["mission_id"]
+                    and gate.get("mission_node_id") == node["mission_node_id"]
+                    and gate.get("node_type") == responsible
+                    and gate.get("decision") == "PASS"
+                    and gate.get("evidence_refs"))
+        ]
+        if len(gates) != 1:
+            raise ContractError("UPSTREAM_REPAIR_ACCEPTED_GATE_REQUIRED")
+        if (delivery.get("mission_node_id") != node["mission_node_id"]
+                or (not previous and (
+                    node.get("state") != "PASS"
+                    or node.get("active_delivery_version") != delivery.get("version")
+                    or repair_delivery_id not in node.get("delivery_refs", [])))):
+            raise ContractError("UPSTREAM_REPAIR_CURRENT_DELIVERY_REQUIRED")
         changed = list(changed_refs)
         if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
             raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
         if not isinstance(reason, str) or not reason.strip():
             raise ContractError("REPAIR_REASON_REQUIRED")
 
-        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
         if previous:
             if (len(previous) != 1 or previous[0]["mission_id"] != case["mission_id"]
                     or previous[0]["repair_delivery_id"] != repair_delivery_id
