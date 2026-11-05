@@ -16,6 +16,7 @@ import time
 import uuid
 
 from rc6_runtime import contracts, truth as registry
+from rc6_runtime.authority import AuthorityError, TaskLease, WorkerIdentity
 from rc6_runtime.agent_runtime import (
     AgentRuntimeError, DshHeadlessWorkerLauncher, WorkerAssignment, WorkerInvocation,
 )
@@ -132,6 +133,15 @@ class NativeN9CaptainSignedDshBridge:
                 or lease.get("allowed_artifact_types")
                 or not lease.get("signature")):
             raise ContractError("N9_CAPTAIN_DSH_SIGNED_LEASE_SCOPE_CHANGED")
+        # Independently authenticate the embedded TaskLease's HMAC, not
+        # merely the surrounding R1 dispatch-intent signature. Historical
+        # authentication is allowed after expiry but cannot restore runtime
+        # authority or grant another process invocation.
+        try:
+            self.launcher.authority.validate_historical_lease(
+                WorkerIdentity(**identity), TaskLease(**lease))
+        except (AuthorityError, TypeError, ValueError):
+            raise ContractError("N9_CAPTAIN_DSH_SIGNED_LEASE_SIGNATURE_INVALID") from None
         return intent
 
     def _result(self, scope):
