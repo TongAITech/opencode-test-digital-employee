@@ -257,6 +257,11 @@ jobs:
           try {
             & $certifiedPython -m rc7_release.runtime_turnkey_certificate verify --package-root $certifiedRoot --rerun-smoke
             if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP offline rerun-smoke verification failed' }
+            # Reuse the original RC7 clean Windows Mission v2 and R1 A->B->C
+            # session-handoff proof on the ONE certified, re-extracted package.
+            # Do not rebuild or certify a second ZIP on feature commits.
+            & $certifiedPython -m rc7_release.windows_clean_qualification --package-root $certifiedRoot
+            if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP Windows clean-session qualification failed' }
             & $certifiedPython -m rc7_release.runtime_delivery_contract --package-root $certifiedRoot
             if ($LASTEXITCODE -ne 0) { throw 'RC7 certified ZIP runtime contract failed' }
             & $certifiedPython -m rc7_release.package verify --package-root $certifiedRoot
