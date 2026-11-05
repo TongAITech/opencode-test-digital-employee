@@ -5,6 +5,7 @@ on:
     paths:
       - rc7_runtime/rc72_n9_professional_disposition_gate.py
       - rc7_runtime/rc72_release_driver.py
+      - rc7_runtime/rc72_mission_factory.py
       - tests/test_rc72_n9_professional_disposition_gate.py
       - .github/workflows/rc72-c04-professional-n9-gate.yml
   pull_request:
@@ -35,6 +36,7 @@ jobs:
         run: >-
           python -m py_compile rc7_runtime/rc72_n9_professional_disposition_gate.py
           rc7_runtime/rc72_release_driver.py
+          rc7_runtime/rc72_mission_factory.py
           tests/test_rc72_n9_professional_disposition_gate.py
       - name: Actual C04 HTTP+DSH+R1 professional RCA fix impact Gate and regressions
         run: >-
