@@ -58,14 +58,36 @@ def test_rc7_final_one_zip_certification_retains_clean_smoke_and_bank_profile_pr
 
 
 def test_rc72_abcd_iterative_ci_defers_complete_chromium_and_full_source():
+    """Normal feature pushes remain bounded; only an explicit checkpoint is full."""
     path = WORKFLOW.with_name("rc7.2-abcd-v5-qualification.yml")
     content = path.read_text(encoding="utf-8")
     assert "full_qualification:" in content
     assert "default: false" in content
-    assert "if: github.event_name == 'workflow_dispatch' && inputs.full_qualification == true" in content
+
+    # A normal push or PR must never run Chromium/full inherited regression.
+    # An explicit reviewer-requested dispatch or a dedicated qualification
+    # checkpoint is permitted and must fail closed if its job is skipped.
+    full = content.split("  complete-rc7-with-real-chromium:\n", 1)[1].split(
+        "  checkpoint-full-gate:\n", 1)[0]
+    assert full.count("    if: >-") == 1
+    condition = full.split("    if: >-\n", 1)[1].split("    runs-on:", 1)[0]
+    assert "(github.event_name == 'workflow_dispatch' && inputs.full_qualification == true)" in condition
+    assert "(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):'))" in condition
+    assert "github.event_name == 'pull_request'" not in condition
+    assert "Run every inherited RC7 and RC7.2 test module" in full
+    assert "tests/test_rc72_c09_real_chromium_cdp_smoke.py" in full
+
+    checkpoint = content.split("  checkpoint-full-gate:\n", 1)[1]
+    assert "needs: [complete-rc7-with-real-chromium]" in checkpoint
+    assert "always()" in checkpoint
+    assert "github.event_name == 'push'" in checkpoint
+    assert "startsWith(github.event.head_commit.message, 'qualify(rc7.2):')" in checkpoint
+    assert 'if [ "$FULL_JOB_RESULT" != "success" ]; then' in checkpoint
+    assert "RC72_FULL_QUALIFICATION_NOT_PROVEN" in checkpoint
+
     assert "c01-c10-engineering:" in content
+    assert "c07-issue7-product-admission:" in content
     assert "tests/test_rc72_mission_factory.py" in content
-    assert "Run every inherited RC7 and RC7.2 test module" in content
     assert "python -m pytest -q" in content
 
 
