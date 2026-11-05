@@ -58,6 +58,9 @@ class RC72AuthorityRuntime(AuthorityRuntime):
     # verified DataRef, binding, lease, node PASS, or downstream release.
     _ROLE_ARTIFACTS[DATA_VERIFIER] = set()
     _ROLE_ARTIFACTS["RC72_COVERAGE_AUDITOR"] = set()
+    # N9 qualification is a separate professional Worker, not a broad
+    # FAILURE_DIAGNOSTIC identity and never authorized to write Defect/RCA.
+    _ROLE_ARTIFACTS["N9_QUALIFY"] = set()
 
     def worker_process_environment(self, *, identity, lease, worker_instance_id, mission_id, scope, explicit, home):
         """Project a live native worker's environment, never the Captain's home."""
