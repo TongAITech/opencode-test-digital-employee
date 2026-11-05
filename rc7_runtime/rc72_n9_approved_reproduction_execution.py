@@ -8,7 +8,7 @@ reentry must audit, never launch the operation twice. Reproduced != RCA/Defect.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
+import hashlib
 import hmac
 import time
 from pathlib import Path
@@ -21,6 +21,8 @@ from .closed_loop_control import ClosedLoopControlPlane
 from .defect_reproduction import DefectReproductionExecutionService
 from .models import ContractError, Task, TaskStatus
 from .rc72_ledger_lock import ledger_lock
+from .rc72_canonical_design import CanonicalDesignService
+from .rc72_n6_completion import _digest as n6_contract_digest
 from .rc72_n7_execution_admission import _hash
 from .rc72_n9_reproduction_human_gate import N9ReproductionHumanGateService
 from .runtime_execution import VerifiedScriptExecutionBundle
@@ -116,11 +118,22 @@ class N9ApprovedReproductionExecutionService:
             contract_id=request["original_contract_id"])
         original = self._one("rc72_n7_execution_preparation",
                              preparation_id=request["preparation_id"])
+        frozen_cases = CanonicalDesignService(
+            self.truth, release_id=self.release_id,
+            source_commit=self.source_commit).load(
+                release_batch_id=request["release_batch_id"]).cases
+        cases = [item for item in frozen_cases
+                 if item["tc_id"] == request["original_case_id"]]
+        if len(cases) != 1:
+            raise ContractError("N9_REPRO_ORIGINAL_N4_CASE_NOT_UNIQUE")
+        canonical = cases[0]
+        etu = self._one("rc72_etu", etu_id=request["original_etu_id"])
         original_task = self._one("rc7_task",
                                   task_id=request["original_workitem_id"])
         gap = self._one("rc7_gap", gap_id=request["original_gap_id"])
         if (request["release_id"] != self.release_id
                 or request["source_commit"] != self.source_commit
+                or contract["contract_sha256"] != n6_contract_digest(contract)
                 or original["attempt_id"] != request["original_attempt_id"]
                 or original["case_id"] != request["original_case_id"]
                 or original_task["mission_id"] != request["mission_id"]
@@ -135,13 +148,32 @@ class N9ApprovedReproductionExecutionService:
                 or prepared.tc_id != request["original_case_id"]
                 or bundle.spec.tc_id != request["original_case_id"]
                 or prepared.case_version != bundle.spec.case_version
+                or bundle.spec.layer != etu["test_level"]
                 or bundle.frozen_case.get("tc_id") != request["original_case_id"]
                 or bundle.frozen_case.get("status") != "FROZEN"
                 or bundle.frozen_case.get("release_id") != self.release_id
                 or bundle.frozen_case.get("oracle", {}).get("checks") != contract["oracles"]
                 or prepared.oracle_snapshot.get("checks") != contract["oracles"]
-                or bundle.frozen_case.get("steps") != contract["steps"]):
+                or bundle.frozen_case.get("steps") != contract["steps"]
+                or any(bundle.frozen_case.get(name) != canonical.get(name)
+                       for name in (
+                           "requirement_id", "sst_id", "obligation_id",
+                           "preconditions", "steps", "expected_results",
+                           "evidence_requirements"))
+                or bundle.frozen_case.get("test_level") != canonical.get("test_level")):
             raise ContractError("N9_REPRO_NEW_ATTEMPT_FROZEN_ORACLE_OR_CASE_REQUIRED")
+        source_ref = bundle.script.source_ref
+        if (not isinstance(source_ref, str)
+                or not source_ref.startswith("file://")
+                or not isinstance(bundle.source_sha256, str)
+                or len(bundle.source_sha256) != 64
+                or not bundle.validation.ready):
+            raise ContractError("N9_REPRO_APPROVED_SCRIPT_BYTES_REQUIRED")
+        source_file = Path(source_ref[len("file://"):])
+        if (not source_file.is_file() or source_file.is_symlink()
+                or hashlib.sha256(source_file.read_bytes()).hexdigest()
+                   != bundle.source_sha256):
+            raise ContractError("N9_REPRO_APPROVED_SCRIPT_HASH_CHANGED")
         return request, approval, contract, original_task
 
     @staticmethod
@@ -333,7 +365,9 @@ class N9ApprovedReproductionExecutionService:
                        for eid in row["evidence_ids"])):
             raise ContractError("N9_REPRO_DURABLE_EXECUTION_PROOF_CHANGED")
         return dict(status="HOLD",
-                    reason="N9_INDEPENDENT_REPRODUCTION_EVIDENCE_REQUIRES_RCA",
+                    reason=("N9_INDEPENDENT_REPRODUCTION_EVIDENCE_REQUIRES_RCA"
+                            if row["conclusive"] else
+                            "N9_REPRODUCTION_INCONCLUSIVE_REPAIR_REQUIRED"),
                     request_id=request_id,
                     record_id=row["record_id"],
                     fresh_attempt_id=row["reproduction_attempt_id"],
