@@ -181,3 +181,107 @@ def test_expired_lease_does_not_mark_expired_until_authoritative_dispatch(tmp_pa
     # Read-only binding is safe before Field Q7 and soft token admission.
     assert truth.store.path.read_bytes() == before
     assert truth.query("rc72_captain_dispatch_lease", lease_id=lease["lease_id"])[0]["state"] == "ACTIVE"
+
+
+
+def _signed_first(key, *, mission_id=MISSION, session="REAL-DSH-HOST-CAPTAIN-FIRST",
+                  team="BANK-DSH-AGENTTEAMS", **changes):
+    from rc7_release.rc72_captain_host_reentry import ObservedDshCaptainStartup
+    values = dict(
+        release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, mission_id=mission_id,
+        team_id=team, captain_session_id=session,
+        dsh_session_ref="dsh://agent-teams/real-host-observed-first-session",
+        observed_at=int(time.time()), state="ACTIVE", signature="PENDING")
+    values.update(changes)
+    startup = ObservedDshCaptainStartup(**values)
+    return replace(startup, signature=key._sign(startup.signed_fields()))
+
+
+def test_verified_host_bootstraps_first_captain_generation_then_cold_reenters_exact_r1(
+        tmp_path):
+    from rc7_release.rc72_captain_host_reentry import bootstrap_host_captain
+    truth = build_truth(tmp_path)
+    start_n1(truth)
+    host_key = RC72AuthorityRuntime(b"bank-host-first-session-observer-signer")
+    signed = _signed_first(host_key)
+    before = truth.store.path.read_bytes()
+    binding = bootstrap_host_captain(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, startup=signed, host_authority=host_key,
+        role_profiles={"L3_EXECUTE": ("api_http",), "N9_QUALIFY": ("defect_analysis",)},
+        approved_capabilities=("api_http", "defect_analysis"))
+    assert truth.store.path.read_bytes() != before
+    lease = truth.query("rc72_captain_dispatch_lease", mission_id=MISSION)
+    assert len(lease) == 1
+    assert lease[0]["generation"] == 1
+    assert lease[0]["state"] == "ACTIVE"
+    assert lease[0]["captain_session_id"] == signed.captain_session_id
+    assert binding.captain_lease_id == lease[0]["lease_id"]
+    assert binding.captain_session_id == signed.captain_session_id
+    assert binding.scheduler.role_profiles["N9_QUALIFY"] == frozenset(("defect_analysis",))
+    assert not truth.query("rc72_captain_etu_admission")
+    assert not truth.query("execution_attempt")
+    assert not truth.query("rc7_defect")
+    cold = TruthRuntime(truth.store.path)
+    observed = _signed(host_key, lease[0])
+    existing = _reenter(cold, host_key, observed)
+    assert existing.captain_lease_id == binding.captain_lease_id
+    assert cold.query("rc72_captain_dispatch_lease", mission_id=MISSION) == lease
+    with pytest.raises(ContractError, match="C07_HOST_FIRST_SESSION_EXISTING_LEASE_REENTER_REQUIRED"):
+        bootstrap_host_captain(
+            cold, release_id=RELEASE, source_commit=COMMIT,
+            release_batch_id=BATCH, startup=signed, host_authority=host_key,
+            role_profiles={"L3_EXECUTE": ("api_http",)},
+            approved_capabilities=("api_http",))
+    assert cold.query("rc72_captain_dispatch_lease", mission_id=MISSION) == lease
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("unsigned", "SIGNED_OBSERVATION_REQUIRED"),
+    ("untrusted_signer", "SIGNED_OBSERVATION_REQUIRED"),
+    ("foreign_batch", "FIRST_SESSION_SCOPE_CHANGED"),
+    ("foreign_source", "FIRST_SESSION_SCOPE_CHANGED"),
+    ("stale", "FIRST_SESSION_OBSERVATION_STALE"),
+    ("future", "FIRST_SESSION_OBSERVATION_STALE"),
+    ("wrong_role", "FIRST_SESSION_APPROVED_ROLES_REQUIRED"),
+    ("full_access", "FULL_ACCESS_FORBIDDEN"),
+    ("ttl", "FIRST_SESSION_TTL_INVALID"),
+])
+def test_first_captain_start_never_leases_from_untrusted_host_or_escalated_role(
+        tmp_path, mutation, reason):
+    from rc7_release.rc72_captain_host_reentry import bootstrap_host_captain
+    truth = build_truth(tmp_path)
+    start_n1(truth)
+    key = RC72AuthorityRuntime(b"bank-host-first-session-observer-signer")
+    signed = _signed_first(key)
+    kwargs = dict(
+        truth=truth, release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, startup=signed, host_authority=key,
+        role_profiles={"L3_EXECUTE": ("api_http",)},
+        approved_capabilities=("api_http",))
+    if mutation == "unsigned":
+        kwargs["startup"] = replace(signed, signature="INVALID")
+    elif mutation == "untrusted_signer":
+        kwargs["host_authority"] = RC72AuthorityRuntime(b"other-untrusted-first-session-key")
+    elif mutation == "foreign_batch":
+        kwargs["startup"] = _signed_first(key, release_batch_id="RB-FOREIGN")
+    elif mutation == "foreign_source":
+        kwargs["startup"] = _signed_first(key, source_commit="f"*40)
+    elif mutation == "stale":
+        kwargs["startup"] = _signed_first(key, observed_at=int(time.time())-100)
+    elif mutation == "future":
+        kwargs["startup"] = _signed_first(key, observed_at=int(time.time())+100)
+    elif mutation == "wrong_role":
+        kwargs["role_profiles"] = {"L3_EXECUTE": ("api_http", "unknown_write")}
+    elif mutation == "full_access":
+        kwargs["role_profiles"] = {"L3_EXECUTE": ("full_access",)}
+        kwargs["approved_capabilities"] = ("full_access",)
+    elif mutation == "ttl":
+        kwargs["ttl_seconds"] = 3601
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match=reason):
+        bootstrap_host_captain(**kwargs)
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query("rc72_captain_dispatch_lease")
+    assert not truth.query("rc72_captain_etu_admission")
