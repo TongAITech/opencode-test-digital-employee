@@ -88,6 +88,14 @@ def test_captain_n9_uses_same_fresh_worker_real_dsh_handoff_signed_r1_and_no_n7_
         assert binding["captain_generation"] == owner["generation"]
         assert binding["allowed_tools"] == ["read_only_diagnostic"]
         assert binding["runtime_lease_signature"]
+        assert analyst.launcher.authority.get_identity(binding["worker_id"]).role == "N9_QUALIFY"
+        lease = analyst.launcher.authority.get_lease(binding["runtime_lease_id"])
+        assert lease.allowed_artifact_types == ()
+        assert lease.allowed_tools == ("read_only_diagnostic",)
+        from rc6_runtime.authority import AuthorityError
+        with pytest.raises(AuthorityError, match="ROLE_ARTIFACT_FORBIDDEN"):
+            analyst.launcher.authority.authorize_artifact(
+                binding["worker_id"], lease.lease_id, "defect")
         assert truth.query("rc7_task", task_id=wid)[0]["state"] == "RUNNING"
         admission = truth.query("rc72_captain_etu_admission", workitem_id=wid)[0]
         assert admission["worker_id"] == binding["worker_id"]
