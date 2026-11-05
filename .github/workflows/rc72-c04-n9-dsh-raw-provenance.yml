@@ -50,7 +50,7 @@ jobs:
           tests/test_rc72_n9_captain_signed_dsh_bridge.py
           tests/test_rc72_c07_n9_professional_dsh_fence.py
           tests/test_rc72_n9_captain_qualification.py
-          tests/test_rc72_n9_integration.py
+          tests/test_rc72_n9_professional_lineage.py
           --junitxml=rc72-c04-n9-raw.xml
       - uses: actions/upload-artifact@v4
         if: always()
