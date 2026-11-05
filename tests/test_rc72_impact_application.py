@@ -8,17 +8,22 @@ from rc7_runtime.rc72_domain import AutonomousMissionNode, NodeDelivery, ETUStat
 from rc7_runtime.rc72_state_machine import RC72StateMachine
 from rc7_runtime.rc72_diagnosis_orchestration import DiagnosisOrchestrator
 from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
-from test_rc72_phase6_repair_reexecution_contract import _setup, _persist_diagnosis_case
+from test_rc72_phase6_repair_reexecution_contract import (_setup, _persist_diagnosis_case,
+    _accept_repair_delivery)
 
 
 def _repair(tmp_path, *, fallback=False):
     truth, runtime, repo, orchestrator = _setup(tmp_path)
     diagnosis_id = _persist_diagnosis_case(truth, orchestrator)
     n3 = runtime.node_by_type('M-1', AutonomousMissionNode.N3_CODE_ANALYSIS)
-    repo.persist(NodeDelivery(delivery_id='REPAIR', mission_id='M-1',
+    repair_delivery = NodeDelivery(delivery_id='REPAIR', mission_id='M-1',
         mission_node_id=n3['mission_node_id'], node_type=AutonomousMissionNode.N3_CODE_ANALYSIS,
         version=2, producer_ref='fresh-repair', artifact_refs=['analysis-v2'],
-        evidence_refs=['EVD-FAIL-1'], created_by_workitems=['REPAIR-WI']))
+        evidence_refs=['EVD-FAIL-1'], created_by_workitems=['REPAIR-WI'])
+    repo.persist(repair_delivery)
+    # Phase 6+ requires accepted upstream repair truth, not a merely saved
+    # Delivery.  Preserve that production gate in all cold/crash/replay tests.
+    _accept_repair_delivery(repo, runtime, repair_delivery)
     params = dict(source_delivery_id='REPAIR', changed_refs=['unknown' if fallback else 'Service#create'],
                   reason='accepted repair changed execution inputs')
     return truth, runtime, repo, orchestrator, diagnosis_id, params

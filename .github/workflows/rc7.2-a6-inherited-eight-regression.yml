@@ -1,0 +1,56 @@
+name: RC7.2 A6 Inherited N8 N10 Windows Regression
+on:
+  pull_request:
+    branches:
+      - work/rc7.2-abcd-v5-bsk-mobile-qualification
+    paths:
+      - 'rc7_runtime/rc72_diagnosis_orchestration.py'
+      - 'tests/test_rc72_impact_application.py'
+      - 'tests/test_rc72_native_coverage_repair.py'
+      - 'tests/test_rc7_windows_clean_qualification_contract.py'
+      - '.github/workflows/rc7-field-hardening.yml'
+      - '.github/workflows/rc7.2-a6-inherited-eight-regression.yml'
+permissions:
+  contents: read
+concurrency:
+  group: rc72-a6-inherited-eight-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+jobs:
+  inherited-eight-contract:
+    name: a6-inherited-eight-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned qualification environment
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile source and exact inherited regressions
+        run: python -m compileall -q rc6_runtime rc7_runtime rc7_release tests
+      - name: Prove upstream PASS Gate, crash resume, fresh N7 fence and single final Windows ZIP contract
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_impact_application.py
+          tests/test_rc72_phase6_repair_reexecution_contract.py
+          tests/test_rc72_native_coverage_repair.py
+          tests/test_rc72_native_coverage_rerun.py
+          tests/test_rc72_n8_product_recovery.py
+          tests/test_rc7_windows_clean_qualification_contract.py
+          tests/test_rc7_workflow_source_identity.py
+          --junitxml=rc72-a6-inherited-eight.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-a6-eight-${{ matrix.os }}-py${{ matrix.python }}-${{ github.event.pull_request.head.sha }}
+          path: rc72-a6-inherited-eight.xml
+          if-no-files-found: error
+          retention-days: 14
