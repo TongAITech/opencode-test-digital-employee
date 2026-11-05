@@ -142,7 +142,8 @@ def main(argv=None):
             if args.mission_config:
                 from rc7_release.rc72_configured_mission import configured_mission_bindings
                 bindings = configured_mission_bindings(truth, release_id=args.release_id,
-                    source_commit=args.source_commit, config_path=args.mission_config)
+                    source_commit=args.source_commit, config_path=args.mission_config,
+                    release_batch_id=args.release_batch)
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit)
