@@ -242,3 +242,72 @@ def test_c04_professional_gate_rejects_provenance_change_after_pass_without_new_
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_c04_release_batch_driver_native_professional_gate_cannot_bypass_open_n8_discrepancy(
+        tmp_path, monkeypatch):
+    """A real ReleaseBatchDriver uses the specialist N9 route, never empty N9."""
+    import sys
+    from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc7_runtime.dsh_requirement_evaluator import DshRequirementEvaluator
+    from rc7_runtime.rc72_n9_accepted_scope import AcceptedScopeN9Service
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+    from rc72_pip_field_test_support import provider as field_provider
+
+    truth, pipeline, server, request, gate, att, proof = _closed(
+        tmp_path, monkeypatch)
+    try:
+        empty = tmp_path / "bank-driver-n9-no-extra-model.json"
+        empty.write_text("{}", encoding="utf-8")
+        def launcher(role):
+            def forbidden(*args, **kwargs):
+                pytest.fail("professional N9 review cannot replay DSH or other Mission stages")
+            return DshHeadlessWorkerLauncher(
+                dsh_bin=sys.executable, patch_path=str(empty),
+                cwd=str(tmp_path), truth=truth,
+                authority=RC72AuthorityRuntime(("n9-product-"+role).encode()),
+                coordinator_instance_id="n9-native-professional-product",
+                release_id=pipeline.release_id,
+                state_root=str(tmp_path / ("n9-product-"+role)),
+                command_runner=forbidden)
+        driver = ReleaseBatchDriver(
+            truth, source_commit=pipeline.source_commit,
+            bank_pip_mirror=field_provider(
+                truth, source_commit=pipeline.source_commit),
+            n1_launcher=launcher("n1"), n1_tools=["reality"],
+            n2_launcher=launcher("n2"), n2_tools=["requirement"],
+            n2_evaluator=DshRequirementEvaluator(
+                launcher("review"), allowed_tools=["requirement-review"]),
+            n7_pipeline=pipeline, n8_pipeline=gate.n8,
+            n9_pipeline=AcceptedScopeN9Service(pipeline),
+            n9_professional_pipeline=gate)
+        batch = truth.query("rc72_release_batch",
+                            release_batch_id=request["release_batch_id"])[0]
+        before = truth.store.path.read_bytes()
+        assert driver._complete_gate("N9_DEFECT", batch)["status"] == "HOLD"
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == 2
+        reviewed = driver.review_professional_resolution(
+            release_batch_id=request["release_batch_id"],
+            request_id=request["request_id"], defect_id=native.DEFECT_ID,
+            attestation_ref=att["attestation_ref"])
+        assert reviewed["status"] == "HOLD"
+        assert truth.query("rc7_gap", gap_id=proof["original_gap_id"])[0]["state"] != "RESOLVED"
+        assert driver._complete_gate("N9_DEFECT", batch)["status"] == "HOLD"
+        driver.accept_professional_resolution(
+            release_batch_id=request["release_batch_id"],
+            request_id=request["request_id"], defect_id=native.DEFECT_ID)
+        accepted = driver.complete_professional_n9(
+            release_batch_id=request["release_batch_id"])
+        assert accepted["state"] == "N9_PASS"
+        assert accepted["n9_gate_pass"]
+        assert driver._complete_gate("N9_DEFECT", batch) == accepted
+        assert truth.query(
+            "rc72_mission_node", node_type="N10_RELEASE_CONVERGENCE")[0]["state"] == "READY"
+        assert not truth.query(
+            "rc72_node_gate", node_type="N10_RELEASE_CONVERGENCE")
+        assert len(server.calls) == 2
+    finally:
+        server.shutdown()
+        server.server_close()
