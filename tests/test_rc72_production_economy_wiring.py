@@ -134,7 +134,10 @@ def test_real_command_boundary_tracks_native_augmented_prompt_and_measured_usage
     assert call["total_tokens"] == 120
     assert call["context_sha256"] == hashlib.sha256(actual_prompt.encode("utf-8")).hexdigest()
     assert call["workitem_id"] == "WI-1"
-    assert "MISSION_QUOTA_EQUIVALENT_TARGET_EXCEEDED" in call["economy_signal"]
+    # The first request is admitted before its token usage is known; the
+    # measured 120 tokens are recorded only after the real DSH return.
+    # Do not retroactively rewrite the original admission-time signal.
+    assert call["economy_signal"] == "NONE"
 
     usage = truth.query("rc72_token_usage", mission_id="M-1")[0]
     assert usage["observation_status"] == "OBSERVED"
