@@ -174,3 +174,127 @@ def reenter_host_captain(
     return MissionCaptainBinding(
         governed, observed.captain_session_id,
         observed.captain_lease_id, observed.team_id)
+
+
+
+@dataclass(frozen=True)
+class ObservedDshCaptainStartup:
+    """Signed *actual* Host DSH Captain observation before first R1 lease.
+
+    The trusted DSH Host must prove that this specific non-Worker control
+    session exists. Neither mission JSON nor the model is allowed to issue
+    this observation. A cold controller cannot make up the initial Captain.
+    """
+    release_id: str
+    source_commit: str
+    release_batch_id: str
+    mission_id: str
+    team_id: str
+    captain_session_id: str
+    dsh_session_ref: str
+    observed_at: int
+    state: str
+    signature: str
+
+    def signed_fields(self):
+        return dict(
+            purpose="DSH_AGENTTEAMS_CAPTAIN_FIRST_SESSION_OBSERVATION_V1",
+            release_id=self.release_id,
+            source_commit=self.source_commit,
+            release_batch_id=self.release_batch_id,
+            mission_id=self.mission_id,
+            team_id=self.team_id,
+            captain_session_id=self.captain_session_id,
+            dsh_session_ref=self.dsh_session_ref,
+            observed_at=self.observed_at,
+            state=self.state,
+        )
+
+
+def bootstrap_host_captain(
+    truth, *, release_id, source_commit, release_batch_id,
+    startup, host_authority, role_profiles, approved_capabilities,
+    ttl_seconds=300,
+):
+    """Claim the first real, Host-observed Captain under R1 single-owner lock.
+
+    No generic config can supply a session, no stale Host observation can
+    revive the controller, and no first lease can be created after active
+    ungoverned work has started. Only CaptainDispatchFencer can write the
+    canonical first generation. Re-entry remains the existing signed path.
+    """
+    from rc7_runtime.control_plane import TaskScheduler
+
+    install_captain_dispatch_overlay()
+    if (not isinstance(truth, TruthRuntime)
+            or type(startup) is not ObservedDshCaptainStartup
+            or type(host_authority) is not RC72AuthorityRuntime
+            or not isinstance(startup.signature, str)
+            or not startup.signature
+            or not hmac.compare_digest(
+                startup.signature, host_authority._sign(startup.signed_fields()))):
+        raise ContractError("C07_HOST_FIRST_SESSION_SIGNED_OBSERVATION_REQUIRED")
+    if (startup.release_id != release_id
+            or startup.source_commit != source_commit
+            or startup.release_batch_id != release_batch_id
+            or startup.state != "ACTIVE"
+            or not isinstance(source_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", source_commit)
+            or any(not isinstance(x, str) or not x.strip() for x in (
+                release_id, release_batch_id, startup.mission_id, startup.team_id,
+                startup.captain_session_id, startup.dsh_session_ref))
+            or not startup.dsh_session_ref.startswith("dsh://")):
+        raise ContractError("C07_HOST_FIRST_SESSION_SCOPE_CHANGED")
+    now = _now()
+    if (type(startup.observed_at) is not int
+            or startup.observed_at > now + _CLOCK_SKEW
+            or now - startup.observed_at > _MAX_OBSERVATION_AGE):
+        raise ContractError("C07_HOST_FIRST_SESSION_OBSERVATION_STALE")
+    if (type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600):
+        raise ContractError("C07_HOST_FIRST_SESSION_TTL_INVALID")
+    batches = truth.query("rc72_release_batch", release_batch_id=release_batch_id)
+    if (len(batches) != 1 or batches[0].get("mission_id") != startup.mission_id
+            or batches[0].get("release_id") != release_id):
+        raise ContractError("C07_HOST_FIRST_SESSION_CANONICAL_BATCH_REQUIRED")
+    if truth.query("rc72_captain_dispatch_lease", mission_id=startup.mission_id):
+        raise ContractError("C07_HOST_FIRST_SESSION_EXISTING_LEASE_REENTER_REQUIRED")
+    if (not isinstance(approved_capabilities, (tuple, list, set, frozenset))
+            or not approved_capabilities
+            or any(not isinstance(c, str) or not c.strip() for c in approved_capabilities)
+            or not isinstance(role_profiles, Mapping)
+            or not role_profiles
+            or any(not isinstance(k, str) or not isinstance(caps, (tuple,list,set,frozenset))
+                   or not caps or not set(caps).issubset(set(approved_capabilities))
+                   for k, caps in role_profiles.items())):
+        raise ContractError("C07_HOST_FIRST_SESSION_APPROVED_ROLES_REQUIRED")
+
+    # Validate all role, capabilities and Full-Access policy before writing
+    # the first R1 lease; a bad Host profile must leave zero Captain residue.
+    fencer = CaptainDispatchFencer(truth, release_id=release_id)
+    CaptainFencedWorkItemScheduler(
+        truth=truth, release_id=release_id, fencer=fencer,
+        lifecycle=WorkerLifecycleService(truth, release_id=release_id),
+        scheduler=TaskScheduler(truth, release_id=release_id),
+        role_profiles=role_profiles)
+    owner = fencer.acquire_initial(
+        mission_id=startup.mission_id, team_id=startup.team_id,
+        captain_session_id=startup.captain_session_id, ttl_seconds=ttl_seconds)
+
+    # Reuse the canonical R1 re-entry contract. The Host-signed startup is
+    # what authorized issuance of this first lease; we bind the newly minted
+    # exact lease back to that same trusted session, never invent a session.
+    unsigned = ObservedDshCaptain(
+        release_id=release_id, source_commit=source_commit,
+        release_batch_id=release_batch_id, mission_id=startup.mission_id,
+        team_id=startup.team_id, captain_session_id=startup.captain_session_id,
+        captain_lease_id=owner["lease_id"],
+        captain_generation=owner["generation"],
+        dsh_session_ref=startup.dsh_session_ref,
+        observed_at=startup.observed_at, state="ACTIVE", signature="PENDING")
+    from dataclasses import replace
+    signed = replace(unsigned, signature=host_authority._sign(unsigned.signed_fields()))
+    return reenter_host_captain(
+        truth, release_id=release_id, source_commit=source_commit,
+        release_batch_id=release_batch_id, observed=signed,
+        host_authority=host_authority, role_profiles=role_profiles,
+        approved_capabilities=approved_capabilities)
