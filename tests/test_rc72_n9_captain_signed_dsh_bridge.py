@@ -205,3 +205,34 @@ def test_unapproved_captain_dsh_bridge_rejected_before_worker_or_business_io(
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_captain_n9_rejects_false_tool_lease_signature_even_with_resealed_intent(
+        tmp_path, monkeypatch):
+    """Outer R1 intent signature alone cannot counterfeit DSH TaskLease HMAC."""
+    truth, plan, prep, server, pipeline, route, calls, _, owner = _route(
+        tmp_path, monkeypatch)
+    try:
+        first = pipeline.complete(release_batch_id=BATCH)
+        received = route.complete(release_batch_id=BATCH)
+        assert received['cause_candidate_only'] is True
+        wid = first['qualification_workitem_id']
+        admission = truth.query('rc72_captain_etu_admission', workitem_id=wid)[0]
+        task = truth.query('rc7_task', task_id=wid)[0]
+        intent = dict(truth.query('rc72_n9_captain_worker_invocation', workitem_id=wid)[0])
+        intent.pop('artifact_type')
+        intent['lease'] = dict(intent['lease'], signature='0'*64)
+        launcher = route.professional_dsh.launcher
+        intent['signature'] = launcher.authority._sign({
+            k: v for k, v in intent.items() if k != 'signature'})
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError,
+                           match='N9_CAPTAIN_DSH_SIGNED_LEASE_SIGNATURE_INVALID'):
+            route.professional_dsh.captain_dsh_bridge._verify_intent(
+                intent, admission, task, owner)
+        assert truth.store.path.read_bytes() == before
+        assert len(calls) == len(server.calls) == 1
+        assert not truth.query('rc7_defect')
+    finally:
+        server.shutdown()
+        server.server_close()
