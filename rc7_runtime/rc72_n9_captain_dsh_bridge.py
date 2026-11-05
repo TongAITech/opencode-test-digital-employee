@@ -207,7 +207,7 @@ class GovernedN9DshInvocation:
                 if remaining <= self.launcher.timeout_seconds + 5:
                     return dict(result, reason="N9_CAPTAIN_DSH_CAPTAIN_TTL_INSUFFICIENT")
                 identity = self.launcher.authority.adopt_identity(
-                    worker_id=admission["worker_id"], role="FAILURE_DIAGNOSTIC",
+                    worker_id=admission["worker_id"], role="N9_QUALIFY",
                     phase="MISSION_NODE_EXECUTION", layer=None,
                     generation=owner["generation"], session_id=session["session_id"])
                 lease = self.launcher.authority.issue_lease(
