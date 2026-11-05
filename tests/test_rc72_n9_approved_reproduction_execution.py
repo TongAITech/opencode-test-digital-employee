@@ -252,3 +252,121 @@ def test_inflight_before_subprocess_is_unknown_not_automatically_replayed(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_release_batch_driver_c04_product_entry_runs_genuine_new_http_process(
+        tmp_path, monkeypatch):
+    """No fixture callback: public ReleaseBatchDriver -> N8 -> actual runner."""
+    import sys
+    from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+    from rc7_runtime.rc72_n8_product_recovery import NativeN8ProductRecoveryService
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+    from rc7_runtime.rc72_n9_accepted_scope import AcceptedScopeN9Service
+    from rc7_runtime.dsh_requirement_evaluator import DshRequirementEvaluator
+    from rc72_pip_field_test_support import provider as field_provider
+    from test_rc72_n9_reproduction_human_gate import _setup_gate, _approval
+
+    truth, pipeline, route, server, calls, verifier, gate, qualified, owner = (
+        _setup_gate(tmp_path, monkeypatch))
+    try:
+        req = qualified["reproduction_request_id"]
+        approval = _approval(truth, req, verifier=verifier)
+        gate.review(request_id=req, attestation_ref=approval["attestation_ref"])
+        executor = _executor(tmp_path, truth, pipeline, gate)
+        bundle, prepared, contract = _real_reproduction_case(tmp_path, truth, req)
+        url = "http://127.0.0.1:%d" % server.server_address[1]
+        patch_file = tmp_path/"bank-host-no-n1-n2-invocation.json"
+        patch_file.write_text("{}", encoding="utf-8")
+
+        def launcher(role):
+            def forbidden(*args, **kwargs):
+                pytest.fail("Product C04 reproduction must not invoke unrelated DSH")
+            return DshHeadlessWorkerLauncher(
+                dsh_bin=sys.executable, patch_path=str(patch_file),
+                cwd=str(tmp_path), truth=truth,
+                authority=RC72AuthorityRuntime(("c04-driver-role-"+role).encode()),
+                coordinator_instance_id="c04-live-host",
+                release_id=pipeline.release_id,
+                state_root=str(tmp_path/("c04-driver-role-"+role)),
+                command_runner=forbidden)
+
+        n8 = NativeN8ProductRecoveryService(
+            pipeline, professional_dsh=route.professional_dsh,
+            reproduction_human_gate=gate,
+            reproduction_executor=executor)
+        driver = ReleaseBatchDriver(
+            truth, source_commit=pipeline.source_commit,
+            bank_pip_mirror=field_provider(truth, source_commit=pipeline.source_commit),
+            n1_launcher=launcher("n1"), n1_tools=["reality"],
+            n2_launcher=launcher("n2"), n2_tools=["requirement"],
+            n2_evaluator=DshRequirementEvaluator(
+                launcher("review"), allowed_tools=["requirement-review"]),
+            n7_pipeline=pipeline, n8_pipeline=n8,
+            n9_pipeline=AcceptedScopeN9Service(pipeline))
+
+        assert len(server.calls) == 1
+        result = driver.execute_reproduction(
+            release_batch_id=BATCH, request_id=req,
+            bundle=bundle, prepared=prepared,
+            authority=RC72AuthorityRuntime(b"actual-product-c04-driver-authority"),
+            tool_broker=_broker(), cwd=str(tmp_path), target_base_url=url)
+        assert result["conclusive"] and result["reproduced"]
+        assert len(server.calls) == 2
+        assert truth.query("rc72_n9_approved_reproduction_execution")
+        assert not truth.query("rc7_defect")
+        assert not truth.query("rc72_node_gate", node_type="N9_DEFECT")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_c04_cold_audit_detects_changed_execution_bytes_without_second_business_call(
+        tmp_path, monkeypatch):
+    truth, pipeline, server, gate, req, executor, bundle, prepared, url = (
+        _approved_setup(tmp_path, monkeypatch))
+    try:
+        result = executor.execute(
+            request_id=req, bundle=bundle, prepared=prepared,
+            authority=RC72AuthorityRuntime(b"actual-c04-audit-file-authority"),
+            tool_broker=_broker(), cwd=str(tmp_path), target_base_url=url)
+        assert len(server.calls) == 2
+        artifact = truth.query("rc7_artifact", artifact_id=result["execution_artifact_id"])[0]
+        path = Path(artifact["content_ref"][len("file://"):])
+        before = truth.store.path.read_bytes()
+        path.write_bytes(path.read_bytes()+b"\nforged-trailer")
+        with pytest.raises(ContractError, match="N9_REPRO_EXECUTION_BYTES_CHANGED"):
+            executor.audit(request_id=req)
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_c04_cold_audit_rejects_forged_signed_r1_and_cannot_rerun_business(
+        tmp_path, monkeypatch):
+    truth, pipeline, server, gate, req, executor, bundle, prepared, url = (
+        _approved_setup(tmp_path, monkeypatch))
+    try:
+        executor.execute(
+            request_id=req, bundle=bundle, prepared=prepared,
+            authority=RC72AuthorityRuntime(b"c04-forged-r1-authority"),
+            tool_broker=_broker(), cwd=str(tmp_path), target_base_url=url)
+        assert len(server.calls) == 2
+        forged = dict(truth.query("rc72_n9_approved_reproduction_execution")[0])
+        forged["signature"] = "0"*64
+        forged["artifact_version"] += 1
+        truth.append_atomic("RC72_N9_APPROVED_REPRODUCTION_EXECUTION_UPSERTED", forged)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="N9_REPRO_RECORD_SIGNATURE_CHANGED"):
+            executor.audit(request_id=req)
+        with pytest.raises(ContractError):
+            executor.execute(
+                request_id=req, bundle=bundle, prepared=prepared,
+                authority=RC72AuthorityRuntime(b"c04-other-authority"),
+                tool_broker=_broker(), cwd=str(tmp_path), target_base_url=url)
+        assert len(server.calls) == 2
+        assert truth.store.path.read_bytes() == before
+    finally:
+        server.shutdown()
+        server.server_close()
