@@ -146,7 +146,8 @@ def main(argv=None):
                     release_batch_id=args.release_batch)
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
-                    release_id=args.release_id, source_commit=args.source_commit)
+                    release_id=args.release_id, source_commit=args.source_commit,
+                    release_batch_id=args.release_batch)
             # Factory composition has no R1 effects.  In particular, do not
             # allocate the first soft token budget while Q7 Field admission is
             # HOLD: a refused Mission must leave the canonical ledger intact.
