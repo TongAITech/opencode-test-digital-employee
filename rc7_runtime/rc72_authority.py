@@ -103,6 +103,14 @@ class RC72AuthorityRuntime(AuthorityRuntime):
             if (not isinstance(projected, list) or any(not isinstance(tool, str) for tool in projected)
                     or len(set(projected)) != len(projected) or set(projected) != set(lease.allowed_tools)):
                 raise AuthorityError('WORKER_PROCESS_TOOL_PROJECTION_MISMATCH')
+        # The signed lease MUST reach the child, not merely be checked
+        # against optional caller-supplied values. Without this projection
+        # the DSH/MCP gateway cannot know the canonical worker/task grant.
+        # Only the authority supplies these values after collision checks;
+        # the caller never gets to choose Worker/Lease/Task identity.
+        values.update(binding)
+        values.setdefault('PFC_RC7_DSH_ALLOWED_TOOLS', json.dumps(
+            list(lease.allowed_tools), ensure_ascii=False, separators=(',', ':')))
         identifier = hashlib.sha256(json.dumps([identity.worker_id, identity.session_id, lease.lease_id, scope],
             ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()[:32]
         private = Path(home).resolve() / identifier
