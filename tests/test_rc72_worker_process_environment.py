@@ -152,3 +152,33 @@ def test_explicit_caller_projection_cannot_impersonate_a_different_grant(tmp_pat
     with pytest.raises(AgentRuntimeError,match='WORKER_PROCESS_ADMISSION_DENIED'):
         launcher.execute(_assignment(launcher),'Must not execute.')
     assert not calls
+
+
+
+def test_approved_signed_identity_and_tool_scope_are_really_projected_into_child_environment(
+        tmp_path, monkeypatch):
+    """C07 regression: validation without environment projection is NOT authority."""
+    launcher, truth, authority, calls, captain = _launcher(tmp_path, monkeypatch)
+    assignment = _assignment(launcher, tools=('file_read', 'other_read'))
+    captured = {}
+
+    def inspect(_command, **kwargs):
+        captured.update(kwargs["env"])
+        # The command's real child process must inherit exactly the same
+        # canonical identity and grant, never a caller-supplied impersonation.
+        return subprocess.run([sys.executable, str(tmp_path / 'worker.py')], **kwargs)
+
+    launcher.command_runner = inspect
+    invocation, output = launcher.execute(assignment, 'Scoped process projection.')
+    assert calls == []
+    assert output["captain_visible"] is False
+    assert captured["PFC_RC7_MCP_MISSION_ID"] == assignment.mission_id
+    assert captured["PFC_RC7_MCP_WORKER_ID"] == assignment.worker_instance_id
+    assert captured["PFC_RC7_MCP_LEASE_ID"] == assignment.lease.lease_id
+    assert captured["PFC_RC7_MCP_SCOPE_REF"] == assignment.scope
+    assert captured["PFC_RC7_MCP_TASK_ID"] == "WORK-PROBE"
+    assert set(json.loads(captured["PFC_RC7_DSH_ALLOWED_TOOLS"])) == set(assignment.allowed_tools)
+    assert captured["PFC_RC7_DSH_SESSION_MODE"] == "LEASE_BOUND_WORKER"
+    assert "RC72_CAPTAIN_CANARY" not in captured
+    assert captured["HOME"] != str(captain)
+    assert invocation.worker_instance_id == assignment.worker_instance_id
