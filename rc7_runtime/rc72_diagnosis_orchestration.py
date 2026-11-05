@@ -638,9 +638,16 @@ class DiagnosisOrchestrator:
             repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
             changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
         intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
+        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
+        if len(previous) > 1:
+            raise ContractError("DIAGNOSIS_REPAIR_NOT_UNIQUE")
         if (len(intents) > 1 or (intents and any(
                 intents[0].get(key) != value for key, value in intent.items()))):
-            raise ContractError("DIAGNOSIS_REPAIR_INTENT_CONFLICT")
+            # Preserve distinct refusal semantics: a completed repair is an
+            # immutable replay, while interrupted registration owns only an
+            # intent. Neither mismatch may write or reopen an ImpactSet.
+            raise ContractError("DIAGNOSIS_REPAIR_REPLAY_CONFLICT" if previous
+                                else "DIAGNOSIS_REPAIR_INTENT_CONFLICT")
         delivery = self._one("rc72_node_delivery", delivery_id=repair_delivery_id)
         if delivery.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPAIR_DELIVERY_MISSION_MISMATCH")
@@ -655,9 +662,6 @@ class DiagnosisOrchestrator:
         # current upstream PASS Gate before propagating STALE or authorizing a
         # fresh Attempt. For cold replay of an already accepted repair retain
         # the historical Gate even after dependent nodes became STALE.
-        previous = self.truth.query(_DIAGNOSIS_REPAIR, diagnosis_id=diagnosis_id)
-        if len(previous) > 1:
-            raise ContractError("DIAGNOSIS_REPAIR_NOT_UNIQUE")
         node = self.state_machine.node_by_type(
             case["mission_id"], AutonomousMissionNode(responsible))
         gates = [
