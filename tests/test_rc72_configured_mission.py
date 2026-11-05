@@ -514,3 +514,91 @@ def test_signed_host_configured_entry_can_be_loaded_by_official_batch_aware_modu
     assert bindings.professional_dsh_binding is None
     assert truth.store.path.read_bytes() == before
 
+
+
+
+def test_package_config_live_dsh_host_starts_first_captain_and_n9_with_one_signed_generation(
+        tmp_path, monkeypatch):
+    from dataclasses import fields, replace
+    import time
+    from rc7_release.rc72_captain_host_reentry import ObservedDshCaptainStartup
+    from rc7_release.rc72_configured_mission import SCHEMA_V2
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc72_n2_test_support import MISSION
+
+    truth, config, path = _setup(tmp_path, monkeypatch)
+    config["schema"] = SCHEMA_V2
+    config["n9_read_only_tools"] = ["read_only_diagnostic"]
+    path.write_text(json.dumps(config))
+    start_n1(truth)
+    host_key = RC72AuthorityRuntime(b"bank-agentteams-host-first-captain-key")
+    proposed = ObservedDshCaptainStartup(
+        release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, mission_id=MISSION,
+        team_id="REAL-BANK-AGENTTEAMS-TEAM",
+        captain_session_id="ACTUAL-DSH-HOST-OBSERVED-CAPTAIN",
+        dsh_session_ref="dsh://agentteams/host-verified-first-session",
+        observed_at=int(time.time()), state="ACTIVE", signature="PENDING")
+    attested = replace(proposed, signature=host_key._sign(proposed.signed_fields()))
+    kwargs = dict(
+        release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, config_path=path,
+        observed_captain_startup=attested, host_authority=host_key,
+        captain_role_profiles={"L3_EXECUTE": ("api_http",),
+                               "N9_QUALIFY": ("defect_analysis",)},
+        captain_approved_capabilities=("api_http", "defect_analysis"))
+    before = truth.store.path.read_bytes()
+    bindings = configured_mission_bindings(truth, **kwargs)
+    assert truth.store.path.read_bytes() != before
+    lease = truth.query("rc72_captain_dispatch_lease")
+    assert len(lease) == 1
+    assert lease[0]["generation"] == 1 and lease[0]["state"] == "ACTIVE"
+    assert lease[0]["captain_session_id"] == proposed.captain_session_id
+    assert bindings.captain_binding.captain_lease_id == lease[0]["lease_id"]
+    assert bindings.professional_dsh_binding.captain_governed_dsh is True
+    driver = create_mission_driver(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        evidence_root=tmp_path/"first-captain-evidence",
+        **{field.name: getattr(bindings, field.name) for field in fields(bindings)})
+    assert driver.n7_pipeline.captain_scheduler is bindings.captain_binding.scheduler
+    assert driver.n8_pipeline.professional_dsh.captain_dsh_bridge is not None
+    assert driver._assert_captain_product_entry(MISSION) is None
+    assert not truth.query("execution_attempt")
+    assert not truth.query("rc72_captain_etu_admission")
+    assert not truth.query("rc7_defect")
+    after = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match="MISSION_CONFIG_CAPTAIN_HOST_BINDING_REQUIRED"):
+        configured_mission_bindings(truth, **kwargs)
+    assert truth.store.path.read_bytes() == after
+
+    # Host module with exact batch scope drives the fixed CLI product binding,
+    # never a mission JSON field containing a forged Captain session.
+    module = ModuleType("bank_signed_first_captain_host_module")
+    def trusted_host(*, truth, release_id, source_commit, release_batch_id):
+        # The real external Host obtains the *current* signed observation.
+        from rc7_release.rc72_captain_host_reentry import ObservedDshCaptain
+        owner = truth.query("rc72_captain_dispatch_lease", mission_id=MISSION)[0]
+        current = ObservedDshCaptain(
+            release_id=release_id, source_commit=source_commit,
+            release_batch_id=release_batch_id, mission_id=MISSION,
+            team_id=owner["team_id"],
+            captain_session_id=owner["captain_session_id"],
+            captain_lease_id=owner["lease_id"],
+            captain_generation=owner["generation"],
+            dsh_session_ref=attested.dsh_session_ref,
+            observed_at=int(time.time()), state="ACTIVE", signature="PENDING")
+        current = replace(current, signature=host_key._sign(current.signed_fields()))
+        opts = dict(kwargs, release_id=release_id,
+                    source_commit=source_commit, release_batch_id=release_batch_id)
+        opts.pop("observed_captain_startup")
+        opts["observed_captain"] = current
+        return configured_mission_bindings(truth, **opts)
+    module.create_mission_bindings = trusted_host
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    from rc7_release.rc72_mission_bindings import load_mission_bindings
+    cold = TruthRuntime(truth.store.path)
+    restored = load_mission_bindings(
+        module.__name__, truth=cold, release_id=RELEASE,
+        source_commit=COMMIT, release_batch_id=BATCH)
+    assert restored.captain_binding.captain_lease_id == lease[0]["lease_id"]
+    assert truth.store.path.read_bytes() == after
