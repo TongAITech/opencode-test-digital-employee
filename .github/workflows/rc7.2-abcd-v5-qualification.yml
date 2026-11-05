@@ -90,8 +90,12 @@ jobs:
 
   complete-rc7-with-real-chromium:
     name: abcd-v5-ubuntu-3.11-complete-source-real-chromium
-    # Feature commits get only the 4-platform targeted gates above.
-    if: github.event_name == 'workflow_dispatch' && inputs.full_qualification == true
+    # Full inherited Chromium is admitted only by an explicit manual request
+    # or a dedicated integration-checkpoint commit. Routine feature pushes
+    # retain their bounded four-platform gates and never repeat the full suite.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.full_qualification == true)
+      || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'qualify(rc7.2):'))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
