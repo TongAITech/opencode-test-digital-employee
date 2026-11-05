@@ -625,6 +625,22 @@ class DiagnosisOrchestrator:
             raise ContractError("UPSTREAM_REPAIR_REQUIRES_SEMANTIC_BACK_EDGE")
         if not outcome.get("replacement_attempt_required"):
             raise ContractError("UPSTREAM_REPAIR_NOT_REQUIRED_FOR_DIAGNOSIS")
+        changed = list(changed_refs)
+        if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
+            raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ContractError("REPAIR_REASON_REQUIRED")
+        # A cold retry after a durable repair intent must reject an altered
+        # request BEFORE probing a different Delivery or its current Gate.
+        # This is immutable R1 intent fencing, not authorization to bypass
+        # the independently accepted upstream PASS Gate below.
+        intent = dict(diagnosis_id=diagnosis_id, mission_id=case["mission_id"],
+            repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
+            changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
+        intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
+        if (len(intents) > 1 or (intents and any(
+                intents[0].get(key) != value for key, value in intent.items()))):
+            raise ContractError("DIAGNOSIS_REPAIR_INTENT_CONFLICT")
         delivery = self._one("rc72_node_delivery", delivery_id=repair_delivery_id)
         if delivery.get("mission_id") != case.get("mission_id"):
             raise ContractError("REPAIR_DELIVERY_MISSION_MISMATCH")
@@ -661,12 +677,6 @@ class DiagnosisOrchestrator:
                     or node.get("active_delivery_version") != delivery.get("version")
                     or repair_delivery_id not in node.get("delivery_refs", [])))):
             raise ContractError("UPSTREAM_REPAIR_CURRENT_DELIVERY_REQUIRED")
-        changed = list(changed_refs)
-        if not changed or not all(isinstance(v, str) and v.strip() for v in changed):
-            raise ContractError("REPAIR_CHANGED_REFS_REQUIRED")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ContractError("REPAIR_REASON_REQUIRED")
-
         if previous:
             if (len(previous) != 1 or previous[0]["mission_id"] != case["mission_id"]
                     or previous[0]["repair_delivery_id"] != repair_delivery_id
@@ -680,14 +690,7 @@ class DiagnosisOrchestrator:
                     or impact_row["changed_refs"] != changed or impact_row["reason"] != reason):
                 raise ContractError("DIAGNOSIS_REPAIR_IMPACT_CONFLICT")
         else:
-            intent = dict(diagnosis_id=diagnosis_id, mission_id=case["mission_id"],
-                repair_delivery_id=repair_delivery_id, original_attempt_id=case["source_attempt_id"],
-                changed_refs=changed, reason=reason, release_id=self.release_id, artifact_version=1)
-            intents = self.truth.query(_DIAGNOSIS_REPAIR_INTENT, diagnosis_id=diagnosis_id)
-            if intents:
-                if (len(intents) != 1 or any(intents[0].get(key) != value for key, value in intent.items())):
-                    raise ContractError("DIAGNOSIS_REPAIR_INTENT_CONFLICT")
-            else:
+            if not intents:
                 self.truth.append_atomic("RC72_DIAGNOSIS_REPAIR_INTENT_UPSERTED", intent)
             impact = self.state_machine.propagate_stale(
                 source_delivery_id=repair_delivery_id, changed_refs=changed, reason=reason)
