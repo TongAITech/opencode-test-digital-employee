@@ -72,7 +72,8 @@ def _controller_key(truth, directory):
         return raw
 
 
-def configured_mission_bindings(truth, *, release_id, source_commit, config_path):
+def configured_mission_bindings(truth, *, release_id, source_commit, config_path,
+                                release_batch_id=None):
     path = Path(config_path).expanduser().resolve()
     try:
         config = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_pairs)
