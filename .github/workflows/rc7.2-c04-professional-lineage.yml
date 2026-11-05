@@ -9,6 +9,10 @@ on:
       - '.github/workflows/rc7.2-c04-professional-lineage.yml'
   pull_request:
     branches: [work/rc7.2-abcd-v5-bsk-mobile-qualification, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_n9_professional_intake.py'
+      - 'tests/test_rc72_n9_professional_lineage.py'
+      - '.github/workflows/rc7.2-c04-professional-lineage.yml'
   workflow_dispatch:
 
 permissions:
