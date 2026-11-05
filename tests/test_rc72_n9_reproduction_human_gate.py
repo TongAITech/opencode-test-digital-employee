@@ -107,9 +107,12 @@ def test_real_n8_to_n9_signed_request_independent_human_decision_and_cold_r1(
         approved = rows[0]
         assert approved["request_id"] == request_id
         assert approved["original_attempt_id"] == qualified["original_attempt_id"]
+        req = truth.query("rc72_n9_reproduction_authorization_request")[0]
+        original_contract = truth.query(
+            "rc72_n6_executable_contract",
+            contract_id=req["original_contract_id"])[0]
         assert approved["scope_digest"] == request_scope_digest(
-            truth.query("rc72_n9_reproduction_authorization_request")[0],
-            truth.query("rc72_n6_executable_contract")[0])
+            req, original_contract)
         assert approved["decision"] == "APPROVED"
         assert approved["side_effects_disposition"] == "SAFE_TO_REPRODUCE"
         assert gate.assert_fresh_approved(request_id=request_id) == approved
@@ -248,7 +251,7 @@ def test_public_release_batch_driver_review_is_real_host_gate_not_n7_rerun(
             return DshHeadlessWorkerLauncher(
                 dsh_bin=sys.executable, patch_path=str(patch), cwd=str(tmp_path),
                 truth=truth,
-                authority=RC72AuthorityRuntime(("human-review-" + role).encode()),
+                authority=RC72AuthorityRuntime(("human-review-private-role-" + role).encode()),
                 coordinator_instance_id="test-review-controller",
                 release_id=pipeline.release_id,
                 state_root=str(tmp_path / ("human-role-" + role)),
