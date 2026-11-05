@@ -206,3 +206,80 @@ def test_captain_n9_wrong_owner_blocks_dsh_before_any_process_io(
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+@pytest.mark.parametrize("returncode", [0, 9])
+def test_cold_r1_reentry_preserves_signed_n9_handoff_and_never_runs_second_dsh(
+        tmp_path, monkeypatch, returncode):
+    """Recover a distinct TruthRuntime and Host; never reuse a chat history."""
+    from rc6_runtime.truth import TruthRuntime
+    from rc7_runtime.control_plane import TaskScheduler
+    from rc7_runtime.rc72_captain_dispatch_fencing import CaptainDispatchFencer
+    from rc7_runtime.rc72_captain_scheduling import CaptainFencedWorkItemScheduler
+    from rc7_runtime.rc72_formal_runner import FormalN7RunnerAdapter
+    from rc7_runtime.rc72_n7_execution_preparation import ExecutionPreparationService
+    from rc7_runtime.rc72_n7_pipeline import N7PipelineService
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    from rc72_formal_runner_support import LocalHTTPEnvironment
+
+    truth, plan, prep, server, pipeline, owner = _setup_fenced_business_failure(
+        tmp_path, monkeypatch)
+    try:
+        original = pipeline.complete(release_batch_id=BATCH)
+        calls = []
+        analyst = _specialist(
+            tmp_path, truth, pipeline, calls, returncode=returncode)
+        first = _run(analyst, original)
+        assert first["status"] == "HOLD"
+        assert len(calls) == len(server.calls) == 1
+        assert (first.get("cause_candidate_only") is True) == (returncode == 0)
+        before = truth.store.path.read_bytes()
+
+        cold_truth = TruthRuntime(truth.store.path)
+        cold_prep = ExecutionPreparationService(
+            cold_truth, release_id=prep.release_id,
+            source_commit=prep.source_commit,
+            authority=RC72AuthorityRuntime(prep.authority._key),
+            tool_registry=prep.tool_registry)
+        fencer = CaptainDispatchFencer(cold_truth, release_id=prep.release_id)
+        scheduler = CaptainFencedWorkItemScheduler(
+            truth=cold_truth, release_id=prep.release_id, fencer=fencer,
+            lifecycle=WorkerLifecycleService(
+                cold_truth, release_id=prep.release_id),
+            scheduler=TaskScheduler(cold_truth, prep.release_id),
+            role_profiles=pipeline.captain_scheduler.role_profiles)
+        root = pipeline.runner.root
+        url = "http://127.0.0.1:%d" % server.server_address[1]
+        runner = FormalN7RunnerAdapter(
+            cold_prep, evidence_root=root,
+            environment_adapter=LocalHTTPEnvironment(url, root),
+            execution_env={"RC72_OUTPUT_ROOT": str(root)},
+            timeout_seconds=30)
+        cold_pipeline = N7PipelineService(
+            cold_prep, runner=runner,
+            capture_root=pipeline.review.capture_root,
+            captain_scheduler=scheduler,
+            captain_session_id=owner["captain_session_id"],
+            captain_lease_id=owner["lease_id"],
+            team_id=owner["team_id"])
+        # The second launcher is a fresh host instance with no historical
+        # in-memory worker authority; signed R1 and raw DSH bytes must suffice
+        # for read-only recovery, but must NEVER imply DSH reexecution.
+        cold_calls = []
+        cold_analyst = _specialist(
+            tmp_path, cold_truth, cold_pipeline, cold_calls)
+        recovered = _run(cold_analyst, original)
+        if returncode == 0:
+            assert recovered == first
+            assert recovered["analysis_id"]
+        else:
+            assert recovered["reason"] == "N9_DSH_INTERRUPTED_NO_REPLAY"
+        assert cold_truth.store.path.read_bytes() == before
+        assert not cold_calls
+        assert len(calls) == len(server.calls) == 1
+        assert len(cold_truth.query("rc72_n9_captain_dsh_invocation")) == 1
+        assert not cold_truth.query("rc7_defect")
+    finally:
+        server.shutdown()
+        server.server_close()
