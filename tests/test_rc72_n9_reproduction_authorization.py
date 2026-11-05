@@ -180,3 +180,63 @@ def test_reproduction_request_rejects_foreign_analysis_and_cross_diagnosis(
     finally:
         server.shutdown()
         server.server_close()
+
+
+
+def test_formal_release_batch_driver_n8_route_consumes_signed_n9_request_without_business_replay(
+        tmp_path, monkeypatch):
+    """Use production ReleaseBatchDriver N8 dispatch, not a parallel N9 callback."""
+    import sys
+    from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+    from rc7_runtime.rc72_release_driver import ReleaseBatchDriver
+    from rc7_runtime.dsh_requirement_evaluator import DshRequirementEvaluator
+    from rc7_runtime.rc72_n9_accepted_scope import AcceptedScopeN9Service
+    from rc72_pip_field_test_support import provider as field_provider
+
+    truth, plan, prep, server, pipeline, route, calls, _, _ = _route(
+        tmp_path, monkeypatch, finding="POSSIBLE_PRODUCT_CAUSE")
+    try:
+        original = pipeline.complete(release_batch_id=BATCH)
+        patch = tmp_path / "driver-n9-request-patch.json"
+        patch.write_text("{}", encoding="utf-8")
+        def nonparticipating(role):
+            def forbidden(*args, **kwargs):
+                pytest.fail("ReleaseBatch N8 may not replay an upstream DSH role")
+            return DshHeadlessWorkerLauncher(
+                dsh_bin=sys.executable, patch_path=str(patch),
+                cwd=str(tmp_path), truth=truth,
+                authority=RC72AuthorityRuntime(
+                    ("n9-request-formal-" + role).encode("utf-8")),
+                coordinator_instance_id="nonparticipating-controller",
+                release_id=pipeline.release_id,
+                state_root=str(tmp_path / ("driver-" + role)),
+                command_runner=forbidden)
+        driver = ReleaseBatchDriver(
+            truth, source_commit=pipeline.source_commit,
+            bank_pip_mirror=field_provider(
+                truth, source_commit=pipeline.source_commit),
+            n1_launcher=nonparticipating("n1"), n1_tools=["n1-native-tool"],
+            n2_launcher=nonparticipating("n2"), n2_tools=["n2-native-tool"],
+            n2_evaluator=DshRequirementEvaluator(
+                nonparticipating("review"), allowed_tools=["n2-review-tool"]),
+            n7_pipeline=pipeline, n8_pipeline=route,
+            n9_pipeline=AcceptedScopeN9Service(pipeline))
+        batch = truth.query("rc72_release_batch", release_batch_id=BATCH)[0]
+        before_calls = len(server.calls)
+        prior_attempts = truth.query("execution_attempt")
+        result = driver._complete_gate("N8_DIAGNOSIS_RECOVERY", batch)
+        assert result["status"] == "HOLD"
+        assert result["reproduction_request_id"].startswith("N9REPRO-")
+        assert len(truth.query("rc72_n9_reproduction_authorization_request")) == 1
+        assert truth.query("execution_attempt") == prior_attempts
+        assert len(server.calls) == before_calls
+        assert len(calls) == 1
+        assert not truth.query("rc7_defect")
+        before = truth.store.path.read_bytes()
+        assert driver._complete_gate("N8_DIAGNOSIS_RECOVERY", batch) == result
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == before_calls and len(calls) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
