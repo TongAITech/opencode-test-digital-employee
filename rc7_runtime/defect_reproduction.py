@@ -70,12 +70,24 @@ class DefectReproductionExecutionService:
         cwd: str,
         env: Optional[Mapping[str, str]] = None,
         target_base_url: Optional[str] = None,
+        n9_governed_permission=None,
     ) -> DefectReproductionResult:
         task = control.scheduler.task(task_id)
-        if task.node != "EXECUTION" or task.task_type != "DEFECT_REPRODUCTION":
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_EXECUTION_TASK_REQUIRED")
-        if task.state != TaskStatus.READY:
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_TASK_NOT_READY")
+        if n9_governed_permission is None:
+            if task.node != "EXECUTION" or task.task_type != "DEFECT_REPRODUCTION":
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_EXECUTION_TASK_REQUIRED")
+            if task.state != TaskStatus.READY:
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_TASK_NOT_READY")
+        else:
+            # Separate C04 approved VALID_TEST_FAILURE reproduction. The only
+            # caller is an exact signed N8/N9+HumanGate+Captain R1 permit;
+            # neither a boolean nor a foreign Product Gap can enter this path.
+            from .rc72_n9_physical_reproduction import N9GovernedExecutionPermission
+            if (type(n9_governed_permission) is not N9GovernedExecutionPermission
+                    or task.node != "EXECUTION"
+                    or task.task_type != "N9_INDEPENDENT_REPRODUCTION"
+                    or task.state != TaskStatus.LEASED):
+                raise RuntimeExecutionError("N9_PHYSICAL_SIGNED_GOVERNED_TASK_REQUIRED")
         if prepared.status != "PREPARED":
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_PREPARED_ATTEMPT_REQUIRED")
         if prepared.tc_id != bundle.spec.tc_id or prepared.case_version != bundle.spec.case_version:
@@ -88,8 +100,15 @@ class DefectReproductionExecutionService:
         gap_row = product_gap[0]
         if gap_row.get("mission_id") != control.mission_id:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_SOURCE_GAP_MISSION_MISMATCH")
-        if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        if n9_governed_permission is None:
+            if gap_row.get("category") != "PRODUCT_DEFECT" or gap_row.get("target_node") != "DEFECT":
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_REQUIRES_PRODUCT_DEFECT_GAP")
+        else:
+            if gap_row.get("category") != "VALID_TEST_FAILURE" or gap_row.get("target_node") != "N9_DEFECT":
+                raise RuntimeExecutionError("N9_PHYSICAL_ORIGINAL_ACCEPTED_DISCREPANCY_REQUIRED")
+            n9_governed_permission.assert_current(
+                control=control, task=task, prepared=prepared,
+                bundle=bundle, authority=authority, source_gap=gap_row)
 
         DeterministicOracleRuntime.validate_contract(prepared.oracle_snapshot)
         runtime = ExecutionRuntime(
@@ -98,19 +117,34 @@ class DefectReproductionExecutionService:
             oracle_evaluator=DeterministicOracleRuntime(),
         )
         profile = runtime.profiles.get(bundle.spec.layer)
-        identity = authority.issue_identity(
-            profile.role,
-            "EXECUTION",
-            profile.layer,
-            0,
-            "defect-reproduction-" + uuid.uuid4().hex,
-        )
+        if n9_governed_permission is None:
+            identity = authority.issue_identity(
+                profile.role, "EXECUTION", profile.layer, 0,
+                "defect-reproduction-" + uuid.uuid4().hex,
+            )
+            lease_ttl = max(self.timeout_seconds + 120, 300)
+        else:
+            owner = n9_governed_permission.assert_live_captain()
+            from .rc72_authority import RC72AuthorityRuntime
+            if not isinstance(authority, RC72AuthorityRuntime):
+                raise RuntimeExecutionError("N9_PHYSICAL_RC72_SIGNED_AUTHORITY_REQUIRED")
+            if (profile.role != n9_governed_permission.dispatch.role
+                    or profile.layer != n9_governed_permission.execution_level):
+                raise RuntimeExecutionError("N9_PHYSICAL_EXECUTOR_ROLE_MISMATCH")
+            remaining = owner["expires_at"] - int(__import__("time").time()) - 1
+            if remaining <= self.timeout_seconds + 10:
+                raise RuntimeExecutionError("N9_PHYSICAL_CAPTAIN_TTL_TOO_SHORT")
+            lease_ttl = min(max(self.timeout_seconds + 120, 300), remaining)
+            identity = authority.adopt_identity(
+                worker_id=n9_governed_permission.dispatch.worker_id,
+                role=profile.role, phase="EXECUTION", layer=profile.layer,
+                generation=n9_governed_permission.dispatch.captain_generation,
+                session_id=n9_governed_permission.dispatch.session_id)
         lease = authority.issue_lease(
             identity.worker_id,
             "case:%s@%s" % (bundle.spec.tc_id, bundle.spec.case_version),
             ExecutionRuntime.REQUIRED_ARTIFACTS,
-            profile.required_tools,
-            ttl_seconds=max(self.timeout_seconds + 120, 300),
+            profile.required_tools, ttl_seconds=lease_ttl,
         )
         for tool_id in profile.required_tools:
             try:
@@ -123,12 +157,18 @@ class DefectReproductionExecutionService:
         if not admission.ready:
             raise RuntimeExecutionError("DEFECT_REPRODUCTION_TOOL_ADMISSION_BLOCKED:%s" % admission.blocked)
 
-        leased = control.lease_next(
-            worker_ref=identity.worker_id,
-            capabilities=("test_execution",),
-        )
-        if leased is None or leased.task_id != task_id:
-            raise RuntimeExecutionError("DEFECT_REPRODUCTION_SCHEDULER_LEASE_MISMATCH")
+        if n9_governed_permission is None:
+            leased = control.lease_next(
+                worker_ref=identity.worker_id,
+                capabilities=("test_execution",),
+            )
+            if leased is None or leased.task_id != task_id:
+                raise RuntimeExecutionError("DEFECT_REPRODUCTION_SCHEDULER_LEASE_MISMATCH")
+        else:
+            # C07 Captain has already leased precisely this WorkItem to a
+            # *different* real Worker. Never create/borrow a legacy lease.
+            if task.lease_owner != identity.worker_id:
+                raise RuntimeExecutionError("N9_PHYSICAL_CAPTAIN_WORKER_CHANGED")
         control.start(task_id, worker_ref=identity.worker_id)
 
         if bundle.spec.runner_type == "PYTEST":
@@ -236,7 +276,8 @@ class DefectReproductionExecutionService:
             result=result,
             evaluator_ref="rc7-defect-reproduction-runtime-gate",
             dimensions={
-                "purpose": "DEFECT_REPRODUCTION",
+                "purpose": ("DEFECT_REPRODUCTION" if n9_governed_permission is None
+                            else "N9_INDEPENDENT_DISCREPANCY_REPRODUCTION"),
                 "source_product_gap_id": source_product_gap_id,
                 "attempt_id": prepared.attempt_id,
                 "execution_status": record.status,
