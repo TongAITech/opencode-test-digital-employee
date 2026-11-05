@@ -5,6 +5,7 @@ through the parent-owned RC7 API proxy. This is NOT bank Field verification,
 repair approval, root-cause confirmation or BANK_FINAL.
 """
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def _real_reproduction_case(tmp_path, truth, request_id):
         upstream_result_ref="file://approved-n9-script-result",
         spec_ref="file://approved-n9-spec",
         frozen_case=case, spec=spec, script=script,
-        validation=validation, source_sha256="sha256-exact-source-in-qualified-bundle")
+        validation=validation, source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())
     attempt_id = "ATT-C04-FRESH-INDEPENDENT-REPRODUCTION-1"
     prepared = PreparedAttempt(
         status="PREPARED", attempt_id=attempt_id, tc_id=spec.tc_id,
