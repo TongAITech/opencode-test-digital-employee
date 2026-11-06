@@ -62,6 +62,16 @@ class RC72FieldWiringGateTests(unittest.TestCase):
         self.assertIn("RC72_SOURCE_COMMIT_MISSING_OR_INVALID", result["reasons"])
         self.assertIn("RC72_GENERATED_DSH_MCP_PATCH_MISSING", result["reasons"])
 
+    def test_rc72_launcher_enforces_gate_without_changing_rc7_default(self):
+        repo = Path(__file__).resolve().parents[1]
+        field = (repo / "packaging" / "rc7.2" / "AITEST.sh").read_text(encoding="utf-8")
+        legacy = (repo / "packaging" / "rc7" / "AITEST.sh").read_text(encoding="utf-8")
+        self.assertIn("export PFC_RC72_REQUIRE_NATIVE_HOST=1", field)
+        self.assertIn('if [[ "${PFC_RC72_REQUIRE_NATIVE_HOST:-0}" == "1" ]]', legacy)
+        self.assertIn("rc7_release.rc72_field_wiring_gate", legacy)
+        self.assertIn("--require-native", legacy)
+        self.assertLess(legacy.index("--require-native"), legacy.index("exec dsh"))
+
     def test_cli_requires_native_and_saves_only_diagnostic(self):
         self._patch("pfc_aitest_rc7", "rc7_release.mcp_server_authorized")
         out = self.root / "state" / "field-wiring.json"
