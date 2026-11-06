@@ -45,11 +45,20 @@ class RC72FieldWiringGateTests(unittest.TestCase):
 
     def test_native_route_is_not_field_pass(self):
         self._patch("pfc_aitest_rc72", "rc7_release.mcp_server_rc72_authorized")
+        native = self.root / "rc7_release" / "mcp_server_rc72_authorized.py"
+        native.parent.mkdir()
+        native.write_text("# synthetic payload presence only; not field evidence\n", encoding="utf-8")
         result = evaluate_wiring(package_root=self.root, patch_path=self.patch)
         self.assertEqual("NATIVE_ROUTE_PRESENT_NOT_FIELD_VERIFIED", result["status"])
         self.assertEqual([], result["reasons"])
         self.assertFalse(result["bank_final"])
         self.assertFalse(result["field_verified"])
+
+    def test_fake_route_without_implementation_is_blocked(self):
+        self._patch("pfc_aitest_rc72", "rc7_release.mcp_server_rc72_authorized")
+        result = evaluate_wiring(package_root=self.root, patch_path=self.patch)
+        self.assertEqual("BLOCKED", result["status"])
+        self.assertIn("RC72_NATIVE_MCP_IMPLEMENTATION_MISSING", result["reasons"])
 
     def test_naming_only_cannot_replace_real_entrypoint(self):
         self._patch("pfc_aitest_rc72", "rc7_release.mcp_server_authorized")
