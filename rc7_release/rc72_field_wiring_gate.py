@@ -50,8 +50,14 @@ def evaluate_wiring(*, package_root: Path, patch_path: Path) -> Dict[str, Any]:
         flags=re.MULTILINE,
     ) is not None
     legacy_module = _LEGACY_ENTRY in raw
+    # A line in a generated YAML patch cannot prove a server actually exists.
+    # The portable payload must contain the declared executable module.
+    native_file = root / "rc7_release" / "mcp_server_rc72_authorized.py"
+    native_module_installed = native_file.is_file()
     if not native_module or not native_server:
         issues.append("RC72_NATIVE_MISSION_HOST_NOT_WIRED")
+    if native_module and not native_module_installed:
+        issues.append("RC72_NATIVE_MCP_IMPLEMENTATION_MISSING")
     if legacy_module and not native_module:
         issues.append("RC7_ONLY_MCP_ROUTE_ACTIVE")
     # This is not an R1 inspection and cannot certify a Mission or Worker.
@@ -62,6 +68,7 @@ def evaluate_wiring(*, package_root: Path, patch_path: Path) -> Dict[str, Any]:
         "generated_mcp_patch": str(patch),
         "native_mcp_server_declared": bool(native_server),
         "native_mcp_entry_declared": bool(native_module),
+        "native_mcp_entry_installed": bool(native_module_installed),
         "legacy_mcp_entry_observed": bool(legacy_module),
         "status": "BLOCKED" if issues else "NATIVE_ROUTE_PRESENT_NOT_FIELD_VERIFIED",
         "reasons": issues,
