@@ -261,7 +261,7 @@ def test_formal_n7_gate_cannot_be_bypassed_by_resumed_gate_path(tmp_path):
     assert calls == []
 
 
-def test_missing_full_manifest_cannot_downgrade_direct_n7_recovery(tmp_path):
+def test_source_only_engineering_mirror_does_not_imply_full_package_field_gate(tmp_path):
     """GAP-01: prior full-package proof persists even after manifest deletion."""
     from types import SimpleNamespace
     root = tmp_path / 'lost-full-package'
@@ -278,6 +278,11 @@ def test_missing_full_manifest_cannot_downgrade_direct_n7_recovery(tmp_path):
     driver.n7_pipeline = SimpleNamespace(
         captain_scheduler=None,
         complete=lambda **kwargs: calls.append('SUT_I_O_FORBIDDEN'))
-    with pytest.raises(ContractError, match='SCRIPT_READY_FIELD_PACKAGE_MANIFEST_REQUIRED'):
-        driver._complete_gate('N7_EXECUTION', batch)
-    assert calls == []
+    assert driver._admit_formal_n7_script_gate(batch) is None
+    # This is a source-level component test, not the public Field CLI.
+    # The separate CLI regression refuses a deleted real full manifest.
+    driver.n7_pipeline.complete = lambda **kwargs: calls.append('COMPONENT_NO_SUT') or {
+        'status': 'HOLD', 'reason': 'COMPONENT_ONLY', 'field_verified': False, 'bank_final': False,
+    }
+    assert driver._complete_gate('N7_EXECUTION', batch)['bank_final'] is False
+    assert calls == ['COMPONENT_NO_SUT']

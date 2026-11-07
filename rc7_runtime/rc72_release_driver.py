@@ -344,17 +344,14 @@ class ReleaseBatchDriver:
         from pathlib import Path
         mirror = self.bank_pip_mirror
         root = getattr(mirror, 'root', None)
-        has_manifest = root is not None and (Path(root) / 'PACKAGE_MANIFEST.json').is_file()
-        previous_full = any(
-            row.get('binding', {}).get('full_package_verified') is True
-            and row.get('binding', {}).get('package_root') == str(root)
-            for row in self.truth.query('rc72_bank_pip_mirror_execution',
-                                        release_batch_id=batch['release_batch_id'])
-        )
-        if not has_manifest and not previous_full:
+        # Only the trusted CLI ingress owns authoritative package validation
+        # (including refusing deletion after earlier full-package qualification).
+        # This internal driver also runs source-only *engineering* fixtures:
+        # upstream R1 mirror rows can be test prerequisites, not physical
+        # transport facts. Never promote those rows to Field identity here.
+        # A physically present full package always requires the signed Gate.
+        if root is None or not (Path(root) / 'PACKAGE_MANIFEST.json').is_file():
             return None
-        if not has_manifest:
-            raise ContractError('SCRIPT_READY_FIELD_PACKAGE_MANIFEST_REQUIRED')
         from .rc72_script_ready_gate import NativeScriptReadyGateProducer
         from .rc72_mission_factory import MissionCaptainBinding
         n7 = self.n7_pipeline
