@@ -142,6 +142,10 @@ class ExecutionEvidenceReviewService:
 
     def _snapshot(self, plan_id, *, allow_finalized=False):
         plan = self._one('rc72_n7_execution_plan', plan_id=plan_id)
+        # P1-5/P1-6: the independent evidence Gate must recheck the complete
+        # persisted Case fanout after dispatch, not trust the old preparation.
+        # This is a read-only R1 check; it does not renew expired tool leases.
+        self.preparation.planning.assert_fanout(plan)
         if plan['release_id'] != self.preparation.release_id or plan['source_commit'] != self.preparation.source_commit:
             raise EvidenceReviewError('N7_REVIEW_SOURCE_MISMATCH')
         node = self.runtime.node_by_type(plan['mission_id'], AutonomousMissionNode.N7_EXECUTION)

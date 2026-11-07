@@ -196,20 +196,11 @@ class ExecutionPlanningService:
         self.truth.append_atomic(_EVENT, payload)
         return self.assert_current(plan_id)
 
-    def assert_current(self, plan_id: str, *, review_only: bool = False) -> Dict[str, Any]:
-        plan = self._one(_ARTIFACT, plan_id=plan_id)
-        if plan.get('source_commit') != self.source_commit or plan.get('release_id') != self.release_id:
+    def assert_fanout(self, plan):
+        """Read-only Case/ETU/WorkItem snapshot guard at planning AND review."""
+        if (plan.get('source_commit') != self.source_commit
+                or plan.get('release_id') != self.release_id):
             raise ExecutionPlanningError('N7_PLAN_SOURCE_MISMATCH')
-        recovery = None
-        if plan.get('recovery_id'):
-            from .rc72_n8_retry_truth import assert_reconciled_plan
-            recovery = assert_reconciled_plan(self, plan)
-        design = CanonicalDesignService(self.truth, release_id=self.release_id,
-                                        source_commit=self.source_commit).load(release_batch_id=plan['release_batch_id'])
-        source_cases = {case['tc_id']: case for case in design.cases}
-        obligations = {item.obligation_id: item for item in design.obligations}
-        if {item['case_id'] for item in plan['items']} != set(source_cases):
-            raise ExecutionPlanningError('N7_PLAN_CASE_DENOMINATOR_MISMATCH')
         snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
         # P1-5: enforce the *entire* Case -> ETU -> WorkItem denominator.
         # Checking only "my Case is in my ETU" allowed extra/duplicate
@@ -235,6 +226,23 @@ class ExecutionPlanningService:
                 fanout[case_id] = etu_id
         if fanout != {item['case_id']: item['etu_id'] for item in plan['items']}:
             raise ExecutionPlanningError('N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH')
+        return snapshot
+
+    def assert_current(self, plan_id: str, *, review_only: bool = False) -> Dict[str, Any]:
+        plan = self._one(_ARTIFACT, plan_id=plan_id)
+        if plan.get('source_commit') != self.source_commit or plan.get('release_id') != self.release_id:
+            raise ExecutionPlanningError('N7_PLAN_SOURCE_MISMATCH')
+        recovery = None
+        if plan.get('recovery_id'):
+            from .rc72_n8_retry_truth import assert_reconciled_plan
+            recovery = assert_reconciled_plan(self, plan)
+        design = CanonicalDesignService(self.truth, release_id=self.release_id,
+                                        source_commit=self.source_commit).load(release_batch_id=plan['release_batch_id'])
+        source_cases = {case['tc_id']: case for case in design.cases}
+        obligations = {item.obligation_id: item for item in design.obligations}
+        if {item['case_id'] for item in plan['items']} != set(source_cases):
+            raise ExecutionPlanningError('N7_PLAN_CASE_DENOMINATOR_MISMATCH')
+        snapshot = self.assert_fanout(plan)
         current_inputs, current_cases = [], []
         for item in plan['items']:
             admission, current_input = self.admission._current_input(item['admission_id'], review_only=review_only)

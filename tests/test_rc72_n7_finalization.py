@@ -201,3 +201,24 @@ def test_review_receipt_rejects_byte_identical_external_file_even_with_valid_sig
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_final_gate_rechecks_current_case_fanout_without_repeating_business_io(tmp_path, monkeypatch):
+    """An ETU mutated after PASS cannot be used to justify an older N7 Gate."""
+    from rc7_runtime.rc72_n7_execution_planning import ExecutionPlanningError
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        finalizer = ExecutionFinalizationService(review)
+        assert finalizer.finalize(bundle['bundle_id'])['state'] == 'N7_PASS'
+        etu = truth.query('rc72_etu', etu_id=plan['items'][0]['etu_id'])[0]
+        etu['case_ids'] = list(etu['case_ids']) + ['TC-UNAPPROVED-POST-EXECUTION']
+        etu['artifact_version'] += 1
+        truth.append_atomic('RC72_ETU_UPSERTED', etu)
+        before = list(truth.store.iter_raw())
+        with pytest.raises(ExecutionPlanningError, match='N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH'):
+            finalizer.audit(bundle['bundle_id'])
+        assert list(truth.store.iter_raw()) == before
+        assert len(server.calls) == len(plan['items'])
+    finally:
+        server.shutdown()
+        server.server_close()
