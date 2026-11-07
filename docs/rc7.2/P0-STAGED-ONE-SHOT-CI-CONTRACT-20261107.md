@@ -52,3 +52,21 @@ Q2 与 Portable Transport 本身已经是 `workflow_dispatch` + `final_qualifica
 - 现有 PR #76 已触发的排队 CI 属于旧提交流水线，不是暂存分支新增任务；
 - Q2/Portable Transport 是手动建包，保持这一设计；
 - 不为了节约时间取消其他人的主线构建或修改其他施工分支的规则。
+
+## 全量通过后的单次完整搬运包触发机制
+
+最终构建不能被每次 staging/PR push 触发。使用
+`.github/workflows/rc7.2-p0-one-shot-portable.yml` 的精确分支：
+`work/rc7.2-p0-final-transport-20261108`。
+
+只有 PR #76 同源 Python3.8/3.11、Windows/Linux、完整 Case/N7/N8/R1
+回归全部成功、基线合入完成后，才由集成负责人将该分支**一次性快进**
+到最终合格源 SHA。Push 触发 `rc7.2-portable-transport.yml` 的
+可复用、受控 `final_qualification=true` 入口，运行 Windows 全离线
+载荷构造/校验/清理后解压/本地 Python/工具能力实测，上传正式传输包
+和独立证据。
+
+保留原 `workflow_dispatch` 手动资格，不允许中途施工触发；
+只要 final 分支没有明确、冻结、一次性的 REF 推进，不会有大包构建。
+一旦构建失败只修产品代码，不复写假 PASS；新 SHA 必须重新完成
+对应工程验收，不得重用旧 SHA 的证据。

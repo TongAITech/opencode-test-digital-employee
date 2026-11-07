@@ -1,0 +1,24 @@
+name: RC7.2 P0 One-Shot Qualified Portable Transport
+
+# A single controlled fast-forward from the frozen, fully qualified source
+# SHA triggers this only once. Never run this on P0 intermediate commits,
+# ordinary PR updates, or work/rc7.2 pushes.
+on:
+  push:
+    branches:
+      - work/rc7.2-p0-final-transport-20261108
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-p0-one-shot-full-transport
+  cancel-in-progress: false
+
+jobs:
+  build-and-verify-exact-qualified-sha:
+    # The reusable workflow preserves its manual final_qualification gate,
+    # all physical payload checks, clean-extract checks and artifacts.
+    uses: ./.github/workflows/rc7.2-portable-transport.yml
+    with:
+      final_qualification: true
