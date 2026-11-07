@@ -143,6 +143,16 @@ class AutonomousMissionOrchestrator:
             raise MissionOrchestrationError("GATE_STAGE_MISMATCH")
         if not isinstance(evidence_ref, str) or not evidence_ref.strip():
             raise MissionOrchestrationError("GATE_EVIDENCE_REF_REQUIRED")
+        # GAP-01: once the canonical RC7.2 ReleaseBatch owns this Mission,
+        # legacy script gates cannot claim admission from a caller-chosen
+        # nonempty string. The real N6/N7 NodeDelivery, reviewer and NodeGate
+        # must be produced and independently audited in the native product
+        # runtime. Keep historical RC6-only missions unchanged.
+        if gate_name == "SCRIPT_READY_ADMITTED":
+            from . import truth as registry
+            if ("rc72_release_batch" in registry.BUCKETS
+                    and self.truth.query("rc72_release_batch", mission_id=mission_id)):
+                raise MissionOrchestrationError("RC72_FORMAL_N6_N7_GATE_REQUIRED")
         if gate_name not in state.completed_gates:
             state.completed_gates.append(gate_name)
         for branch in self.BRANCH_CLEAR.get(gate_name, ()):
