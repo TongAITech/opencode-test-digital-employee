@@ -236,3 +236,48 @@ def test_c08_unbootstrapped_release_status_never_claims_node_pass(tmp_path):
     assert response['nodes'] == []
     assert response['field_verified'] is response['bank_final'] is False
     assert truth.store.path.read_bytes() == before
+
+
+def test_formal_n7_gate_cannot_be_bypassed_by_resumed_gate_path(tmp_path):
+    """GAP-01: both release-driver N7 entrypoints require trusted Host."""
+    from types import SimpleNamespace
+    root = tmp_path / 'full-package'
+    root.mkdir()
+    (root / 'PACKAGE_MANIFEST.json').write_text('{"test_fixture":true}')
+    calls = []
+    batch = dict(release_batch_id='B-C10', release_id='R-C10',
+                 mission_id='M-C10')
+    driver = ReleaseBatchDriver.__new__(ReleaseBatchDriver)
+    driver.bank_pip_mirror = SimpleNamespace(root=root)
+    driver.truth = SimpleNamespace(query=lambda kind, **kwargs: [])
+    driver.source_commit = 'a' * 40
+    driver.n7_pipeline = SimpleNamespace(
+        captain_scheduler=None,
+        complete=lambda **kwargs: calls.append('SUT_I_O_FORBIDDEN'))
+    with pytest.raises(ContractError, match='SCRIPT_READY_FIELD_CAPTAIN_REQUIRED'):
+        driver._complete_gate('N7_EXECUTION', batch)
+    with pytest.raises(ContractError, match='SCRIPT_READY_FIELD_CAPTAIN_REQUIRED'):
+        driver._admit_formal_n7_script_gate(batch)
+    assert calls == []
+
+
+def test_missing_full_manifest_cannot_downgrade_direct_n7_recovery(tmp_path):
+    """GAP-01: prior full-package proof persists even after manifest deletion."""
+    from types import SimpleNamespace
+    root = tmp_path / 'lost-full-package'
+    root.mkdir()
+    calls = []
+    batch = dict(release_batch_id='B-C10', release_id='R-C10',
+                 mission_id='M-C10')
+    driver = ReleaseBatchDriver.__new__(ReleaseBatchDriver)
+    driver.bank_pip_mirror = SimpleNamespace(root=root)
+    driver.truth = SimpleNamespace(query=lambda kind, **kwargs:
+        [dict(binding=dict(full_package_verified=True, package_root=str(root)))]
+        if kind == 'rc72_bank_pip_mirror_execution' else [])
+    driver.source_commit = 'a' * 40
+    driver.n7_pipeline = SimpleNamespace(
+        captain_scheduler=None,
+        complete=lambda **kwargs: calls.append('SUT_I_O_FORBIDDEN'))
+    with pytest.raises(ContractError, match='SCRIPT_READY_FIELD_PACKAGE_MANIFEST_REQUIRED'):
+        driver._complete_gate('N7_EXECUTION', batch)
+    assert calls == []
