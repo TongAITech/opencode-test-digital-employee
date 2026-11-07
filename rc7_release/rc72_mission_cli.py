@@ -107,6 +107,10 @@ def main(argv=None):
     parser.add_argument('--release-id')
     parser.add_argument('--bindings-module')
     parser.add_argument('--mission-config')
+    parser.add_argument('--captain-observer-module',
+        help='approved bank-local AgentTeams membership provider Python module')
+    parser.add_argument('--dsh-host-url', default='http://127.0.0.1:4096',
+        help='local DSH/OpenCode REST address; loopback only')
     parser.add_argument('--package-root')
     parser.add_argument('--evidence-root')
     parser.add_argument('--economy-config', help='trusted JSON for bank cost windows and soft mission economy targets')
@@ -118,6 +122,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command != 'run' and args.economy_config:
         parser.error('economy-config is only valid for run')
+    if (args.captain_observer_module and
+            (not args.mission_config or args.bindings_module
+             or args.command not in {'run', 'admit-script-ready'})):
+        parser.error('captain-observer-module requires a configured formal run')
     # A real bank professional decision is never sourced from the ordinary
     # JSON capability manifest. The trusted Host module must supply a typed
     # MissionProfessionalReviewBinding and its independent verifier. The N9
@@ -191,11 +199,35 @@ def main(argv=None):
                 from rc7_release.rc72_complete_payload_inventory import verify_inventory
                 verify_package(root,expected_source_commit=args.source_commit)
                 verify_inventory(root)
-            if args.mission_config:
-                from rc7_release.rc72_configured_mission import configured_mission_bindings
-                bindings = configured_mission_bindings(truth, release_id=args.release_id,
-                    source_commit=args.source_commit, config_path=args.mission_config,
+            if args.command in {'run', 'admit-script-ready'}:
+                # GAP-02: before calling any Host factory (which may create a
+                # first R1 Captain), prove canonical Q7 is currently ADMITTED.
+                # Full mirror byte verification still occurs after composition.
+                admissible = truth.query('rc72_q7_admission',
                     release_batch_id=args.release_batch)
+                matching = [row for row in admissible
+                    if row.get('source_commit') == args.source_commit
+                    and row.get('mission_id') == snapshot['mission_id']]
+                if len(matching) != 1:
+                    raise ContractError('FIELD_MISSION_EXACT_SOURCE_COMMIT_ADMISSION_REQUIRED')
+                if matching[0].get('status') != 'ADMITTED':
+                    raise ContractError('FIELD_MISSION_Q7_ADMISSION_HOLD')
+            if args.mission_config:
+                if args.captain_observer_module:
+                    from rc7_release.rc72_dsh_agentteams_factory import configured_agentteams_host_bindings
+                    bindings = configured_agentteams_host_bindings(
+                        truth, release_id=args.release_id,
+                        source_commit=args.source_commit,
+                        release_batch_id=args.release_batch,
+                        config_path=args.mission_config,
+                        provider_module=args.captain_observer_module,
+                        dsh_base_url=args.dsh_host_url)
+                else:
+                    from rc7_release.rc72_configured_mission import configured_mission_bindings
+                    bindings = configured_mission_bindings(
+                        truth, release_id=args.release_id,
+                        source_commit=args.source_commit, config_path=args.mission_config,
+                        release_batch_id=args.release_batch)
             else:
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit,
@@ -321,7 +353,7 @@ def main(argv=None):
             # include private host paths or credentials and are not receipts.
             code = str(exc).split(':', 1)[0]
             if (not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', code)
-                    or not code.startswith(('MISSION_', 'RC72_', 'FIELD_MISSION_', 'BANK_PIP_MIRROR_', 'PIP_MIRROR_'))):
+                    or not code.startswith(('MISSION_', 'RC72_', 'FIELD_MISSION_', 'BANK_PIP_MIRROR_', 'PIP_MIRROR_', 'SCRIPT_READY_', 'C07_'))):
                 code = 'MISSION_RUN_CONTRACT_HOLD'
             result = dict(release_batch_id=args.release_batch, release_id=args.release_id,
                 source_commit=args.source_commit, status='HOLD', reason=code,
@@ -341,6 +373,10 @@ def main(argv=None):
                     VERIFIED_PROMPT_TOKEN_SAVINGS=None)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if args.command == 'status':
+        return 0
+    if (args.command == 'admit-script-ready' and result.get('status') == 'ADMITTED'
+            and result.get('n6_gate_id') and result.get('admission_id')
+            and result.get('bank_final') is False and result.get('field_verified') is False):
         return 0
     if (args.command == 'review-reproduction'
             and result.get('human_decision') in {'APPROVED','REJECTED'}
