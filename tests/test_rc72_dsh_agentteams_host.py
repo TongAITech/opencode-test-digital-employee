@@ -13,7 +13,7 @@ from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_release.rc72_dsh_agentteams_host import (
     SignedAgentTeamsCaptain, LocalDshAgentTeamsHost,
 )
-from rc72_n2_test_support import BATCH, COMMIT, MISSION, RELEASE, build_truth
+from rc72_n2_test_support import BATCH, COMMIT, MISSION, RELEASE, build_truth, start_n1
 
 
 SESSION = 'session-real-dsh-captain-001'
@@ -74,6 +74,7 @@ def _bind(host, truth, proof):
 
 def test_real_local_http_session_and_signed_membership_bootstraps_once_and_reenters(tmp_path):
     truth = build_truth(tmp_path)
+    start_n1(truth)
     server = _local_server()
     try:
         host, membership_key = _host(server)
@@ -104,6 +105,7 @@ def test_real_local_http_session_and_signed_membership_bootstraps_once_and_reent
 ])
 def test_no_captain_for_signed_scope_failure_or_nonlive_dsh(tmp_path, kind, reason):
     truth = build_truth(tmp_path)
+    start_n1(truth)
     server = _local_server(alive=(kind != 'not_active'),
                            correct_id=(kind != 'wrong_provider_session'))
     try:
@@ -129,6 +131,7 @@ def test_no_captain_for_signed_scope_failure_or_nonlive_dsh(tmp_path, kind, reas
 
 def test_config_session_name_cannot_replace_a_signed_agentteams_proof(tmp_path):
     truth = build_truth(tmp_path)
+    start_n1(truth)
     server = _local_server()
     try:
         host, _key = _host(server)
@@ -147,7 +150,7 @@ def test_host_disallows_remote_sessions_and_shared_signer():
     with pytest.raises(ContractError, match='LOOPBACK_ONLY'):
         LocalDshAgentTeamsHost(base_url='http://example.org:4096',
                                membership_authority=membership_key,
-                               host_authority=RC72AuthorityRuntime(b'other-test-key'))
+                               host_authority=RC72AuthorityRuntime(b'other-test-key-separate'))
     with pytest.raises(ContractError, match='SEPARATE_AUTHORITIES_REQUIRED'):
         LocalDshAgentTeamsHost(base_url='http://127.0.0.1:4096',
                                membership_authority=membership_key,

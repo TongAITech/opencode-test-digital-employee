@@ -629,6 +629,7 @@ def test_trusted_local_agentteams_factory_probes_dsh_before_real_captain_binding
     from test_rc72_dsh_agentteams_host import _local_server, _host, _proof
 
     truth, _config, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
     server = _local_server()
     try:
         host, membership_key = _host(server)
