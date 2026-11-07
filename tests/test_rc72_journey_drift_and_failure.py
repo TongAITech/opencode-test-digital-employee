@@ -14,6 +14,7 @@ from rc7_runtime.rc72_official_journey_execution import OfficialJourneyExecution
 from test_rc72_phase9_official_journey_consumption_contract import _setup as official_setup, _run
 from test_rc72_phase9_journey_human_promotion_contract import _truth, _attestation, _service
 from test_rc72_phase9_journey_replay_contract import _setup as replay_setup
+from rc72_file_uri_test_support import local_file_evidence_ref
 
 
 class RealFileFailAdapter:
@@ -75,7 +76,7 @@ def test_unexpected_adapter_exception_is_real_receipt_not_fabricated_uri(tmp_pat
     assert result.state.value == "FAILED"
     receipt = truth.query("rc72_journey_replay_step", replay_id="JRP-EX")[0]["evidence_refs"][0]
     assert receipt.startswith("file://") and "adapter-error://" not in receipt
-    evidence = Path(receipt[7:]).read_text()
+    evidence = local_file_evidence_ref(receipt).read_text()
     assert "ADAPTER_RUNTIME_FAILURE_NOT_SUT_ASSERTION" in evidence
     assert "do not persist credentials" not in evidence
 
@@ -124,7 +125,7 @@ def test_malformed_browser_return_is_failed_with_durable_runtime_receipt(tmp_pat
     assert malformed.calls == 1
     step = truth.query("rc72_journey_replay_step", replay_id="JRP-MALFORMED")[0]
     assert step["status"] == "FAILED"
-    evidence = Path(step["evidence_refs"][0][7:])
+    evidence = local_file_evidence_ref(step["evidence_refs"][0])
     assert evidence.is_file()
     assert "ADAPTER_RUNTIME_FAILURE_NOT_SUT_ASSERTION" in evidence.read_text()
     with pytest.raises(Exception, match="JOURNEY_REPLAY_ATTEMPT_ALREADY_USED"):
@@ -184,7 +185,7 @@ def test_generic_official_adapter_cannot_fake_pass_after_browser_lease_revoke(tm
     assert adapter.calls == 1
     step = truth.query("rc72_official_journey_execution_step", execution_id="OJ-REVOKED")[0]
     assert step["status"] == "FAILED"
-    assert Path(step["evidence_refs"][0][7:]).exists()
+    assert local_file_evidence_ref(step["evidence_refs"][0]).is_file()
 
 
 def test_teaching_completion_rejects_revoked_browser_lease(tmp_path):
@@ -389,7 +390,7 @@ def test_replay_rejects_browser_purpose_hijack_during_generic_adapter_call(tmp_p
     step = truth.query(
         "rc72_journey_replay_step", replay_id="JRP-PURPOSE-HIJACK")[0]
     assert step["status"] == "FAILED"
-    assert Path(step["actual_refs"][0][7:]).is_file()
+    assert local_file_evidence_ref(step["actual_refs"][0]).is_file()
 
 
 def test_official_rejects_browser_purpose_hijack_during_generic_adapter_call(tmp_path):
@@ -404,4 +405,4 @@ def test_official_rejects_browser_purpose_hijack_during_generic_adapter_call(tmp
         "rc72_official_journey_execution_step",
         execution_id="OJ-PURPOSE-HIJACK")[0]
     assert step["status"] == "FAILED"
-    assert Path(step["actual_refs"][0][7:]).is_file()
+    assert local_file_evidence_ref(step["actual_refs"][0]).is_file()
