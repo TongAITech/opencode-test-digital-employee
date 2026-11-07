@@ -102,3 +102,58 @@ def test_script_ready_does_not_accept_unbound_worker_or_unknown_batch(tmp_path, 
         _producer(truth, signer).issue(release_batch_id=BATCH, captain_binding=None)
     assert _producer(truth, signer).inspect(release_batch_id='OTHER')['status'] == 'HOLD'
     assert truth.store.path.read_bytes() == before
+
+
+def test_trusted_script_gate_captain_takeover_requires_new_signed_generation(tmp_path, monkeypatch):
+    """GAP-01/02: old Captain's accepted N6 proof persists, cannot authorize new work."""
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    truth, _ = _ready(tmp_path, monkeypatch)
+    old = _captain(truth)
+    signer = RC72AuthorityRuntime(b'cross-generation-script-gate-authority')
+    producer = _producer(truth, signer)
+    first = producer.issue(release_batch_id=BATCH, captain_binding=old)
+    original = truth.query('rc72_script_ready_admission', admission_id=first['admission_id'])[0]
+    fencer = CaptainDispatchFencer(truth, release_id=RELEASE)
+    lifecycle = WorkerLifecycleService(truth, release_id=RELEASE)
+    n6 = truth.query('rc72_mission_node', mission_id=MISSION,
+                     node_type='N6_EXECUTABLE_READINESS')[0]
+    checkpoint = fencer.prepare_handoff(
+        mission_id=MISSION, lease_id=old.captain_lease_id,
+        captain_session_id=old.captain_session_id,
+        lifecycle=lifecycle, team_id=old.team_id,
+        current_node_refs=['N6_EXECUTABLE_READINESS'],
+        latest_delivery_refs=list(n6['delivery_refs']),
+        latest_gate_refs=list(n6['gate_refs']),
+        next_workitem_ids=[])
+    successor = fencer.takeover(
+        mission_id=MISSION, team_id=old.team_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+        new_captain_session_id='DSH-AGENTTEAMS-CAPTAIN-B',
+        lifecycle=lifecycle)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='CAPTAIN_DISPATCH_FENCED'):
+        producer.issue(release_batch_id=BATCH, captain_binding=old)
+    assert truth.store.path.read_bytes() == before
+    assert producer.inspect(release_batch_id=BATCH)['reason'] == 'SCRIPT_READY_CURRENT_CAPTAIN_RESIGN_REQUIRED'
+    host_key = RC72AuthorityRuntime(b'isolated-takeover-host-observer')
+    ticket = ObservedDshCaptain(
+        release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, mission_id=MISSION, team_id=successor['team_id'],
+        captain_session_id=successor['captain_session_id'],
+        captain_lease_id=successor['lease_id'],
+        captain_generation=successor['generation'],
+        dsh_session_ref='dsh://agent-teams/new-observed-captain',
+        observed_at=int(time.time()), state='ACTIVE', signature='PENDING')
+    ticket = replace(ticket, signature=host_key._sign(ticket.signed_fields()))
+    second = reenter_host_captain(
+        truth, release_id=RELEASE, source_commit=COMMIT,
+        release_batch_id=BATCH, observed=ticket, host_authority=host_key,
+        role_profiles={'L3_EXECUTE': ('api_http',)},
+        approved_capabilities=('api_http',))
+    accepted = producer.issue(release_batch_id=BATCH, captain_binding=second)
+    assert accepted['status'] == 'ADMITTED'
+    assert accepted['admission_id'] != first['admission_id']
+    assert truth.query('rc72_script_ready_admission', admission_id=first['admission_id'])[0] == original
+    assert len(truth.query('rc72_script_ready_admission', release_batch_id=BATCH)) == 2
+    assert producer.issue(release_batch_id=BATCH, captain_binding=second) == accepted
+    assert not truth.query('execution_attempt')
