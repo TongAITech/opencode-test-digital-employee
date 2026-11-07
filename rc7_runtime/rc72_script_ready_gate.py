@@ -199,9 +199,16 @@ class NativeScriptReadyGateProducer:
                   and row.get('captain_generation') == owner['generation']]
         if not active:
             return self._hold('SCRIPT_READY_CURRENT_CAPTAIN_RESIGN_REQUIRED')
-        if len(active) != 1 or type(self.authority) is not RC72AuthorityRuntime:
+        current = [row for row in active
+                   if all(row.get(key) == value for key, value in facts.items())]
+        # Old signed Case/Contract deliveries are historical Evidence, never
+        # another currently admissible Gate. A repaired N4/N5/N6 generation
+        # can receive a new current signature without deleting old R1.
+        if not current:
+            return self._hold('SCRIPT_READY_CURRENT_FACTS_RESIGN_REQUIRED')
+        if len(current) != 1 or type(self.authority) is not RC72AuthorityRuntime:
             return self._hold('SCRIPT_READY_TRUSTED_SIGNER_OR_RECEIPT_REQUIRED')
-        row = active[0]
+        row = current[0]
         signed = {key: value for key, value in row.items()
                   if key not in ('signature', 'artifact_type', 'artifact_version')}
         if (not isinstance(row.get('signature'), str)
@@ -209,6 +216,7 @@ class NativeScriptReadyGateProducer:
                                            self.authority._sign(signed))
                 or any(row.get(key) != value for key, value in facts.items())
                 or row.get('purpose') != _PURPOSE
+                or row.get('artifact_version') != 1
                 or row.get('status') != 'ADMITTED'):
             return self._hold('SCRIPT_READY_TRUSTED_SIGNATURE_OR_LINEAGE_INVALID')
         return dict(status='ADMITTED', admission_id=row['admission_id'],

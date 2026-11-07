@@ -50,7 +50,7 @@ def test_native_n6_gate_requires_explicit_host_signature_even_after_n6_pass(tmp_
     before = truth.store.path.read_bytes()
     result = _producer(truth).inspect(release_batch_id=BATCH)
     assert result['status'] == 'HOLD'
-    assert result['reason'] == 'SCRIPT_READY_TRUSTED_HOST_ADMISSION_REQUIRED'
+    assert result['reason'] == 'SCRIPT_READY_CURRENT_CAPTAIN_REQUIRED'
     assert not truth.query('rc72_script_ready_admission')
     assert truth.store.path.read_bytes() == before
     assert truth.query('execution_attempt') == []
@@ -156,4 +156,23 @@ def test_trusted_script_gate_captain_takeover_requires_new_signed_generation(tmp
     assert truth.query('rc72_script_ready_admission', admission_id=first['admission_id'])[0] == original
     assert len(truth.query('rc72_script_ready_admission', release_batch_id=BATCH)) == 2
     assert producer.issue(release_batch_id=BATCH, captain_binding=second) == accepted
+    assert not truth.query('execution_attempt')
+
+
+def test_old_signed_case_generation_does_not_disqualify_current_n6_evidence(tmp_path, monkeypatch):
+    """P1-6: signer rotation and R1 version history are additive, not bypasses."""
+    truth, _ = _ready(tmp_path, monkeypatch)
+    signer = RC72AuthorityRuntime(b'approved-multi-delivery-script-gate-key')
+    producer = _producer(truth, signer)
+    accepted = producer.issue(release_batch_id=BATCH, captain_binding=_captain(truth))
+    original = truth.query('rc72_script_ready_admission', admission_id=accepted['admission_id'])[0]
+    stale = dict(original)
+    stale.pop('artifact_type', None)
+    stale.update(admission_id='SCRIPTREADY-OLD-HISTORICAL',
+                 contract_digest='0' * 64, artifact_version=1)
+    signed = {k: v for k, v in stale.items() if k != 'signature' and k != 'artifact_version'}
+    stale['signature'] = signer._sign(signed)
+    truth.append_atomic('RC72_SCRIPT_READY_ADMISSION_UPSERTED', stale)
+    assert producer.inspect(release_batch_id=BATCH) == accepted
+    assert truth.query('rc72_script_ready_admission', admission_id=accepted['admission_id'])[0] == original
     assert not truth.query('execution_attempt')

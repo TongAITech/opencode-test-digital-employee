@@ -44,6 +44,13 @@ jobs:
             tests/test_rc72_dsh_agentteams_host.py \
             tests/test_rc72_n7_execution_planning.py \
             tests/test_rc72_n7_finalization.py \
+            tests/test_rc72_configured_mission.py \
+            tests/test_rc72_mission_bindings.py \
+            tests/test_rc72_captain_host_reentry.py \
+            tests/test_rc72_n7_execution_admission.py \
+            tests/test_rc72_n6_completion.py \
+            tests/test_rc72_release_driver.py \
+            tests/test_rc72_n8_retry_continuation.py \
             tests/test_rc72_n8_multi_round.py::test_two_actual_data_repair_rounds_keep_required_disposition_and_both_failed_histories \
             tests/test_rc72_n8_multi_round_executed_peer.py::test_second_round_reuses_actual_regression_peer_not_invalidated_original_result
       - name: Assert no package or full-suite build in staging
