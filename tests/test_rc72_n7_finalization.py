@@ -171,3 +171,33 @@ def test_live_precondition_or_data_failure_blocks_runner_and_preserves_diagnosis
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_review_receipt_rejects_byte_identical_external_file_even_with_valid_signature(tmp_path, monkeypatch):
+    """P1-6: signed verdict/digest cannot authorize an unrelated evidence file."""
+    from copy import deepcopy
+    import hashlib
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        finalizer = ExecutionFinalizationService(review)
+        assert finalizer.finalize(bundle['bundle_id'])['state'] == 'N7_PASS'
+        receipt = truth.query('rc72_n7_execution_review')[0]
+        original = Path(receipt['stdout_ref'][len('file://'):])
+        detached = tmp_path / 'unrelated-review-output.json'
+        detached.write_bytes(original.read_bytes())
+        forged = deepcopy(receipt)
+        forged['stdout_ref'] = 'file://' + str(detached)
+        # The native private signer can sign a payload in this adversarial
+        # test. File-scope validation must independently refuse it anyway.
+        signed = {k: v for k, v in forged.items()
+                  if k not in {'signature', 'artifact_type', 'artifact_version'}}
+        forged['signature'] = prep.authority._sign(signed)
+        assert forged['stdout_sha256'] == hashlib.sha256(detached.read_bytes()).hexdigest()
+        before = list(truth.store.iter_raw())
+        with pytest.raises(ExecutionFinalizationError, match='N7_REVIEW_PROCESS_EVIDENCE_SCOPE_CHANGED'):
+            finalizer._verify(forged)
+        assert list(truth.store.iter_raw()) == before
+        assert len(server.calls) == len(plan['items'])
+    finally:
+        server.shutdown()
+        server.server_close()
