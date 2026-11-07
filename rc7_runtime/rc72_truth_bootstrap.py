@@ -88,6 +88,7 @@ _INSTALLERS = (
     ('rc72_n5_data_verification_finalization', 'install_rc72_n5_data_verification_finalization_overlay'),
     ('rc72_n5_data_verification_handoff', 'install_rc72_n5_data_verification_handoff_overlay'),
     ('rc72_n6_completion', 'install_rc72_n6_completion_overlay'),
+    ('rc72_script_ready_gate', 'install_script_ready_admission_overlay'),
     ('rc72_official_journey_execution', 'install_rc72_official_journey_execution_overlay'),
     ('rc72_q7_admission', 'install_rc72_q7_admission_overlay'),
     ('rc72_release_convergence', 'install_rc72_release_convergence_overlay'),
