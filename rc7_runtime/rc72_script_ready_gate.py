@@ -141,8 +141,13 @@ class NativeScriptReadyGateProducer:
             self.truth, release_id=self.release_id, source_commit=self.source_commit,
             now=self.now)
         inputs = []
+        # Cold review/replay of a previously accepted signed N7 result must
+        # not demand that N7 is still READY. The original Case/Data/Contract
+        # checks stay equally strict; only the admitted Node state widens.
+        review_only = n7['state'] in {'REVIEW_PENDING', 'PASS'}
         for contract_id in contract_ids:
-            inputs.append(admission._check(release_batch_id, contract_id))
+            inputs.append(admission._check(
+                release_batch_id, contract_id, review_only=review_only))
         if sorted(row['case_id'] for row in inputs) != cases:
             raise ContractError('SCRIPT_READY_N6_FROZEN_CASE_LINEAGE_MISMATCH')
         return dict(release_id=self.release_id, source_commit=self.source_commit,
