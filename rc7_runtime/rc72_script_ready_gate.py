@@ -157,19 +157,51 @@ class NativeScriptReadyGateProducer:
                     contract_digest=_hash(inputs), case_ids=cases,
                     contract_ids=contract_ids, case_count=len(cases))
 
+    def _current_owner(self, mission_id):
+        """Read-only current R1 Captain; never expire a lease via a status query."""
+        leases = self.truth.query('rc72_captain_dispatch_lease',
+                                  mission_id=mission_id)
+        if not leases:
+            return None
+        generation = max(row['generation'] for row in leases)
+        current = [row for row in leases if row['generation'] == generation]
+        if len(current) != 1:
+            return None
+        owner = current[0]
+        if (owner.get('state') != 'ACTIVE'
+                or owner.get('release_id') != self.release_id
+                or not owner.get('lease_id')
+                or not owner.get('captain_session_id')
+                or type(owner.get('expires_at')) is not int
+                or owner['expires_at'] <= int(time.time())):
+            return None
+        return owner
+
     def inspect(self, *, release_batch_id):
         try:
             facts = self._native(release_batch_id)
         except (ContractError, ValueError, KeyError) as exc:
             return self._hold(str(exc))
+        owner = self._current_owner(facts['mission_id'])
+        if owner is None:
+            return self._hold('SCRIPT_READY_CURRENT_CAPTAIN_REQUIRED')
         receipts = self.truth.query(_KIND, release_batch_id=release_batch_id,
                                     source_commit=self.source_commit)
         if not receipts:
             return self._hold('SCRIPT_READY_TRUSTED_HOST_ADMISSION_REQUIRED',
                               n6_gate_id=facts['n6_gate_id'], case_count=facts['case_count'])
-        if len(receipts) != 1 or type(self.authority) is not RC72AuthorityRuntime:
+        # Keep old signed generations in R1 for N8 audit, but never use
+        # previous Captain authority to admit work for its successor.
+        active = [row for row in receipts
+                  if row.get('captain_lease_id') == owner['lease_id']
+                  and row.get('captain_session_id') == owner['captain_session_id']
+                  and row.get('team_id') == owner['team_id']
+                  and row.get('captain_generation') == owner['generation']]
+        if not active:
+            return self._hold('SCRIPT_READY_CURRENT_CAPTAIN_RESIGN_REQUIRED')
+        if len(active) != 1 or type(self.authority) is not RC72AuthorityRuntime:
             return self._hold('SCRIPT_READY_TRUSTED_SIGNER_OR_RECEIPT_REQUIRED')
-        row = receipts[0]
+        row = active[0]
         signed = {key: value for key, value in row.items()
                   if key not in ('signature', 'artifact_type', 'artifact_version')}
         if (not isinstance(row.get('signature'), str)
@@ -221,8 +253,7 @@ class NativeScriptReadyGateProducer:
         payload['admission_id'] = 'SCRIPTREADY-' + _hash(payload)[:24]
         signed = dict(payload)
         payload['signature'] = self.authority._sign(signed)
-        existing = self.truth.query(_KIND, release_batch_id=release_batch_id,
-                                    source_commit=self.source_commit)
+        existing = self.truth.query(_KIND, admission_id=payload['admission_id'])
         if existing:
             if (len(existing) != 1
                     or any(existing[0].get(k) != v for k, v in payload.items())
