@@ -222,3 +222,24 @@ def test_final_gate_rechecks_current_case_fanout_without_repeating_business_io(t
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_independent_gate_rejects_attempt_rebound_to_another_case_after_real_dispatch(tmp_path, monkeypatch):
+    """P1-5/P1-6: an actual Attempt cannot be claimed by a sibling Case."""
+    from rc7_runtime.rc72_n7_evidence_review import EvidenceReviewError
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        first = bundle['case_results'][0]
+        attempt = truth.query('execution_attempt', attempt_id=first['attempt_id'])[0]
+        attempt['tc_id'] = 'UNRELATED-CASE-ID'
+        attempt['artifact_version'] += 1
+        truth.append_atomic('EXECUTION_ATTEMPT_UPSERTED', attempt)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(EvidenceReviewError, match='N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH'):
+            ExecutionFinalizationService(review).finalize(bundle['bundle_id'])
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == len(plan['items'])
+        assert not truth.query('rc72_n7_execution_review')
+    finally:
+        server.shutdown()
+        server.server_close()
