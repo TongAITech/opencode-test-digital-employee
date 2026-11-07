@@ -169,6 +169,13 @@ class ExecutionEvidenceReviewService:
             if len(prepared) != 1:
                 raise EvidenceReviewError('N7_REVIEW_CASE_EXECUTION_REQUIRED')
             result.append(self._case_snapshot(plan, item, cases, prepared[0], allow_finalized=allow_finalized))
+        # P1-5/P1-6: a complete Case denominator must produce distinct
+        # WorkItem, Preparation, Dispatch, and actual Attempt identities.
+        # This must hold also for N8's independently re-used historical peer.
+        for field in ('case_id', 'workitem_id', 'preparation_id', 'attempt_id', 'dispatch_id'):
+            values = [row[field] for row in result]
+            if len(values) != len(set(values)):
+                raise EvidenceReviewError('N7_REVIEW_DUPLICATE_CASE_FANOUT_ID:' + field.upper())
         return plan, result
 
     def _case_snapshot(self, plan, item, cases, prepared, *, allow_finalized=False, current_upstream=True, historical_task=None, allow_business_failure=False):
@@ -198,6 +205,11 @@ class ExecutionEvidenceReviewService:
         if (attempt['assertion_ref'] != expected_assertion
                 or attempt.get('tool_call_refs') != [dispatch['dispatch_id']]
                 or attempt.get('contract_sha256') != c['contract_sha256']
+                or attempt.get('tc_id') != p['case_id']
+                or attempt.get('workitem_id') != p['workitem_id']
+                or attempt.get('contract_id') != p['contract_id']
+                or attempt.get('release_id') != p['release_id']
+                or attempt.get('parent_attempt_id') != binding.get('parent_attempt_id')
                 or assertion.get('details') != oracle['details']
                 or assertion.get('evidence_refs') != attempt.get('observation_evidence_refs', attempt['evidence_refs'])
                 or attempt.get('actual_result') != dispatch['raw_result'] or attempt.get('worker_id') != p['worker_id']
