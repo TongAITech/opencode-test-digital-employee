@@ -156,3 +156,20 @@ def test_legacy_script_gate_historical_missions_remain_compatible(tmp_path):
     accepted = AutonomousMissionOrchestrator(legacy, truth).record_verified_gate(
         'OLD-ONLY', 'SCRIPT_READY_ADMITTED', 'legacy-evidence-ref')
     assert 'SCRIPT_READY_ADMITTED' in accepted.completed_gates
+
+
+def test_formal_rc72_script_ready_does_not_repeat_legacy_run_gate(tmp_path, monkeypatch):
+    """GAP-01: legacy coordinator emits explicit HOLD, not a perpetual RUN_GATE."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import AutonomousMissionOrchestrator
+    truth, _ = _ready(tmp_path, monkeypatch)
+    legacy = MissionRuntime(str(tmp_path / 'legacy-script-state'))
+    state = legacy.create(MISSION, RELEASE)
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    original = truth.store.path.read_bytes()
+    step = AutonomousMissionOrchestrator(legacy, truth).plan_next(MISSION)
+    assert step.action == 'HOLD'
+    assert 'RC72_FORMAL_N6_N7_GATE_REQUIRED' in step.blocking_reasons
+    assert truth.store.path.read_bytes() == original
+    assert legacy.load(MISSION).stage == 'SCRIPT_READY'

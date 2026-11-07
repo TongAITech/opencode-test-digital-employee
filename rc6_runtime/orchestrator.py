@@ -106,6 +106,23 @@ class AutonomousMissionOrchestrator:
         self.truth = truth
         self.stages = StageMachine()
 
+    def _formal_release_batch_exists(self, mission_id: str) -> bool:
+        """Keep unsafe RC6 MCP gates closed even before RC7.2 overlay install.
+
+        A separately bootstrapped RC6 controller may see the same canonical R1
+        file without the optional native RC7.2 projection registered. Check
+        the immutable ledger event in that case instead of assuming absence.
+        """
+        from . import truth as registry
+        if "rc72_release_batch" in registry.BUCKETS:
+            return bool(self.truth.query("rc72_release_batch", mission_id=mission_id))
+        return any(
+            row.get("event_type") == "RC72_RELEASE_BATCH_UPSERTED"
+            and isinstance(row.get("payload"), dict)
+            and row["payload"].get("mission_id") == mission_id
+            for row in self.truth.store.iter_raw()
+        )
+
     def plan_next(self, mission_id: str, *, context_pressure: bool = False) -> MissionDirective:
         state = self.missions.load(mission_id)
         if context_pressure:
@@ -148,11 +165,9 @@ class AutonomousMissionOrchestrator:
         # nonempty string. The real N6/N7 NodeDelivery, reviewer and NodeGate
         # must be produced and independently audited in the native product
         # runtime. Keep historical RC6-only missions unchanged.
-        if gate_name == "SCRIPT_READY_ADMITTED":
-            from . import truth as registry
-            if ("rc72_release_batch" in registry.BUCKETS
-                    and self.truth.query("rc72_release_batch", mission_id=mission_id)):
-                raise MissionOrchestrationError("RC72_FORMAL_N6_N7_GATE_REQUIRED")
+        if (gate_name == "SCRIPT_READY_ADMITTED"
+                and self._formal_release_batch_exists(mission_id)):
+            raise MissionOrchestrationError("RC72_FORMAL_N6_N7_GATE_REQUIRED")
         if gate_name not in state.completed_gates:
             state.completed_gates.append(gate_name)
         for branch in self.BRANCH_CLEAR.get(gate_name, ()):
@@ -267,6 +282,15 @@ class AutonomousMissionOrchestrator:
                 blocking=("SCRIPT_READY_GATE_REQUIRED",), target=state.target_identity_ref,
             )
         if stage == "SCRIPT_READY":
+            # A formal ReleaseBatch must use the native signed N6 Gate producer
+            # and ReleaseBatch driver, not loop forever asking an RC6 model to
+            # commit a caller-controlled gate:// string.
+            if self._formal_release_batch_exists(state.mission_id):
+                return self._directive(
+                    state, "HOLD", scope=release,
+                    blocking=("RC72_FORMAL_N6_N7_GATE_REQUIRED",),
+                    target=state.target_identity_ref,
+                )
             return self._directive(
                 state, "RUN_GATE", scope=release,
                 artifacts=("executable_test_spec", "script_artifact", "script_validation"),
