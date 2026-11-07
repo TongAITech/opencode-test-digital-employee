@@ -20,7 +20,7 @@ jobs:
   syntax-and-contract-imports:
     name: p0-stage-python-3.8-fast
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +35,17 @@ jobs:
             tests/test_rc72_n7_execution_planning.py \
             tests/test_rc72_n7_finalization.py \
             tests/test_rc72_configured_mission.py
+      - name: Install lightweight Python contract runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run only P0 affected contracts (no full suite, Chromium or ZIP)
+        run: |
+          python -m pytest -q \
+            tests/test_rc72_script_ready_gate.py \
+            tests/test_rc72_dsh_agentteams_host.py \
+            tests/test_rc72_n7_execution_planning.py \
+            tests/test_rc72_n7_finalization.py \
+            tests/test_rc72_n8_multi_round.py::test_two_actual_data_repair_rounds_keep_required_disposition_and_both_failed_histories \
+            tests/test_rc72_n8_multi_round_executed_peer.py::test_second_round_reuses_actual_regression_peer_not_invalidated_original_result
       - name: Assert no package or full-suite build in staging
         run: |
           test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
