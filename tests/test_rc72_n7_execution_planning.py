@@ -91,3 +91,35 @@ def test_planning_snapshot_cannot_change_the_approved_auth_role(tmp_path, monkey
     with pytest.raises(ExecutionPlanningError, match='SNAPSHOT_STALE'):
         _service(truth).assert_current(plan['plan_id'])
     assert list(truth.store.iter_raw()) == before
+
+
+def test_fanout_rejects_extra_etu_case_without_new_business_or_r1_effect(tmp_path, monkeypatch):
+    """P1-5: an ETU cannot borrow an unapproved Case during cold continuation."""
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    etu = truth.query('rc72_etu', etu_id=plan['items'][0]['etu_id'])[0]
+    etu['case_ids'] = list(etu['case_ids']) + ['TC-UNAPPROVED-FANOUT']
+    etu['artifact_version'] += 1
+    truth.append_atomic('RC72_ETU_UPSERTED', etu)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ExecutionPlanningError, match='N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH'):
+        _service(truth).assert_current(plan['plan_id'])
+    assert list(truth.store.iter_raw()) == before
+    assert not truth.query('rc72_n7_execution_preparation')
+    assert not truth.query('execution_attempt')
+
+
+def test_fanout_cannot_reuse_another_case_workitem_even_with_distinct_case_id(tmp_path, monkeypatch):
+    """P1-5: a different Case must not inherit another Case's WorkItem."""
+    from copy import deepcopy
+    from rc6_runtime.contracts import DomainValidationError
+    from rc7_runtime.rc72_n7_execution_planning import _validate
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    changed = deepcopy(plan)
+    stolen = deepcopy(plan['items'][0])
+    stolen.update(case_id='TC-FORGED', contract_id='N6-FORGED',
+                  admission_id='N7-ADMISSION-FORGED')
+    changed['items'] = [deepcopy(plan['items'][0]), stolen]
+    with pytest.raises(DomainValidationError, match='N7_PLAN_WORKITEM_ID_DUPLICATE'):
+        _validate(changed)
