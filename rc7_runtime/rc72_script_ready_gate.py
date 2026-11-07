@@ -77,12 +77,13 @@ class NativeScriptReadyGateProducer:
     selected evidence_ref. Repeating issue is idempotent with zero new writes.
     """
 
-    def __init__(self, truth, *, release_id, source_commit, authority=None):
+    def __init__(self, truth, *, release_id, source_commit, authority=None, now=None):
         install_script_ready_admission_overlay()
         self.truth = truth
         self.release_id = release_id
         self.source_commit = source_commit
         self.authority = authority
+        self.now = now
 
     @staticmethod
     def _hold(reason, **facts):
@@ -137,7 +138,8 @@ class NativeScriptReadyGateProducer:
         if len(contract_ids) != len(cases) or len(set(contract_ids)) != len(contract_ids):
             raise ContractError('SCRIPT_READY_N6_CONTRACT_DENOMINATOR_MISMATCH')
         admission = ExecutionAdmissionService(
-            self.truth, release_id=self.release_id, source_commit=self.source_commit)
+            self.truth, release_id=self.release_id, source_commit=self.source_commit,
+            now=self.now)
         inputs = []
         for contract_id in contract_ids:
             inputs.append(admission._check(release_batch_id, contract_id))
