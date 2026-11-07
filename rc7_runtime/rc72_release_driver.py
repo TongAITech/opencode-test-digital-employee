@@ -588,6 +588,33 @@ class ReleaseBatchDriver:
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
+                    # GAP-01/GAP-02: a transported Field Mission cannot
+                    # bypass the native N6 whole-Case Gate or its signed
+                    # Host countersignature before the first N7 business I/O.
+                    # Component-engineering fixtures without a full package
+                    # retain their source-only qualification path.
+                    from pathlib import Path as _Path
+                    if (_Path(self.bank_pip_mirror.root) / 'PACKAGE_MANIFEST.json').is_file():
+                        from .rc72_script_ready_gate import NativeScriptReadyGateProducer
+                        from .rc72_mission_factory import MissionCaptainBinding
+                        n7 = self.n7_pipeline
+                        if n7.captain_scheduler is None:
+                            raise ContractError('SCRIPT_READY_FIELD_CAPTAIN_REQUIRED')
+                        captain = MissionCaptainBinding(
+                            scheduler=n7.captain_scheduler,
+                            captain_session_id=n7.captain_session_id,
+                            captain_lease_id=n7.captain_lease_id,
+                            team_id=n7.team_id)
+                        trusted = NativeScriptReadyGateProducer(
+                            self.truth, release_id=batch['release_id'],
+                            source_commit=self.source_commit,
+                            authority=n7.preparation.authority).issue(
+                                release_batch_id=release_batch_id,
+                                captain_binding=captain)
+                        if trusted['status'] != 'ADMITTED':
+                            return dict(self.status(release_batch_id=release_batch_id),
+                                        status='HOLD',
+                                        reason=trusted.get('reason', 'SCRIPT_READY_TRUSTED_GATE_REQUIRED'))
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
                         # N7 runner/process failures have already persisted
