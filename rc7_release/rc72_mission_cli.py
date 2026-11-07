@@ -89,15 +89,17 @@ def _require_field_captain(command, package_root, bindings):
     engineering component fixtures without a full package retain their
     explicitly non-Field legacy evaluation path.
     """
-    if (command == 'run'
-            and (Path(package_root) / 'PACKAGE_MANIFEST.json').is_file()
+    if (command in {'run', 'admit-script-ready'}
+            and (command == 'admit-script-ready'
+                 or (Path(package_root) / 'PACKAGE_MANIFEST.json').is_file())
             and getattr(bindings, 'captain_binding', None) is None):
         raise ContractError('C07_REAL_DSH_CAPTAIN_HOST_REQUIRED_FOR_FIELD_RUN')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
-    parser.add_argument('command', choices=['status', 'run', 'mirror-check', 'review-reproduction',
+    parser.add_argument('command', choices=['status', 'run', 'script-ready-status',
+        'admit-script-ready', 'mirror-check', 'review-reproduction',
         'review-professional', 'accept-professional-resolution', 'complete-professional-n9'])
     parser.add_argument('--ledger', required=True)
     parser.add_argument('--source-commit', required=True)
@@ -155,9 +157,15 @@ def main(argv=None):
     # Register real Captain lease events before a cold R1 projection. A
     # configured JSON without a DSH Host binding must not hide old leases.
     install_captain_dispatch_overlay()
+    from rc7_runtime.rc72_script_ready_gate import install_script_ready_admission_overlay
+    install_script_ready_admission_overlay()
     truth = TruthRuntime(path)
     if args.command == 'status':
         result = release_batch_status(truth, source_commit=args.source_commit, release_batch_id=args.release_batch)
+    elif args.command == 'script-ready-status':
+        from rc7_runtime.rc72_script_ready_gate import NativeScriptReadyGateProducer
+        result = NativeScriptReadyGateProducer(truth, release_id=args.release_id,
+            source_commit=args.source_commit).inspect(release_batch_id=args.release_batch)
     else:
         if not all((args.release_id, args.package_root, args.evidence_root)) or bool(args.bindings_module) == bool(args.mission_config):
             parser.error('run requires release-id, package-root, evidence-root and exactly one of mission-config or bindings-module')
@@ -221,7 +229,21 @@ def main(argv=None):
                     mission_id=snapshot['mission_id'],
                     policy=read_mission_economy_config(args.economy_config),
                 )
-            if args.command == 'review-reproduction':
+            if args.command == 'admit-script-ready':
+                # Uses canonical N6 NodeGate + signed Host admission. No RC6
+                # gate string, no model budget, no SUT effect or fabricated PASS.
+                from rc7_runtime.rc72_script_ready_gate import NativeScriptReadyGateProducer
+                from rc7_runtime.rc72_field_mission_start import ReleaseBatchFieldMissionLauncher
+                launcher = ReleaseBatchFieldMissionLauncher(
+                    truth, source_commit=args.source_commit,
+                    bank_pip_mirror=driver.bank_pip_mirror)
+                launcher._admission(launcher._batch(args.release_batch))
+                result = NativeScriptReadyGateProducer(
+                    truth, release_id=args.release_id, source_commit=args.source_commit,
+                    authority=bindings.execution_authority).issue(
+                        release_batch_id=args.release_batch,
+                        captain_binding=bindings.captain_binding)
+            elif args.command == 'review-reproduction':
                 # This is a trusted Host-controlled HumanGate R1 write; it
                 # never spends mission tokens, invokes DSH, or executes N7.
                 result = driver.review_reproduction(
