@@ -602,3 +602,21 @@ def test_package_config_live_dsh_host_starts_first_captain_and_n9_with_one_signe
         source_commit=COMMIT, release_batch_id=BATCH)
     assert restored.captain_binding.captain_lease_id == lease[0]["lease_id"]
     assert truth.store.path.read_bytes() == after
+
+
+def test_full_package_field_run_requires_actual_host_captain(tmp_path):
+    """GAP-02: full Field run cannot fall back to DSH chat-only team."""
+    from types import SimpleNamespace
+    import pytest
+    from rc7_runtime.models import ContractError
+    from rc7_release.rc72_mission_cli import _require_field_captain
+    (tmp_path / 'PACKAGE_MANIFEST.json').write_text('{}', encoding='utf-8')
+    ungoverned = SimpleNamespace(captain_binding=None)
+    with pytest.raises(ContractError, match='C07_REAL_DSH_CAPTAIN_HOST_REQUIRED_FOR_FIELD_RUN'):
+        _require_field_captain('run', tmp_path, ungoverned)
+    # Read-only mirror or component checks do not claim a Captain or Field run.
+    _require_field_captain('mirror-check', tmp_path, ungoverned)
+    (tmp_path / 'PACKAGE_MANIFEST.json').unlink()
+    _require_field_captain('run', tmp_path, ungoverned)
+    # Positive Host observation remains the responsibility of the signed
+    # captain_bootstrap/reentry and MissionFactory, not a string in a config.
