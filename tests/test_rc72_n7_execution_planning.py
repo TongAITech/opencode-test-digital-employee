@@ -123,3 +123,36 @@ def test_fanout_cannot_reuse_another_case_workitem_even_with_distinct_case_id(tm
     changed['items'] = [deepcopy(plan['items'][0]), stolen]
     with pytest.raises(DomainValidationError, match='N7_PLAN_WORKITEM_ID_DUPLICATE'):
         _validate(changed)
+
+
+def test_rc72_legacy_script_admission_cannot_bypass_native_node_gate(tmp_path, monkeypatch):
+    """GAP-01: arbitrary evidence strings cannot promote a formal R1 batch."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import (
+        AutonomousMissionOrchestrator, MissionOrchestrationError)
+    truth, _ = _ready(tmp_path, monkeypatch)
+    legacy = MissionRuntime(str(tmp_path / 'legacy-mission'))
+    state = legacy.create(MISSION, RELEASE)
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(MissionOrchestrationError, match='RC72_FORMAL_N6_N7_GATE_REQUIRED'):
+        AutonomousMissionOrchestrator(legacy, truth).record_verified_gate(
+            MISSION, 'SCRIPT_READY_ADMITTED', 'r1://artifact/unchecked')
+    assert list(truth.store.iter_raw()) == before
+    assert 'SCRIPT_READY_ADMITTED' not in legacy.load(MISSION).completed_gates
+    assert legacy.load(MISSION).stage == 'SCRIPT_READY'
+
+
+def test_legacy_script_gate_historical_missions_remain_compatible(tmp_path):
+    """Do not redefine old RC6 state on a ledger with no RC7.2 batch."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import AutonomousMissionOrchestrator
+    truth = TruthRuntime(tmp_path / 'legacy-r1.jsonl')
+    legacy = MissionRuntime(str(tmp_path / 'legacy'))
+    state = legacy.create('OLD-ONLY', 'LEGACY')
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    accepted = AutonomousMissionOrchestrator(legacy, truth).record_verified_gate(
+        'OLD-ONLY', 'SCRIPT_READY_ADMITTED', 'legacy-evidence-ref')
+    assert 'SCRIPT_READY_ADMITTED' in accepted.completed_gates
