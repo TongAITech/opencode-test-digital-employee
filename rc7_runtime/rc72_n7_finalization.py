@@ -72,8 +72,20 @@ class ExecutionFinalizationService:
         signed = {k: v for k, v in receipt.items() if k not in {'signature', 'artifact_version', 'artifact_type'}}
         if not hmac.compare_digest(receipt['signature'], self.preparation.authority._sign(signed)):
             raise ExecutionFinalizationError('N7_REVIEW_SIGNATURE_INVALID')
-        for key in ('stdout', 'stderr'):
-            path = Path(receipt[key + '_ref'][len('file://'):])
+        # P1-6: a valid signature and digest are necessary but not enough.
+        # The signed review must bind the exact isolated reviewer process
+        # output, never an unrelated (even byte-identical) file:// reference.
+        # Keep the legacy RC7.2 on-disk URI spelling for cold R1 receipts.
+        for key, name in (('stdout', 'stdout.json'), ('stderr', 'stderr.log')):
+            path = self.review.capture_root / 'reviews' / receipt['review_id'] / name
+            if receipt.get(key + '_ref') != 'file://' + str(path):
+                raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_SCOPE_CHANGED')
+            if path.is_symlink() or path.parent.is_symlink():
+                raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_SYMLINK_FORBIDDEN')
+            try:
+                path.resolve().relative_to(self.review.capture_root.resolve())
+            except ValueError:
+                raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_OUTSIDE_CAPTURE')
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != receipt[key + '_sha256']:
                 raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_CHANGED')
         return receipt
