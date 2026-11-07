@@ -81,6 +81,20 @@ def _accepted_ten_node_completion(node_rows, transitions=None, n7_gates=None, n7
     )
 
 
+def _require_field_captain(command, package_root, bindings):
+    """GAP-02: a transported bank Mission must run under real DSH custody.
+
+    A DSH chat team or empty configuration is not a Captain observation.
+    Configured hosts can bootstrap/reenter an observed, signed R1 Captain;
+    engineering component fixtures without a full package retain their
+    explicitly non-Field legacy evaluation path.
+    """
+    if (command == 'run'
+            and (Path(package_root) / 'PACKAGE_MANIFEST.json').is_file()
+            and getattr(bindings, 'captain_binding', None) is None):
+        raise ContractError('C07_REAL_DSH_CAPTAIN_HOST_REQUIRED_FOR_FIELD_RUN')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
     parser.add_argument('command', choices=['status', 'run', 'mirror-check', 'review-reproduction',
@@ -178,6 +192,10 @@ def main(argv=None):
                 bindings = load_mission_bindings(args.bindings_module, truth=truth,
                     release_id=args.release_id, source_commit=args.source_commit,
                     release_batch_id=args.release_batch)
+            # A full offline bank Mission may never silently choose the
+            # ungoverned legacy path simply because Captain startup was not
+            # observed. Reject before factory, worker, budget or business I/O.
+            _require_field_captain(args.command, root, bindings)
             # Factory composition has no R1 effects.  In particular, do not
             # allocate the first soft token budget while Q7 Field admission is
             # HOLD: a refused Mission must leave the canonical ledger intact.
