@@ -141,41 +141,49 @@ class LocalDshAgentTeamsHost:
             raise ContractError('C07_DSH_HOST_ACTIVE_SESSION_NOT_PROVEN')
         return batches[0]
 
-    def bind(self, *, truth, release_id, source_commit, release_batch_id,
-             proof, role_profiles, approved_capabilities):
-        """Observe first, then create/reenter the exact canonical R1 Captain."""
+    def observe(self, *, truth, release_id, source_commit, release_batch_id, proof):
+        """Pure Host observation: real HTTP GETs, no new R1 Captain lease."""
         batch = self._verify_live_membership(
             proof=proof, truth=truth, release_id=release_id,
             source_commit=source_commit, release_batch_id=release_batch_id)
         leases = truth.query('rc72_captain_dispatch_lease', mission_id=batch['mission_id'])
-        arguments = dict(
-            truth=truth, release_id=release_id, source_commit=source_commit,
-            release_batch_id=release_batch_id, host_authority=self.host_authority,
-            role_profiles=role_profiles, approved_capabilities=approved_capabilities)
         dsh_ref = 'dsh://session/' + proof.dsh_session_id
         if not leases:
-            startup = ObservedDshCaptainStartup(
+            ticket = ObservedDshCaptainStartup(
                 release_id=release_id, source_commit=source_commit,
                 release_batch_id=release_batch_id, mission_id=proof.mission_id,
                 team_id=proof.team_id, captain_session_id=proof.captain_session_id,
                 dsh_session_ref=dsh_ref, observed_at=proof.observed_at,
                 state='ACTIVE', signature='PENDING')
-            startup = replace(startup, signature=self.host_authority._sign(startup.signed_fields()))
-            return bootstrap_host_captain(startup=startup, **arguments)
-        generation = max(row['generation'] for row in leases)
-        current = [row for row in leases if row['generation'] == generation]
-        if len(current) != 1:
-            raise ContractError('C07_DSH_HOST_ACTIVE_GENERATION_NOT_UNIQUE')
-        owner = current[0]
-        if (owner['team_id'] != proof.team_id
-                or owner['captain_session_id'] != proof.captain_session_id):
-            raise ContractError('C07_DSH_HOST_OLD_OR_FOREIGN_CAPTAIN')
-        ticket = ObservedDshCaptain(
-            release_id=release_id, source_commit=source_commit,
-            release_batch_id=release_batch_id, mission_id=proof.mission_id,
-            team_id=proof.team_id, captain_session_id=proof.captain_session_id,
-            captain_lease_id=owner['lease_id'],
-            captain_generation=owner['generation'], dsh_session_ref=dsh_ref,
-            observed_at=proof.observed_at, state='ACTIVE', signature='PENDING')
-        ticket = replace(ticket, signature=self.host_authority._sign(ticket.signed_fields()))
-        return reenter_host_captain(observed=ticket, **arguments)
+        else:
+            generation = max(row['generation'] for row in leases)
+            current = [row for row in leases if row['generation'] == generation]
+            if len(current) != 1:
+                raise ContractError('C07_DSH_HOST_ACTIVE_GENERATION_NOT_UNIQUE')
+            owner = current[0]
+            if (owner['team_id'] != proof.team_id
+                    or owner['captain_session_id'] != proof.captain_session_id):
+                raise ContractError('C07_DSH_HOST_OLD_OR_FOREIGN_CAPTAIN')
+            ticket = ObservedDshCaptain(
+                release_id=release_id, source_commit=source_commit,
+                release_batch_id=release_batch_id, mission_id=proof.mission_id,
+                team_id=proof.team_id, captain_session_id=proof.captain_session_id,
+                captain_lease_id=owner['lease_id'],
+                captain_generation=owner['generation'], dsh_session_ref=dsh_ref,
+                observed_at=proof.observed_at, state='ACTIVE', signature='PENDING')
+        return replace(ticket, signature=self.host_authority._sign(ticket.signed_fields()))
+
+    def bind(self, *, truth, release_id, source_commit, release_batch_id,
+             proof, role_profiles, approved_capabilities):
+        """Observe first, then use only canonical R1 Captain bootstrap/reentry."""
+        ticket = self.observe(truth=truth, release_id=release_id,
+                              source_commit=source_commit,
+                              release_batch_id=release_batch_id, proof=proof)
+        args = dict(truth=truth, release_id=release_id, source_commit=source_commit,
+                    release_batch_id=release_batch_id,
+                    host_authority=self.host_authority,
+                    role_profiles=role_profiles,
+                    approved_capabilities=approved_capabilities)
+        if isinstance(ticket, ObservedDshCaptainStartup):
+            return bootstrap_host_captain(startup=ticket, **args)
+        return reenter_host_captain(observed=ticket, **args)
