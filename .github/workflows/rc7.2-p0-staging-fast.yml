@@ -1,0 +1,41 @@
+name: RC7.2 P0 Staging Fast Check
+
+# Intermediate P0 commits run here WITHOUT opening/updating the integration
+# PR. Heavy ABCD/Q1/Q2/Windows ZIP qualification belongs to the single
+# post-implementation promotion SHA only.
+on:
+  push:
+    branches:
+      - work/rc7.2-p0-stage-20261107
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-p0-stage-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax-and-contract-imports:
+    name: p0-stage-python-3.8-fast
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile changed RC6/RC7 runtime and tests (no install, no ZIP)
+        run: |
+          python -m compileall -q rc6_runtime rc7_runtime rc7_release
+          python -m py_compile \
+            tests/test_rc72_n7_execution_planning.py \
+            tests/test_rc72_n7_finalization.py \
+            tests/test_rc72_configured_mission.py
+      - name: Assert no package or full-suite build in staging
+        run: |
+          test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
+          echo "RC72_P0_STAGING_ONLY: no packaged runtime or full regression"
