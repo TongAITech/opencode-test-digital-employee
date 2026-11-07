@@ -67,6 +67,46 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
 
     monkeypatch.setattr(rc72_mission_bindings, "load_mission_bindings", lambda module, **kwargs: host_bindings(**kwargs))
 
+    # Engineering-only R1 fixture: the new product preflight inspects Q7
+    # *before* invoking the Host, so downstream monkeypatching alone is no
+    # longer enough. This is not a bank field qualification claim.
+    from rc7_runtime.rc72_q7_admission import install_rc72_q7_admission_overlay
+    install_rc72_q7_admission_overlay()
+    original.append_atomic("RC72_RELEASE_BATCH_UPSERTED", {
+        "release_batch_id": "B-C10", "release_id": "REL-C10",
+        "mission_id": "M-CLI-C10", "name": "C10 contract fixture",
+        "planned_release_time": None, "version_ids": ["REL-C10"],
+        "application_ids": ["fixture"], "requirement_ids": ["REQ-C10"],
+        "state": "REGISTERED", "readiness": "READY",
+        "created_at": 1, "updated_at": 1, "artifact_version": 1,
+    })
+    # Prove the absent-Q7 fail-closed path without loading the Host or
+    # allocating economy budget, then seed the scoped accepted fixture.
+    args = [
+        "run", "--ledger", str(ledger), "--source-commit", source_commit,
+        "--release-batch", "B-C10", "--release-id", "REL-C10",
+        "--bindings-module", "approved_host",
+        "--package-root", str(package), "--evidence-root", str(tmp_path / "evidence"),
+    ]
+    before = ledger.read_bytes()
+    rejected_code = rc72_mission_cli.main(args)
+    rejected = json.loads(capsys.readouterr().out)
+    assert rejected_code == 37
+    assert rejected["reason"] == "FIELD_MISSION_EXACT_SOURCE_COMMIT_ADMISSION_REQUIRED"
+    assert seen["factory"] is False and ledger.read_bytes() == before
+    assert original.query("rc72_token_budget", budget_id="M-CLI-C10") == []
+    original.append_atomic("RC72_Q7_ADMISSION_UPSERTED", {
+        "admission_id": "Q7-C10-TEST-ONLY", "release_id": "REL-C10",
+        "mission_id": "M-CLI-C10", "release_batch_id": "B-C10",
+        "source_commit": source_commit, "status": "ADMITTED",
+        "reason": "UNIT_TEST_ACCEPTED_PRECONDITION",
+        "provenance_id": "TEST-PROVENANCE-C10",
+        "scope_snapshot_id": "TEST-SCOPE-C10",
+        "input_digest": "a" * 64, "qualification_receipt_ids": [],
+        "hold_reasons": [], "field_verified": False, "bank_final": False,
+        "created_at": 1, "updated_at": 1, "artifact_version": 1,
+    })
+
     # The product must first compose the factory and pass the read-only Q7
     # admission.  This test explicitly substitutes an accepted Field gate;
     # it is not evidence that the real bank mirror was qualified.
@@ -107,12 +147,7 @@ def test_canonical_run_entry_binds_all_eleven_real_role_objects_before_factory(t
         )
 
     monkeypatch.setattr(rc72_mission_factory, "create_mission_driver", fake_factory)
-    exit_code = rc72_mission_cli.main([
-        "run", "--ledger", str(ledger), "--source-commit", source_commit,
-        "--release-batch", "B-C10", "--release-id", "REL-C10",
-        "--bindings-module", "approved_host",
-        "--package-root", str(package), "--evidence-root", str(tmp_path / "evidence"),
-    ])
+    exit_code = rc72_mission_cli.main(args)
     assert exit_code == 37
     output = json.loads(capsys.readouterr().out)
     assert seen["factory"] is True

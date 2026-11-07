@@ -46,6 +46,7 @@ jobs:
             tests/test_rc72_n7_finalization.py \
             tests/test_rc72_configured_mission.py \
             tests/test_rc72_mission_bindings.py \
+            tests/test_rc72_mission_economy_cli_ingress.py \
             tests/test_rc72_captain_host_reentry.py \
             tests/test_rc72_n7_execution_admission.py \
             tests/test_rc72_n6_completion.py \
@@ -53,6 +54,8 @@ jobs:
             tests/test_rc72_n8_retry_continuation.py \
             tests/test_rc72_n8_multi_round.py::test_two_actual_data_repair_rounds_keep_required_disposition_and_both_failed_histories \
             tests/test_rc72_n8_multi_round_executed_peer.py::test_second_round_reuses_actual_regression_peer_not_invalidated_original_result
+      - name: Validate RC6 Wave1 on pinned Python 3.8 without duplicate full suite
+        run: python -m unittest discover -s tests -p 'test_runtime_kernel.py' -v
       - name: Assert no package or full-suite build in staging
         run: |
           test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
