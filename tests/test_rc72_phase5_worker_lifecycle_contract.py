@@ -328,3 +328,31 @@ def test_worker_checkpoint_and_captain_handoff_survive_r1_replay(tmp_path: Path)
     assert replayed.query("rc72_worker_checkpoint", checkpoint_id=close.checkpoint_id)[0]["reason"] == "SAFE_BOUNDARY"
     assert replayed.query("rc72_worker_session", session_id=assignment.session_id)[0]["state"] == "CLOSED"
     assert replayed.query("rc72_captain_handoff", checkpoint_id=handoff.checkpoint_id)[0]["mission_id"] == "M-1"
+
+
+def test_captain_takeover_is_idempotent_and_conflicting_session_denied(tmp_path: Path):
+    truth, _, service = _runtime(tmp_path)
+    checkpoint = service.create_captain_handoff(
+        mission_id="M-1", team_id="TEAM-1", old_captain_session_id="CAPTAIN-A",
+        current_node_refs=["N7_EXECUTION"], latest_delivery_refs=[],
+        latest_gate_refs=[], next_workitem_ids=["WI-2"])
+    before = truth.store.path.read_bytes()
+    with pytest.raises(Exception, match="CAPTAIN_TAKEOVER_FRESH_SESSION_REQUIRED"):
+        service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+            new_captain_session_id="CAPTAIN-A", expected_mission_id="M-1",
+            expected_team_id="TEAM-1")
+    assert truth.store.path.read_bytes() == before
+    first = service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+        new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+        expected_team_id="TEAM-1")
+    after = truth.store.path.read_bytes()
+    same = service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+        new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+        expected_team_id="TEAM-1")
+    assert same.takeover_id == first.takeover_id
+    assert truth.store.path.read_bytes() == after
+    with pytest.raises(Exception, match="CAPTAIN_TAKEOVER_CHECKPOINT_ALREADY_CONSUMED"):
+        service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+            new_captain_session_id="CAPTAIN-ATTACKER", expected_mission_id="M-1",
+            expected_team_id="TEAM-1")
+    assert truth.store.path.read_bytes() == after

@@ -125,3 +125,25 @@ def test_missing_required_plugins_degrades_capability_but_does_not_block_startup
     assert result["capability_state"] == "DEGRADED_MISSING_REQUIRED_PLUGIN_MANIFESTS"
     assert result["startup_blocked_by_plugin_readiness"] is False
     assert set(result["required_plugin_state"]["missing"]) == set(dsh_plugins.REQUIRED)
+
+
+def test_profile_rejects_path_traversal_and_protected_symlinks_before_modification(tmp_path, monkeypatch):
+    import pytest
+    home = tmp_path / ".dsh"
+    bank = _seed_bank_profile(home)
+    monkeypatch.setenv("DSH_HOME", str(home))
+    original = dsh_runtime_profile.profile_snapshot("web")["digest"]
+    for attack in ("../web", "..", ".", "web/escape", "foo\\bar",
+                   "C:\\Windows", "/tmp/unsafe", "", "x" * 90):
+        with pytest.raises(dsh_runtime_profile.DshRuntimeProfileError):
+            dsh_runtime_profile.prepare_runtime_profile(tmp_path, runtime_profile=attack)
+    assert dsh_runtime_profile.profile_snapshot("web")["digest"] == original
+    assert not (home / "profiles" / "rc7-bank").exists()
+    link = home / "profiles" / "rc7-bank"
+    try:
+        link.symlink_to(bank, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink privileges unavailable")
+    with pytest.raises(dsh_runtime_profile.DshRuntimeProfileError, match="SYMLINK_FORBIDDEN"):
+        dsh_runtime_profile.prepare_runtime_profile(tmp_path)
+    assert dsh_runtime_profile.profile_snapshot("web")["digest"] == original
