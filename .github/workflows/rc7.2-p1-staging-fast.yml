@@ -1,0 +1,57 @@
+name: RC7.2 P1 Staging Contract Check (No ZIP)
+on:
+  push:
+    branches:
+      - work/rc7.2-p1-stage-20261108
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rc72-p1-stage-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts-py38:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile changed production, test and gate source
+        run: |
+          python -m py_compile rc7_runtime/rc72_release_driver.py rc7_release/rc72_dsh_main_payload.py rc7_runtime/rc72_worker_lifecycle.py rc6_runtime/agent_runtime.py rc7_release/dsh_runtime_profile.py tests/test_rc72_worker_restart_fail_closed.py tests/test_rc72_dsh_main_payload.py tests/test_rc72_p1_product_entry_non_bypass.py tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc72_dsh_main_payload.py tests/test_rc7_final_only_transport_policy.py
+      - run: python -m pip install --disable-pip-version-check pytest
+      - name: Execute first P1 targeted read-only status and C12 provenance contracts
+        run: |
+          python -m pytest -q tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc72_dsh_main_payload.py tests/test_rc7_final_only_transport_policy.py tests/test_rc72_release_driver.py tests/test_rc7_dsh_runtime_profile.py tests/test_agent_runtime.py tests/test_agent_runtime_hardening.py tests/test_rc7_1_model_resilience.py tests/test_rc7_1_startup_recovery.py tests/test_rc7_1_worker_timeout_reality.py tests/test_rc7_session_continuity.py tests/test_rc72_phase7_model_failover_contract.py tests/test_rc72_captain_host_reentry.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_worker_restart_fail_closed.py tests/test_rc72_p1_product_entry_non_bypass.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_n9_professional_disposition_gate.py tests/test_rc72_n8_multi_round.py
+      - name: No intermediate transport build
+        run: |
+          test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
+          echo "P1_STAGE_NO_OFFLINE_ZIP"
+
+  contracts-cross-platform:
+    name: p1-targeted-${{ matrix.os }}-python-${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: '3.11'
+          - os: windows-2022
+            python: '3.8'
+          - os: windows-2022
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --disable-pip-version-check pytest
+      - name: Verify P1 cold recovery, profile, model failover and signed Host regression
+        run: python -m pytest -q tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc72_dsh_main_payload.py tests/test_rc7_final_only_transport_policy.py tests/test_rc72_release_driver.py tests/test_rc7_dsh_runtime_profile.py tests/test_agent_runtime.py tests/test_agent_runtime_hardening.py tests/test_rc7_1_model_resilience.py tests/test_rc7_1_startup_recovery.py tests/test_rc7_1_worker_timeout_reality.py tests/test_rc7_session_continuity.py tests/test_rc72_phase7_model_failover_contract.py tests/test_rc72_captain_host_reentry.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_worker_restart_fail_closed.py tests/test_rc72_p1_product_entry_non_bypass.py tests/test_rc72_qa_product_wiring.py tests/test_rc72_n9_professional_disposition_gate.py tests/test_rc72_n8_multi_round.py
+      - name: No intermediate Windows or Linux ZIP
+        shell: bash
+        run: test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10

@@ -124,7 +124,7 @@ class ModelResilienceTests(unittest.TestCase):
         self.assertFalse(_tool_is_read_only("mcp__pfc_aitest_rc6__browser_click"))
         self.assertFalse(_tool_is_read_only("mcp__pfc_aitest_rc6__publish"))
 
-    def test_502_before_tool_side_effect_auto_retries_and_recovers(self):
+    def test_502_before_visible_tool_receipt_still_requires_r1_reconciliation(self):
         with tempfile.TemporaryDirectory() as root:
             runner = _ScriptedRunner(["502-no-tool", "success"])
             launcher, truth = self._launcher(root, runner)
@@ -138,16 +138,19 @@ class ModelResilienceTests(unittest.TestCase):
                 "PFC_RC71_MODEL_RETRY_BACKOFF_CAP_SECONDS": "0",
             }
             with patch.dict(os.environ, env, clear=False):
-                invocation, output = launcher.execute(assignment, "continue task from durable inputs")
-            self.assertEqual(runner.model_calls, 2)
-            self.assertEqual(invocation.result, "PASS")
-            self.assertTrue(output["ok"])
+                with self.assertRaises(AgentRuntimeError):
+                    launcher.execute(assignment, "continue task from durable inputs")
+            self.assertEqual(runner.model_calls, 1)
             names = [event["event_type"] for event in truth.store.iter_raw()]
             self.assertIn("MODEL_CALL_FAILED", names)
-            self.assertIn("MODEL_RETRY_SCHEDULED", names)
-            self.assertIn("MODEL_RETRY_STARTED", names)
-            self.assertIn("MODEL_RECOVERED", names)
-            self.assertIn("HANDOFF_RETURNED", names)
+            self.assertIn("MODEL_RECOVERY_BLOCKED_SIDE_EFFECT", names)
+            self.assertNotIn("MODEL_RETRY_STARTED", names)
+            self.assertNotIn("MODEL_RECOVERED", names)
+            self.assertNotIn("HANDOFF_RETURNED", names)
+            blocked = [event["payload"] for event in truth.store.iter_raw()
+                if event["event_type"] == "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT"]
+            self.assertEqual(blocked[0]["reason"], "R1_WORKER_STARTED_UNKNOWN_EFFECT")
+            self.assertEqual(blocked[0]["recovery_action"], "MISSION_AUTOPILOT_R1_RESUME_REQUIRED")
 
     def test_rate_window_waits_then_auto_resumes_without_manual_continue(self):
         with tempfile.TemporaryDirectory() as root:

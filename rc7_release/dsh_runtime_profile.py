@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -71,10 +72,22 @@ def _runtime_profile_path(name: str) -> Path:
 
 
 def _safe_runtime_name(name: str) -> None:
-    if not name or name in dsh_plugins.protected_profiles():
+    # Caller-provided names are only one path component. Reject Windows
+    # separators/drives, parent directories and unsafe runtime names BEFORE
+    # cloning or deleting any profile directory.
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+        raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_NAME_UNSAFE")
+    normalized = name.casefold()
+    if normalized in {str(value).casefold() for value in dsh_plugins.protected_profiles()}:
         raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_MUST_NOT_BE_PROTECTED")
-    if name in ("web", "headless", "sdk", "sdk-minimal", "acp", "desktop"):
+    if normalized in ("web", "headless", "sdk", "sdk-minimal", "acp", "desktop"):
         raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_MUST_BE_CUSTOM")
+    # Windows strips terminal dots and maps reserved device names even with
+    # filename extensions: never let an apparently custom profile alias a
+    # protected DSH directory or a device.
+    base_name = normalized.split(".", 1)[0]
+    if name.endswith(".") or base_name in {"con", "prn", "aux", "nul"} or re.fullmatch(r"(?:com|lpt)[1-9]", base_name):
+        raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_NAME_UNSAFE")
 
 
 def _copy_bank_profile(base: Path, target: Path) -> None:
@@ -132,8 +145,13 @@ def prepare_runtime_profile(
     if base_profile not in dsh_plugins.protected_profiles():
         raise DshRuntimeProfileError("RC7_BASE_PROFILE_MUST_BE_PROTECTED")
 
+    profiles_root = _dsh_home() / "profiles"
+    if profiles_root.is_symlink():
+        raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_ROOT_SYMLINK_FORBIDDEN")
     base = _runtime_profile_path(base_profile)
     target = _runtime_profile_path(runtime_profile)
+    if base.is_symlink() or target.is_symlink():
+        raise DshRuntimeProfileError("RC7_RUNTIME_PROFILE_SYMLINK_FORBIDDEN")
     if not base.is_dir():
         return {
             "status": "HOLD",

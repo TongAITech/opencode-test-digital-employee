@@ -47,7 +47,12 @@ def test_c12_independent_physical_audit_consumes_final_zip_only():
     assert "target_main_sha:" in before_jobs
     assert "final_qualification:" in before_jobs
     assert "default: false" in before_jobs
-    assert "if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true" in body
+    assert "\n  workflow_call:" in before_jobs
+    assert "\n  workflow_dispatch:" in before_jobs
+    assert "\n  push:" not in before_jobs
+    assert "if: inputs.final_qualification == true" in body
+    assert "C12_SOURCE_NOT_EXACT_MERGED_PR76" in body
+    assert "C12_SOURCE_NOT_ON_MERGED_MAIN" in body
     assert "rc72_qa_zip_preflight.py" in body
     assert "actions/runs?head_sha=" in body
     assert "RC72-PORTABLE-WIN10-" in body

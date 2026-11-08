@@ -1,0 +1,34 @@
+name: RC7.2 P1 C12 One-Time Independent Existing-ZIP Audit
+on:
+  push:
+    branches:
+      - work/rc7.2-p1-c12-verify-20261108
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: rc72-p1-c12-existing-zip-once
+  cancel-in-progress: false
+jobs:
+  verify-exact-source:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require frozen P0 exact source in independently checked QA
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 8c68f727ed4766111e6bdf5e6c8ca7728807aa36 "$GITHUB_SHA"
+          git fetch origin refs/heads/work/rc7.2:refs/remotes/origin/work/rc7.2
+          git merge-base --is-ancestor 8c68f727ed4766111e6bdf5e6c8ca7728807aa36 refs/remotes/origin/work/rc7.2
+  independently-audit-real-zip:
+    needs: verify-exact-source
+    uses: ./.github/workflows/rc7.2-qa-physical-transport.yml
+    with:
+      target_main_sha: 8c68f727ed4766111e6bdf5e6c8ca7728807aa36
+      final_qualification: true
+    permissions:
+      contents: read
+      actions: read

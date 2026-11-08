@@ -10,7 +10,7 @@ import hmac
 import json
 from pathlib import Path
 
-from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher
+from rc6_runtime.agent_runtime import AgentRuntimeError, DshHeadlessWorkerLauncher
 from rc6_runtime.authority import TaskLease, WorkerIdentity
 from .models import Artifact, ContractError, Evidence, Evaluation, EvaluationResult, Task, TaskStatus
 from .closed_loop_control import ClosedLoopControlPlane
@@ -530,6 +530,13 @@ class ExistingDataRepairService:
             self._start_workitem(row)
             try:
                 self.launcher.execute(assignment, self._prompt(row))
+            except AgentRuntimeError as exc:
+                # A reused producer/verifier session is rejected by the common
+                # Worker layer before the N5 verifier can persist its result.
+                # Preserve the original R1 failure and N5 error semantics.
+                if str(exc) == "WORKER_SESSION_NOT_INDEPENDENT":
+                    raise ContractError('N5_EXISTING_REPAIR_VERIFIER_SESSION_REUSED') from exc
+                raise
             finally:
                 # A returned or interrupted process never leaves reusable tool
                 # authority behind. Recovery authenticates historical proof only.

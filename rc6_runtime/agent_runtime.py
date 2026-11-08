@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 import time
 import uuid
 from copy import deepcopy
@@ -19,6 +21,38 @@ from .intelligence import GateResult, RequirementSufficiencyEvaluator
 
 class AgentRuntimeError(RuntimeError):
     pass
+
+
+@contextmanager
+def _worker_assignment_start_claim(truth):
+    """Short cross-process R1 claim; never hold the lock during DSH execution.
+
+    Concurrent controllers must not independently see the same Assignment as
+    unstarted and both launch its possible bank side effect.
+    """
+    event_path = Path(truth.store.path).resolve()
+    path = event_path.parent / ("." + event_path.name + ".worker-start.lock")
+    with path.open("a+b") as handle:
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise AgentRuntimeError("WORKER_ASSIGNMENT_START_LEDGER_BUSY") from exc
+        try:
+            truth.rebuild_projection(include_snapshot=False)
+            truth.store._next_seq = truth.store._scan_next_seq()
+            yield
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 AGENT_RUNTIME_EVENT_TYPES = (
@@ -374,7 +408,14 @@ class DshHeadlessWorkerLauncher:
         except (AuthorityError, ValueError) as exc:
             self._emit_routing_fail(assignment.mission_id, 'WORKER_PROCESS_ADMISSION_DENIED')
             raise AgentRuntimeError('ROUTING_INTEGRITY_FAIL:WORKER_PROCESS_ADMISSION_DENIED') from exc
-        self._emit("WORKER_STARTED", invocation)
+        # An unfinished R1 WORKER_STARTED could already have modified the
+        # bank SUT. Never execute the same signed assignment twice, including
+        # after restarting a controller and rebuilding projections from R1.
+        with _worker_assignment_start_claim(self.truth):
+            previous = self.truth.query("agent_runtime_event", assignment_id=assignment.assignment_id)
+            if any(row.get("event_name") == "WORKER_STARTED" for row in previous):
+                raise AgentRuntimeError("WORKER_ASSIGNMENT_REPLAY_FORBIDDEN_RECONCILE_R1")
+            self._emit("WORKER_STARTED", invocation)
         command = [
             self.dsh_bin,
             "--profile", "headless",
@@ -394,8 +435,13 @@ class DshHeadlessWorkerLauncher:
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             invocation.finished_at = int(time.time())
-            invocation.result = "ROUTING_INTEGRITY_FAIL"
-            self._emit("WORKER_COMPLETED", invocation, extra={"failure": str(exc)})
+            timed_out = isinstance(exc, subprocess.TimeoutExpired)
+            invocation.result = "UNKNOWN" if timed_out else "ROUTING_INTEGRITY_FAIL"
+            extra = {"failure": "DSH_PROCESS_TIMEOUT_UNKNOWN_EFFECT" if timed_out
+                     else "DSH_LAUNCH_FAILED:" + type(exc).__name__}
+            if timed_out:
+                extra.update(business_effect="UNKNOWN", same_assignment_replay="FORBIDDEN")
+            self._emit("WORKER_COMPLETED", invocation, extra=extra)
             self._emit_routing_fail(assignment.mission_id, "DSH_LAUNCH_FAILED:%s" % type(exc).__name__)
             raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_LAUNCH_FAILED") from exc
 
@@ -403,10 +449,27 @@ class DshHeadlessWorkerLauncher:
         stderr = proc.stderr or ""
         raw_ref = self._persist_raw_worker_output(assignment, stdout, stderr)
         events = tuple(self._parse_json_lines(stdout))
+        transport = self._provider_transport_failure(proc.returncode, stderr, events)
+        if transport is not None:
+            # Transport ambiguity is not evidence of a failed bank operation:
+            # the old Attempt cannot be automatically retried or declared PASS.
+            invocation.finished_at = int(time.time())
+            invocation.exit_code = int(proc.returncode)
+            invocation.result = "UNKNOWN"
+            invocation.evidence_refs.append(raw_ref)
+            self._emit("WORKER_COMPLETED", invocation, extra={
+                "failure": transport, "business_effect": "UNKNOWN",
+                "same_assignment_replay": "FORBIDDEN",
+            })
+            raise AgentRuntimeError(transport)
         session_id = self._session_id(events)
         if not session_id:
             self._fail_invocation(invocation, proc.returncode, raw_ref, "DSH_SESSION_ID_MISSING")
-        if session_id == self.coordinator_instance_id or session_id in self._known_sessions:
+        persisted = self.truth.query("agent_runtime_event", mission_id=assignment.mission_id)
+        if (session_id == self.coordinator_instance_id or session_id in self._known_sessions
+                or any(row.get("dsh_session_id") == session_id
+                       for row in persisted if row.get("event_name") in
+                       {"WORKER_COMPLETED", "HANDOFF_RETURNED"})):
             self._fail_invocation(invocation, proc.returncode, raw_ref, "WORKER_SESSION_NOT_INDEPENDENT")
         self._known_sessions.add(session_id)
         invocation.dsh_session_id = session_id
@@ -437,6 +500,28 @@ class DshHeadlessWorkerLauncher:
         self._emit("WORKER_COMPLETED", invocation)
         self._emit("HANDOFF_RETURNED", invocation)
         return invocation, output
+
+    @staticmethod
+    def _provider_transport_failure(returncode, stderr, events):
+        # Only actual process stderr or structured DSH transport errors count.
+        # Text produced by the model is never elevated into a transport fact.
+        details = [str(stderr or "")[-8192:]]
+        for event in events:
+            if event.get("type") in ("error", "provider_error", "transport_error"):
+                details.append(str(event.get("code") or event.get("message")
+                                   or event.get("error") or "")[:2048])
+        message = " ".join(details).lower()
+        if returncode == 0 and not any(e.get("type") in
+                ("error", "provider_error", "transport_error") for e in events):
+            return None
+        if ("quota_exceeded" in message or "rate_limit_exceeded" in message
+                or re.search(r"\b(?:http[ /:]*)?429\b", message)):
+            return "DSH_PROVIDER_429_QUOTA_HOLD_NO_REPLAY"
+        if ("stream_closed" in message or "stream closed" in message
+                or re.search(r"\b(?:http[ /:]*)?502\b", message)
+                or "bad gateway" in message):
+            return "DSH_STREAM_502_UNKNOWN_EFFECT_RECONCILIATION_REQUIRED"
+        return None
 
     def emit_reassigned(self, previous: WorkerInvocation, successor: WorkerAssignment) -> None:
         invocation = WorkerInvocation(

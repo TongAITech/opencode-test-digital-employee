@@ -834,6 +834,22 @@ class WorkerLifecycleService:
         batch = self._batch_for_mission(expected_mission_id)
         if batch.get("release_batch_id") != handoff.get("release_batch_id"):
             raise ContractError("CAPTAIN_HANDOFF_RELEASE_BATCH_MISMATCH")
+        if (not isinstance(new_captain_session_id, str)
+                or not new_captain_session_id.strip()
+                or new_captain_session_id == handoff.get("old_captain_session_id")):
+            raise ContractError("CAPTAIN_TAKEOVER_FRESH_SESSION_REQUIRED")
+        # R1-backed Memento: a retry after restart must be idempotent, and a
+        # different Captain cannot consume an already-admitted handoff.
+        prior = self.truth.query(_CAPTAIN_TAKEOVER, checkpoint_id=checkpoint_id)
+        if prior:
+            if (len(prior) != 1
+                    or prior[0].get("new_captain_session_id") != new_captain_session_id
+                    or prior[0].get("mission_id") != expected_mission_id
+                    or prior[0].get("team_id") != expected_team_id
+                    or prior[0].get("ready") is not True):
+                raise ContractError("CAPTAIN_TAKEOVER_CHECKPOINT_ALREADY_CONSUMED")
+            return CaptainTakeoverReadiness(prior[0]["takeover_id"], True,
+                expected_mission_id, expected_team_id, True)
         for workitem_id in handoff.get("next_workitem_ids", []):
             task = self._one("rc7_task", task_id=workitem_id)
             if task.get("mission_id") != expected_mission_id:

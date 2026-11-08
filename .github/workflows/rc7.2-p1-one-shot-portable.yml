@@ -1,0 +1,87 @@
+name: RC7.2 P1 One-Shot Qualified Portable Transport
+
+# The second round never rebuilds ZIP on feature, PR, or main pushes.
+# Advance this exact branch once, only after source PR + same-SHA CI passes.
+on:
+  push:
+    branches:
+      - work/rc7.2-p1-final-transport-20261108
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: rc72-p1-one-shot-qualified-transport
+  cancel-in-progress: false
+
+jobs:
+  qualify-source:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source must already belong to merged RC7.2 main
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/work/rc7.2
+      - name: Require exact merged P1 PR and same-source cross-platform source checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner,repo} = context.repo;
+            if (context.ref !== 'refs/heads/work/rc7.2-p1-final-transport-20261108') {
+              core.setFailed('P1_FINAL_SOURCE_WRONG_BRANCH'); return;
+            }
+            const {data:associated} = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,repo,commit_sha:context.sha,per_page:100
+            });
+            const merged=associated.filter(p => p.merged_at && p.head.sha === context.sha &&
+              p.head.ref === 'work/rc7.2-p1-stage-20261108' &&
+              p.head.repo.full_name === context.repo.owner+'/'+context.repo.repo &&
+              p.base.ref === 'work/rc7.2');
+            if (merged.length !== 1) {
+              core.setFailed('P1_FINAL_EXACT_MERGED_SOURCE_PR_REQUIRED'); return;
+            }
+            const expected = [
+              'RC7.2 ABCD-v3 Same-HEAD Product and Independent QA Qualification',
+              'RC7.2 ABCD-v4 Same-HEAD Product and Independent QA Qualification',
+              'RC6 Wave 1 Runtime Kernel',
+              'RC7 Field Hardening',
+              'RC7.2 A N8 Multi-Round and Q7 CLI Side-Effect Admission',
+              'RC7.2 C08 Mandatory N1-N10 Denominator Integrity',
+              'RC7.2 Runtime C06-C07 Contract Qualification',
+              'RC7.2 Independent QA Product and Transport',
+              'RC7.2 C07 Captain-Fenced Independent N9 DSH Bridge Admission',
+              'RC7.2 C04 Package Native Independent N9 DSH Host',
+              'RC7.2 C01-C02 Whole-N5 Independent Proof Regression',
+              'RC7.2 C10 Deterministic Bank Quota Window Qualification'
+            ];
+            const pulls=await github.paginate(github.rest.actions.listWorkflowRunsForRepo,
+              {owner,repo,head_sha:context.sha,event:'pull_request',per_page:100});
+            const stage=await github.paginate(github.rest.actions.listWorkflowRunsForRepo,
+              {owner,repo,head_sha:context.sha,event:'push',per_page:100});
+            const failed=expected.filter(name=>!pulls.some(r=>r.name===name &&
+              r.head_sha===context.sha && r.status==='completed' && r.conclusion==='success'));
+            if (!stage.some(r=>r.name==='RC7.2 P1 Staging Contract Check (No ZIP)' &&
+              r.head_branch==='work/rc7.2-p1-stage-20261108' &&
+              r.head_sha===context.sha && r.status==='completed' && r.conclusion==='success')) {
+              failed.push('P1_STAGING_FOUR_PLATFORM_SAME_SHA');
+            }
+            if (failed.length) {
+              core.setFailed('P1_FINAL_CI_MISSING_OR_RED:'+failed.join('; ')); return;
+            }
+            core.info('P1 exact source PR and all required checks qualified: '+context.sha);
+
+  build-once:
+    needs: qualify-source
+    if: needs.qualify-source.result == 'success'
+    uses: ./.github/workflows/rc7.2-portable-transport.yml
+    with:
+      final_qualification: true
+    secrets: inherit

@@ -1,10 +1,25 @@
 name: RC7.2 Independent C12 Physical Transport
 
 on:
+  workflow_call:
+    inputs:
+      target_main_sha:
+        description: 'Exact final ZIP source SHA (included in work/rc7.2)'
+        required: true
+        type: string
+      final_qualification:
+        description: 'Explicit independent physical audit of existing ZIP; no build'
+        required: true
+        type: boolean
+      source_round:
+        description: 'Exact controlled source family: p0 or p1'
+        required: false
+        default: 'p0'
+        type: string
   workflow_dispatch:
     inputs:
       target_main_sha:
-        description: 'Exact 40-character work/rc7.2 main SHA with successful final portable build'
+        description: 'Exact 40-character portable source SHA included in work/rc7.2'
         required: true
         type: string
       final_qualification:
@@ -12,6 +27,14 @@ on:
         required: true
         type: boolean
         default: false
+      source_round:
+        description: 'Exact source: p0 or p1; defaults to first-round audit'
+        required: false
+        type: choice
+        options:
+          - p0
+          - p1
+        default: p0
 
 permissions:
   contents: read
@@ -23,19 +46,20 @@ concurrency:
 
 jobs:
   independent-c12-actual-zip:
-    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
+    if: inputs.final_qualification == true
     name: c12-independent-actual-win10-artifact
     runs-on: windows-2022
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_MAIN_SHA: ${{ github.event.pull_request.base.sha || inputs.target_main_sha }}
-      EXACT_QA_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      TARGET_MAIN_SHA: ${{ inputs.target_main_sha }}
+      SOURCE_ROUND: ${{ inputs.source_round }}
+      EXACT_QA_HEAD: ${{ github.sha }}
     steps:
       - name: Checkout exact independent QA source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Setup independent Python only
@@ -47,23 +71,52 @@ jobs:
         run: |
           python tools/rc72_qa_source_provenance.py --repo-root . --expected-head $env:EXACT_QA_HEAD --expected-base $env:TARGET_MAIN_SHA --report qa-source-provenance.json
           if ($LASTEXITCODE -ne 0) { throw 'C12_QA_SOURCE_PROVENANCE_NOT_ACCEPTED' }
-      - name: Locate exact-main successful portable build and download real bytes
+      - name: Verify exact source is merged into main and belongs to PR76
+        shell: pwsh
+        run: |
+          # checkout fetch-depth:0 already fetches all branch history;
+          # do not re-introduce persisted GitHub credentials for QA source.
+          git merge-base --is-ancestor $env:TARGET_MAIN_SHA refs/remotes/origin/work/rc7.2
+          if ($LASTEXITCODE -ne 0) { throw 'C12_SOURCE_NOT_ON_MERGED_MAIN' }
+          if ($env:SOURCE_ROUND -notin @('p0', 'p1')) { throw 'C12_UNKNOWN_RELEASE_SOURCE_ROUND' }
+          if ($env:SOURCE_ROUND -eq 'p0') {
+            $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls/76" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_PR76' }
+            if (-not $pr.merged_at -or $pr.head.sha -ne $env:TARGET_MAIN_SHA -or $pr.base.ref -ne 'work/rc7.2') {
+              throw 'C12_SOURCE_NOT_EXACT_MERGED_PR76'
+            }
+          } else {
+            $associated = gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TARGET_MAIN_SHA/pulls?per_page=100" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_P1_SOURCE' }
+            $matches = @($associated | Where-Object {
+              $_.merged_at -and $_.head.sha -eq $env:TARGET_MAIN_SHA -and
+              $_.head.ref -eq 'work/rc7.2-p1-stage-20261108' -and
+              $_.base.ref -eq 'work/rc7.2' -and $_.head.repo.full_name -eq $env:GITHUB_REPOSITORY
+            })
+            if ($matches.Count -ne 1) { throw 'C12_SOURCE_NOT_EXACT_MERGED_P1_PR' }
+          }
+      - name: Locate exact-source qualified one-shot portable build and download real bytes
         shell: pwsh
         run: |
           if ($env:TARGET_MAIN_SHA -notmatch '^[0-9a-f]{40}$') { throw 'C12_EXACT_MAIN_SHA_REQUIRED' }
           $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:TARGET_MAIN_SHA&per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_RUNS' }
+          $expectations = if ($env:SOURCE_ROUND -eq 'p1') {
+            @{ name='RC7.2 P1 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p1-one-shot-portable.yml'; branch='work/rc7.2-p1-final-transport-20261108' }
+          } else {
+            @{ name='RC7.2 P0 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p0-one-shot-portable.yml'; branch='work/rc7.2-p0-final-transport-20261108' }
+          }
           $run = @($runs.workflow_runs | Where-Object {
             $_.head_sha -eq $env:TARGET_MAIN_SHA -and
-            $_.name -eq 'RC7.2 Portable Transport Preparation' -and
-            $_.path -eq '.github/workflows/rc7.2-portable-transport.yml' -and
-            $_.head_branch -eq 'work/rc7.2' -and
+            $_.name -eq $expectations.name -and
+            $_.path -eq $expectations.path -and
+            $_.head_branch -eq $expectations.branch -and
             $_.head_repository.full_name -eq $env:GITHUB_REPOSITORY -and
             $_.repository.full_name -eq $env:GITHUB_REPOSITORY -and
             $_.event -eq 'push' -and $_.status -eq 'completed' -and
             $_.conclusion -eq 'success'
           } | Sort-Object run_number -Descending | Select-Object -First 1)
-          if ($run.Count -ne 1) { throw 'C12_EXACT_MAIN_PORTABLE_BUILD_NOT_SUCCESSFUL' }
+          if ($run.Count -ne 1) { throw 'C12_EXACT_PR76_ONESHOT_BUILD_NOT_SUCCESSFUL' }
           $artifacts = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($run[0].id)/artifacts?per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_ARTIFACT' }
           $name = 'RC72-PORTABLE-WIN10-' + $env:TARGET_MAIN_SHA
@@ -76,6 +129,12 @@ jobs:
             schema='RC72_QA_ACTUAL_PORTABLE_ARTIFACT_SOURCE_V1'
             status='SOURCE_ARTIFACT_SELECTED_NOT_QUALIFIED'
             source_commit=$env:TARGET_MAIN_SHA
+            release_round=$env:SOURCE_ROUND
+            source_workflow=$expectations.name
+            source_workflow_path=$expectations.path
+            source_branch=$expectations.branch
+            source_event='push'
+            qa_head=$env:EXACT_QA_HEAD
             workflow_run_id=$run[0].id
             artifact_id=$artifact[0].id
             artifact_name=$name

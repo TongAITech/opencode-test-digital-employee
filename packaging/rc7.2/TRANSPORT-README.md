@@ -3,9 +3,18 @@
 解压到本地目录后，双击根目录 `start-rc7.2.cmd`。
 
 包内包含 Python、Node、浏览器/BrowserSkill、CodeGraph、Java/Maven、
-基础 Maven 缓存、L6/L7 工具和离线插件。启动不需要下载这些核心载荷。
-银行 DSH 主程序、Git Bash、模型账号、4A、业务路由、CAT、数据库和内部
-项目依赖镜像属于现场绑定，请沿用银行已批准的安装与配置。
+基础 Maven 缓存、L6/L7 工具、离线插件和经过独立 SHA-256 校验的
+Windows x64 DSH 主程序。正式包必须包含
+`workspace-template/runtime/dsh/dsh.exe`，不得使用系统 PATH 的 DSH
+或仅以插件目录冒充主程序。Git Bash、模型账号、4A、业务路由、CAT、
+数据库和内部项目依赖镜像仍属于现场绑定，请沿用银行批准的配置。
+
+构建时必须通过受控 GitHub Actions 参数提供获准分发的主程序下载地址
+`RC72_DSH_MAIN_URL`（Secret）及经独立渠道核定的
+`RC72_DSH_MAIN_SHA256`（Variable）；可选鉴权头
+`RC72_DSH_MAIN_AUTHORIZATION`（Secret）。若无合法来源、SHA 错误、
+非 Windows x64 原生程序，构建直接失败，不会生成新的“合格包”。
+这些配置不得提交到仓库，亦不得使用虚构二进制代替。
 
 完整性校验：在包根目录使用包内 Python 运行：
 

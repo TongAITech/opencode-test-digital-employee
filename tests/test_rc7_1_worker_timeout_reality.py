@@ -91,9 +91,13 @@ class WorkerTimeoutRealityTests(unittest.TestCase):
             self.assertNotIn("HANDOFF_RETURNED", names)
             completed = [event["payload"] for event in events if event["event_type"] == "WORKER_COMPLETED"]
             self.assertTrue(completed)
-            self.assertEqual(completed[-1]["result"], "ROUTING_INTEGRITY_FAIL")
+            # A timed-out DSH process may have already affected bank data;
+            # it must stay UNKNOWN and never be locally retried.
+            self.assertEqual(completed[-1]["result"], "UNKNOWN")
+            self.assertEqual(completed[-1]["business_effect"], "UNKNOWN")
+            self.assertEqual(completed[-1]["same_assignment_replay"], "FORBIDDEN")
             self.assertIn("MODEL_CALL_FAILED", names)
-            self.assertIn("MODEL_RETRY_EXHAUSTED", names)
+            self.assertIn("MODEL_RECOVERY_BLOCKED_SIDE_EFFECT", names)
             self.assertNotIn("MODEL_RETRY_STARTED", names)
 
             diagnostics = [

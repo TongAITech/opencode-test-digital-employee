@@ -42,5 +42,26 @@ if [[ "${PFC_RC72_LAUNCHER_PROBE_ONLY:-0}" == "1" ]]; then
   exit 0
 fi
 
+# Field startup is only valid when the same verified package carries the
+# actual native DSH executable. Do not silently resolve an unrelated PATH
+# installation (or treat the bundled DSH plugin directory as the engine).
+DSH_MAIN="$ROOT/workspace-template/runtime/dsh/dsh.exe"
+[[ -f "$DSH_MAIN" ]] || {
+  echo "[RC7.2] C12: approved package-local DSH main executable missing" >&2
+  exit 4
+}
+if command -v cygpath >/dev/null 2>&1; then
+  DSH_PATH_DIR="$(cygpath -u "$ROOT/workspace-template/runtime/dsh")"
+else
+  DSH_PATH_DIR="$ROOT/workspace-template/runtime/dsh"
+fi
+export PATH="$DSH_PATH_DIR:$PATH"
+DSH_RESOLVED="$(command -v dsh 2>/dev/null || true)"
+[[ -n "$DSH_RESOLVED" ]] || {
+  echo "[RC7.2] C12: package-local DSH is not executable in Git Bash" >&2
+  exit 4
+}
+echo "[RC7.2] Package-local DSH bound; physical verification is not bank Field acceptance"
+
 echo "[RC7.2] Delegating to mature RC7 DSH bootstrap with isolated profile: $PFC_RC7_DSH_PROFILE"
 exec "$DELEGATE"

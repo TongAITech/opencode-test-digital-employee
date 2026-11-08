@@ -51,10 +51,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'plugin payload acquisition failed' }
       - name: Build exact RC7.2 source and materialize offline runtimes
         shell: pwsh
+        env:
+          RC72_DSH_MAIN_URL: ${{ secrets.RC72_DSH_MAIN_URL }}
+          RC72_DSH_MAIN_SHA256: ${{ vars.RC72_DSH_MAIN_SHA256 }}
+          RC72_DSH_MAIN_AUTHORIZATION: ${{ secrets.RC72_DSH_MAIN_AUTHORIZATION }}
         run: |
           python -m rc7_release.rc72_package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'RC7.2 build failed' }
           $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10').Path
+          # Fail before acquiring GBs of offline runtimes if the approved
+          # DSH engine is unavailable. The release must not waste a full ZIP
+          # build and only discover this mandatory C12 gap after materializing.
+          # The plugin tree alone is not the actual executable.
+          if (-not $env:RC72_DSH_MAIN_URL -or -not $env:RC72_DSH_MAIN_SHA256) {
+            throw 'RC72_DSH_MAIN_APPROVED_SOURCE_AND_SHA256_REQUIRED'
+          }
+          python -m rc7_release.rc72_dsh_main_payload --package-root $pkg --receipt dist/evidence/approved-dsh-main.json
+          if ($LASTEXITCODE -ne 0) { throw 'RC72_DSH_MAIN_PHYSICAL_PAYLOAD_NOT_QUALIFIED' }
           python -m rc7_release.runtime_payload_materializer --package-root $pkg
           if ($LASTEXITCODE -ne 0) { throw 'offline runtime materialization failed' }
           Copy-Item packaging/rc7.2/start-rc7.2.cmd (Join-Path $pkg 'start-rc7.2.cmd')

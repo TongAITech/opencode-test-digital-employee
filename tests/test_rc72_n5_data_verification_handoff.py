@@ -282,7 +282,7 @@ def test_n5_verifier_rejects_producer_session_reuse_and_admits_no_attempt(
     )
     with pytest.raises(
         N5DataVerificationHandoffError,
-        match="SESSION_REUSED_FROM_PRODUCER",
+        match="VERIFIER_SESSION_NOT_INDEPENDENT",
     ):
         service.verify(
             release_batch_id=BATCH,

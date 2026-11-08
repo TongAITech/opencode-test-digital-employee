@@ -77,6 +77,13 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
         raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
     truth.rebuild_projection()
     batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+    if not batches:
+        # Legitimate empty cold R1 is NOT a corrupt Mission. Read-only status
+        # must never bootstrap a batch, create nodes, or claim Field PASS.
+        # Actual run/command still requires precisely one registered batch.
+        return dict(status='NOT_BOOTSTRAPPED', bootstrap='NOT_STARTED',
+            release_batch_id=release_batch_id, mission_id=None, release_id=None,
+            source_commit=source_commit, nodes=[], field_verified=False, bank_final=False)
     if len(batches) != 1:
         raise ContractError('RC72_RELEASE_DRIVER_TRUTH_NOT_UNIQUE:rc72_release_batch')
     batch = batches[0]
@@ -660,7 +667,12 @@ class ReleaseBatchDriver:
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N9_DEFECT' and self.n9_pipeline is not None:
-                    result=self.n9_pipeline.complete(release_batch_id=release_batch_id)
+                    # The active N9 route must use the same independent
+                    # professional-disposition gate as REVIEW_PENDING and
+                    # cold reentry. Calling the accepted-scope provider
+                    # directly here could bypass C04 approved reproduction
+                    # evidence when N9 is initially READY/RUNNING.
+                    result=self._complete_gate('N9_DEFECT',batch)
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:
