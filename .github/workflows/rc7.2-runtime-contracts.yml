@@ -5,6 +5,19 @@ on:
     branches:
       - work/rc7.2
     paths:
+      # C06/C07 qualification must run for *all* worker/session/professional
+      # runtime changes, not only the older N7 dispatcher-specific paths.
+      - 'rc6_runtime/agent_runtime.py'
+      - 'rc7_runtime/model_resilience.py'
+      - 'rc7_runtime/rc72_worker_lifecycle.py'
+      - 'rc7_runtime/rc72_n5_data_discovery_handoff.py'
+      - 'rc7_runtime/rc72_n5_data_verification_handoff.py'
+      - 'rc7_runtime/rc72_n5_existing_data_repair.py'
+      - 'tests/test_rc72_worker_restart_fail_closed.py'
+      - 'tests/test_rc72_worker_process_environment.py'
+      - 'tests/test_rc72_n5_data_discovery_handoff.py'
+      - 'tests/test_rc72_n5_data_verification_handoff.py'
+      - 'tests/test_rc72_n5_existing_data_repair.py'
       - 'rc7_runtime/rc72_n7_tool_dispatch.py'
       - 'rc7_runtime/rc72_n7_execution_evidence.py'
       - 'rc7_runtime/rc72_n7_cleanup.py'

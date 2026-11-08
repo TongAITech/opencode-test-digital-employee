@@ -56,6 +56,7 @@ jobs:
               'RC7.2 A N8 Multi-Round and Q7 CLI Side-Effect Admission',
               'RC7.2 C08 Mandatory N1-N10 Denominator Integrity',
               'RC7.2 Runtime C06-C07 Contract Qualification',
+              'RC7.2 Independent QA Product and Transport',
               'RC7.2 C07 Captain-Fenced Independent N9 DSH Bridge Admission',
               'RC7.2 C04 Package Native Independent N9 DSH Host',
               'RC7.2 C01-C02 Whole-N5 Independent Proof Regression',

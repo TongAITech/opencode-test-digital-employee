@@ -53,3 +53,11 @@
 2. 确认同 SHA 暂存回归和 PR 继承矩阵，通过后仅一次合并主线。
 3. 配置有批准记录的 DSH 主程序二进制 URL/独立 SHA，使用专用最终构建分支一次触发完整包；缺少二进制只能维持阻断，禁止伪造 PASS。
 4. 新 P1 ZIP 再经独立 C12 `source_round=p1` 复验，随后到银行 PC 做真实 Q3–Q9；每项 R1 和缺陷验证保留旧失败记录。
+
+
+## 第二轮 N5/Worker/C12 回归与源码门禁修订
+
+- 第二轮同源完整工程回归在 `263accfb` 显示 ABCD v3/v4 各 `5 failed, 2848 passed, 4 skipped`；Independent QA 亦因 N5 异常提前阻断及模拟 PE 头失败。
+- 对照实际 R1 调用顺序，已在 `7ba37027` 修正：N5 三个业务入口将底层 `WORKER_SESSION_NOT_INDEPENDENT` 安全转换为领域阻断（仍先由 Worker 记录真实失败）；不同签名授权的新任务必须换新的 Assignment ID，旧 Assignment 重放不执行；C12 测试构造符合 AMD64 PE32+ 的仅用于工程验证的虚拟文件，另测错误架构必须 HOLD。均不绕过任何真实权限、原始失败、工具或业务检查。
+- 发现 P1 最终发布门禁要求 `RC7.2 Runtime C06-C07 Contract Qualification`，但原触发路径不包含本轮修改的 Worker / model / N5 文件，导致最终 one-shot 即使其它 CI 通过也无法获得同 SHA 证明。本次追加触发路径并将独立 QA 明确纳入 P1 最终门禁；拒绝缺失而不是删除 C06/C07 验收要求。
+- **本节只记录源码修复，不是工程或现场验收证明**。所有新 HEAD 必须重新取得严格同源 CI；大 ZIP 不允许随源码提交自动构建。真实 DSH main 仍需批准来源和 SHA256，独立 C12、Q3-Q9 保持 HOLD。

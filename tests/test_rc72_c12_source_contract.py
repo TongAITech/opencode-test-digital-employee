@@ -69,3 +69,25 @@ def test_c12_second_round_requires_same_sha_merged_source_and_one_shot_no_rebuil
     assert "secrets: inherit" in release
     assert release.count("uses: ./.github/workflows/rc7.2-portable-transport.yml") == 1
     assert "final_qualification: true" in release
+
+
+def test_p1_final_qualifies_runnable_worker_contract_and_independent_qa():
+    source = (WORKFLOWS / "rc7.2-runtime-contracts.yml").read_text(encoding="utf-8")
+    caller = (WORKFLOWS / "rc7.2-p1-one-shot-portable.yml").read_text(encoding="utf-8")
+    assert "RC7.2 Runtime C06-C07 Contract Qualification" in caller
+    assert "RC7.2 Independent QA Product and Transport" in caller
+    trigger = source.split("\njobs:", 1)[0]
+    assert "pull_request:" in trigger
+    assert "- work/rc7.2" in trigger
+    for path in (
+        "rc6_runtime/agent_runtime.py",
+        "rc7_runtime/model_resilience.py",
+        "rc7_runtime/rc72_worker_lifecycle.py",
+        "rc7_runtime/rc72_n5_data_discovery_handoff.py",
+        "rc7_runtime/rc72_n5_data_verification_handoff.py",
+        "rc7_runtime/rc72_n5_existing_data_repair.py",
+        "tests/test_rc72_worker_process_environment.py",
+        "tests/test_rc72_n5_data_discovery_handoff.py",
+        "tests/test_rc72_n5_existing_data_repair.py",
+    ):
+        assert "'" + path + "'" in trigger
