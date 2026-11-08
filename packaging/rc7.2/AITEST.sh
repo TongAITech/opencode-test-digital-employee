@@ -21,6 +21,9 @@ export PFC_PYTHON="$PY"
 # RC7.2 performs its own package verification above, then explicitly skips the
 # RC7 identity verifier while retaining every other RC7 startup safety check.
 export PFC_RC7_SKIP_QUALIFY=1
+# A native RC7.2 Mission Host is mandatory before a field DSH session can start.
+# It must not silently fall back to an RC7-only MCP and a prompt-owned DAG.
+export PFC_RC72_REQUIRE_NATIVE_HOST=1
 export PFC_RC7_DSH_PROFILE="${PFC_RC72_DSH_PROFILE:-rc7.2-bank}"
 
 if [[ "$PFC_RC7_DSH_PROFILE" == "${PFC_RC7_DSH_BASE_PROFILE:-web}" ]]; then

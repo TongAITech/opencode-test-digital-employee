@@ -80,6 +80,16 @@ fi
   --python "$PY" \
   --require-default-enhancements
 
+# RC7.2 field entry must use its native governed Mission Host.
+# This guard does not change RC7 or engineering-probe launch behavior.
+if [[ "${PFC_RC72_REQUIRE_NATIVE_HOST:-0}" == "1" ]]; then
+  "$PY" -m rc7_release.rc72_field_wiring_gate \
+    --package-root "$ROOT" \
+    --patch "$ROOT/state/rc7-dsh.patch.yml" \
+    --output "$ROOT/state/rc72-field-wiring-gate.json" \
+    --require-native
+fi
+
 # Observation only; DEGRADED returns zero by design and cannot block DSH.
 "$PY" -m rc7_release.dsh_post_bootstrap \
   --home "$ROOT" \
