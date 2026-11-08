@@ -9,6 +9,8 @@ import pytest
 from rc7_release.rc72_dsh_main_payload import (
     DshMainPayloadError, DSH_RELATIVE_PATH, materialize,
 )
+from tools.rc72_qa_offline_audit import _native_dsh_executable
+
 
 
 def _package(tmp_path):
@@ -111,3 +113,12 @@ def test_build_and_bank_launcher_require_genuine_package_local_main():
     assert "DSH_MAIN=\"$ROOT/workspace-template/runtime/dsh/dsh.exe\"" in launcher
     assert "export PATH=\"$DSH_PATH_DIR:$PATH\"" in launcher
     assert "Package-local DSH bound" in launcher
+
+
+def test_c12_independent_qa_physically_checks_pe32plus_and_amd64(tmp_path):
+    source, digest = _fixture_binary(tmp_path)
+    assert _native_dsh_executable(source, DSH_RELATIVE_PATH) is True
+    wrong_machine, _ = _fixture_binary(tmp_path, architecture=0x14c)
+    assert _native_dsh_executable(wrong_machine, DSH_RELATIVE_PATH) is False
+    wrong_optional_header, _ = _fixture_binary(tmp_path, magic=0x10B)
+    assert _native_dsh_executable(wrong_optional_header, DSH_RELATIVE_PATH) is False
