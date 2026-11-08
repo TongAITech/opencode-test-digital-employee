@@ -667,7 +667,12 @@ class ReleaseBatchDriver:
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N9_DEFECT' and self.n9_pipeline is not None:
-                    result=self.n9_pipeline.complete(release_batch_id=release_batch_id)
+                    # The active N9 route must use the same independent
+                    # professional-disposition gate as REVIEW_PENDING and
+                    # cold reentry. Calling the accepted-scope provider
+                    # directly here could bypass C04 approved reproduction
+                    # evidence when N9 is initially READY/RUNNING.
+                    result=self._complete_gate('N9_DEFECT',batch)
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 else:
