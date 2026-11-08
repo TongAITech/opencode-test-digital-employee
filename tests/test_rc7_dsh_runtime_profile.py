@@ -134,7 +134,7 @@ def test_profile_rejects_path_traversal_and_protected_symlinks_before_modificati
     monkeypatch.setenv("DSH_HOME", str(home))
     original = dsh_runtime_profile.profile_snapshot("web")["digest"]
     for attack in ("../web", "..", ".", "web/escape", "foo\\bar",
-                   "C:\\Windows", "/tmp/unsafe", "", "x" * 90):
+                   "C:\\Windows", "/tmp/unsafe", "", "x" * 90, "WEB", "web.", "headless.", "CON", "NUL.txt", "COM1", "LPT9"):
         with pytest.raises(dsh_runtime_profile.DshRuntimeProfileError):
             dsh_runtime_profile.prepare_runtime_profile(tmp_path, runtime_profile=attack)
     assert dsh_runtime_profile.profile_snapshot("web")["digest"] == original
