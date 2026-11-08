@@ -343,6 +343,13 @@ def install_rc7_1_model_resilience() -> None:
         task_id = _task_id(assignment)
 
         while True:
+            # Entry must be R1-read-only if this signed Assignment was ever
+            # launched, even before touching the shared request governor or
+            # emitting retry telemetry. Model switch/restart is a NEW attempt.
+            started = self.truth.query("agent_runtime_event",
+                assignment_id=assignment.assignment_id)
+            if any(row.get("event_name") == "WORKER_STARTED" for row in started):
+                raise AgentRuntimeError("WORKER_ASSIGNMENT_REPLAY_FORBIDDEN_RECONCILE_R1")
             reservation = governor.reserve()
             if not reservation.admitted:
                 self.emit_control_event(

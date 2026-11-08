@@ -93,7 +93,7 @@ def test_cold_dsh_session_identity_reuse_is_rejected(tmp_path):
 
 def test_model_final_text_cannot_invent_http_failure(tmp_path):
     stdout = "\n".join(map(json.dumps, [
-        dict(type="session", session_id="fresh-1"),
+        dict(type="session", session_id="session-fresh-1"),
         dict(type="tool_call", tool_name="mcp__pfc_aitest_rc6__runtime_status"),
         dict(type="final", text=json.dumps(dict(qualification_payload={"statement": "HTTP 502"}))),
     ]))
