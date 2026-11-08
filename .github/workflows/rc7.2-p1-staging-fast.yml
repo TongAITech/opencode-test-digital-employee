@@ -1,0 +1,31 @@
+name: RC7.2 P1 Staging Contract Check (No ZIP)
+on:
+  push:
+    branches:
+      - work/rc7.2-p1-stage-20261108
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rc72-p1-stage-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts-py38:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile changed production, test and gate source
+        run: |
+          python -m py_compile rc7_runtime/rc72_release_driver.py tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc7_final_only_transport_policy.py
+      - run: python -m pip install --disable-pip-version-check pytest
+      - name: Execute first P1 targeted read-only status and C12 provenance contracts
+        run: |
+          python -m pytest -q tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc7_final_only_transport_policy.py tests/test_rc72_release_driver.py
+      - name: No intermediate transport build
+        run: |
+          test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
+          echo "P1_STAGE_NO_OFFLINE_ZIP"
