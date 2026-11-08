@@ -77,6 +77,21 @@ def release_batch_status(truth, *, source_commit, release_batch_id):
         raise ContractError('RC72_RELEASE_DRIVER_EXACT_SOURCE_REQUIRED')
     truth.rebuild_projection()
     batches = truth.query('rc72_release_batch', release_batch_id=release_batch_id)
+    if not batches:
+        # An unopened ReleaseBatch is a legitimate read-only status, never
+        # a corrupt/ambiguous Mission and never a reason to fabricate nodes.
+        # Run/CLI admission still requires an exact canonical batch.
+        return dict(
+            status='NOT_BOOTSTRAPPED',
+            bootstrap='NOT_STARTED',
+            release_batch_id=release_batch_id,
+            mission_id=None,
+            release_id=None,
+            source_commit=source_commit,
+            nodes=[],
+            field_verified=False,
+            bank_final=False,
+        )
     if len(batches) != 1:
         raise ContractError('RC72_RELEASE_DRIVER_TRUTH_NOT_UNIQUE:rc72_release_batch')
     batch = batches[0]
