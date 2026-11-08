@@ -1,5 +1,6 @@
 """Independent policy checks for a real, exact-SHA C12 audit with no rebuild."""
 from pathlib import Path
+import re
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 
@@ -124,3 +125,14 @@ def test_c12_third_round_uses_exact_merged_source_and_approved_real_zip():
     assert "secrets: inherit" in caller
     assert caller.count("uses: ./.github/workflows/rc7.2-portable-transport.yml") == 1
     assert "final_qualification: true" in caller
+
+
+def test_p2_one_shot_required_check_array_has_valid_js_string_entries():
+    caller = (WORKFLOWS / "rc7.2-p2-one-shot-portable.yml").read_text(encoding="utf-8")
+    exact = caller.split("const expected = [", 1)[1].split("];", 1)[0]
+    rows = [line for line in exact.splitlines() if line.strip()]
+    assert len(rows) >= 9
+    for line in rows:
+        assert re.fullmatch(r"\s*'[^']+',?\s*", line), "Invalid one-shot JS entry: " + line
+    assert len(rows) == len(set(rows))
+    assert "RC7.2 Independent QA Product and Transport" in exact
