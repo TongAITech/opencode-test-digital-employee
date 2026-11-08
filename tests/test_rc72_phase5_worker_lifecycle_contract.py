@@ -367,15 +367,12 @@ def test_captain_takeover_under_ledger_lock_survives_cold_r1_reload(tmp_path: Pa
         current_node_refs=["N7_EXECUTION"], latest_delivery_refs=[],
         latest_gate_refs=[], next_workitem_ids=["WI-2"])
     old = truth.store.path.read_bytes()
+    # Real signed Captain Host already owns the shared R1 ledger lock.
+    # The lifecycle service must work within it, not try to lock recursively.
     with ledger_lock(truth):
-        with pytest.raises(Exception, match="CAPTAIN_TAKEOVER_LEDGER_BUSY"):
-            service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
-                new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
-                expected_team_id="TEAM-1")
-    assert truth.store.path.read_bytes() == old
-    first = service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
-        new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
-        expected_team_id="TEAM-1")
+        first = service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+            new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+            expected_team_id="TEAM-1")
     old = truth.store.path.read_bytes()
     cold = TruthRuntime(tmp_path / "r1.jsonl")
     restarted = WorkerLifecycleService(cold, release_id=service.release_id)
