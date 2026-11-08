@@ -39,3 +39,30 @@ def test_c12_one_shot_audit_caller_is_fenced_and_never_builds_package():
     assert "target_main_sha: 8c68f727ed4766111e6bdf5e6c8ca7728807aa36" in text
     assert "final_qualification: true" in text
     assert "rc7_release.rc72_package build" not in text
+
+
+def test_c12_second_round_requires_same_sha_merged_source_and_one_shot_no_rebuild():
+    audit = (WORKFLOWS / "rc7.2-qa-physical-transport.yml").read_text(encoding="utf-8")
+    release = (WORKFLOWS / "rc7.2-p1-one-shot-portable.yml").read_text(encoding="utf-8")
+    assert "source_round:" in audit and "C12_UNKNOWN_RELEASE_SOURCE_ROUND" in audit
+    assert "C12_SOURCE_NOT_EXACT_MERGED_P1_PR" in audit
+    assert "commits/$env:TARGET_MAIN_SHA/pulls?per_page=100" in audit
+    assert "work/rc7.2-p1-stage-20261108" in audit
+    assert "RC7.2 P1 One-Shot Qualified Portable Transport" in audit
+    assert "work/rc7.2-p1-final-transport-20261108" in audit
+    assert "source_workflow=$expectations.name" in audit
+    assert "source_branch=$expectations.branch" in audit
+    assert "rc7_release.rc72_package build" not in audit
+
+    header = release.split("\njobs:", 1)[0]
+    assert "work/rc7.2-p1-final-transport-20261108" in header
+    assert "\n  pull_request:" not in header
+    assert "cancel-in-progress: false" in release
+    assert "git merge-base --is-ancestor" in release
+    assert "listPullRequestsAssociatedWithCommit" in release
+    assert "P1_FINAL_EXACT_MERGED_SOURCE_PR_REQUIRED" in release
+    assert "P1_FINAL_CI_MISSING_OR_RED" in release
+    assert "RC7.2 P1 Staging Contract Check (No ZIP)" in release
+    assert "secrets: inherit" in release
+    assert release.count("uses: ./.github/workflows/rc7.2-portable-transport.yml") == 1
+    assert "final_qualification: true" in release
