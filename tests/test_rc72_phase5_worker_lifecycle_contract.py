@@ -356,3 +356,31 @@ def test_captain_takeover_is_idempotent_and_conflicting_session_denied(tmp_path:
             new_captain_session_id="CAPTAIN-ATTACKER", expected_mission_id="M-1",
             expected_team_id="TEAM-1")
     assert truth.store.path.read_bytes() == after
+
+
+def test_captain_takeover_under_ledger_lock_survives_cold_r1_reload(tmp_path: Path):
+    from rc7_runtime.rc72_worker_lifecycle import WorkerLifecycleService
+    from rc7_runtime.rc72_ledger_lock import ledger_lock
+    truth, _, service = _runtime(tmp_path)
+    checkpoint = service.create_captain_handoff(
+        mission_id="M-1", team_id="TEAM-1", old_captain_session_id="CAPTAIN-A",
+        current_node_refs=["N7_EXECUTION"], latest_delivery_refs=[],
+        latest_gate_refs=[], next_workitem_ids=["WI-2"])
+    old = truth.store.path.read_bytes()
+    with ledger_lock(truth):
+        with pytest.raises(Exception, match="CAPTAIN_TAKEOVER_LEDGER_BUSY"):
+            service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+                new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+                expected_team_id="TEAM-1")
+    assert truth.store.path.read_bytes() == old
+    first = service.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+        new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+        expected_team_id="TEAM-1")
+    old = truth.store.path.read_bytes()
+    cold = TruthRuntime(tmp_path / "r1.jsonl")
+    restarted = WorkerLifecycleService(cold, release_id=service.release_id)
+    resumed = restarted.takeover_captain(checkpoint_id=checkpoint.checkpoint_id,
+        new_captain_session_id="CAPTAIN-B", expected_mission_id="M-1",
+        expected_team_id="TEAM-1")
+    assert resumed.takeover_id == first.takeover_id
+    assert truth.store.path.read_bytes() == old

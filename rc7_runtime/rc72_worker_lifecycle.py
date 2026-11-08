@@ -17,6 +17,7 @@ from rc6_runtime.agent_runtime import WorkerAssignment, WorkerInvocation
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
+from .rc72_ledger_lock import resource_guard
 from .rc72_linkage import WorkItemAttemptBinding, WorkItemAttemptState
 from .rc72_repository import CanonicalRC72Repository
 from .truth_overlay import install_rc7_truth_overlay
@@ -820,6 +821,7 @@ class WorkerLifecycleService:
         )
         return CaptainHandoffCheckpoint(checkpoint_id, mission_id, team_id, active_ids)
 
+    @resource_guard(busy="CAPTAIN_TAKEOVER_LEDGER_BUSY")
     def takeover_captain(
         self,
         *,

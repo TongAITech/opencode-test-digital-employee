@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 import time
 import uuid
 from copy import deepcopy
@@ -20,6 +21,38 @@ from .intelligence import GateResult, RequirementSufficiencyEvaluator
 
 class AgentRuntimeError(RuntimeError):
     pass
+
+
+@contextmanager
+def _worker_assignment_start_claim(truth):
+    """Short cross-process R1 claim; never hold the lock during DSH execution.
+
+    Concurrent controllers must not independently see the same Assignment as
+    unstarted and both launch its possible bank side effect.
+    """
+    event_path = Path(truth.store.path).resolve()
+    path = event_path.parent / ("." + event_path.name + ".worker-start.lock")
+    with path.open("a+b") as handle:
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise AgentRuntimeError("WORKER_ASSIGNMENT_START_LEDGER_BUSY") from exc
+        try:
+            truth.rebuild_projection(include_snapshot=False)
+            truth.store._next_seq = truth.store._scan_next_seq()
+            yield
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 AGENT_RUNTIME_EVENT_TYPES = (
@@ -378,10 +411,11 @@ class DshHeadlessWorkerLauncher:
         # An unfinished R1 WORKER_STARTED could already have modified the
         # bank SUT. Never execute the same signed assignment twice, including
         # after restarting a controller and rebuilding projections from R1.
-        previous = self.truth.query("agent_runtime_event", assignment_id=assignment.assignment_id)
-        if any(row.get("event_name") == "WORKER_STARTED" for row in previous):
-            raise AgentRuntimeError("WORKER_ASSIGNMENT_REPLAY_FORBIDDEN_RECONCILE_R1")
-        self._emit("WORKER_STARTED", invocation)
+        with _worker_assignment_start_claim(self.truth):
+            previous = self.truth.query("agent_runtime_event", assignment_id=assignment.assignment_id)
+            if any(row.get("event_name") == "WORKER_STARTED" for row in previous):
+                raise AgentRuntimeError("WORKER_ASSIGNMENT_REPLAY_FORBIDDEN_RECONCILE_R1")
+            self._emit("WORKER_STARTED", invocation)
         command = [
             self.dsh_bin,
             "--profile", "headless",
@@ -401,8 +435,13 @@ class DshHeadlessWorkerLauncher:
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             invocation.finished_at = int(time.time())
-            invocation.result = "ROUTING_INTEGRITY_FAIL"
-            self._emit("WORKER_COMPLETED", invocation, extra={"failure": str(exc)})
+            timed_out = isinstance(exc, subprocess.TimeoutExpired)
+            invocation.result = "UNKNOWN" if timed_out else "ROUTING_INTEGRITY_FAIL"
+            extra = {"failure": "DSH_PROCESS_TIMEOUT_UNKNOWN_EFFECT" if timed_out
+                     else "DSH_LAUNCH_FAILED:" + type(exc).__name__}
+            if timed_out:
+                extra.update(business_effect="UNKNOWN", same_assignment_replay="FORBIDDEN")
+            self._emit("WORKER_COMPLETED", invocation, extra=extra)
             self._emit_routing_fail(assignment.mission_id, "DSH_LAUNCH_FAILED:%s" % type(exc).__name__)
             raise AgentRuntimeError("ROUTING_INTEGRITY_FAIL:DSH_LAUNCH_FAILED") from exc
 

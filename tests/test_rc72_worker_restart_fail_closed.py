@@ -102,3 +102,35 @@ def test_model_final_text_cannot_invent_http_failure(tmp_path):
     assert invocation.result == "PASS"
     assert not [row for row in truth.query("agent_runtime_event")
                 if row.get("event_name") == "WORKER_COMPLETED" and row.get("result") == "UNKNOWN"]
+
+
+def test_worker_start_r1_claim_serializes_concurrent_controllers(tmp_path):
+    from rc6_runtime.agent_runtime import _worker_assignment_start_claim
+    truth, launcher, seen = _worker(tmp_path, [_complete("session-claim")])
+    assignment = _assign(launcher, "single")
+    raw = truth.store.path.read_bytes()
+    with _worker_assignment_start_claim(truth):
+        with pytest.raises(AgentRuntimeError, match="WORKER_ASSIGNMENT_START_LEDGER_BUSY"):
+            with _worker_assignment_start_claim(TruthRuntime(truth.store.path)):
+                raise AssertionError("lock unexpectedly reentrant")
+    assert truth.store.path.read_bytes() == raw
+    launcher.execute(assignment, "one invocation")
+    assert len(seen) == 1
+
+
+def test_timeout_is_unknown_side_effect_and_cannot_be_replayed_after_restart(tmp_path):
+    def timeout(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, 2, output=b'partial output', stderr=b'stream closed')
+    truth, launcher, _ = _worker(tmp_path, [])
+    launcher.command_runner = timeout
+    assignment = _assign(launcher, "timeout")
+    with pytest.raises(AgentRuntimeError):
+        launcher.execute(assignment, "operation possibly in progress")
+    entries = [row for row in truth.query("agent_runtime_event")
+               if row.get("event_name") == "WORKER_COMPLETED"]
+    assert len(entries) == 1 and entries[0]["result"] == "UNKNOWN"
+    assert entries[0]["business_effect"] == "UNKNOWN"
+    assert entries[0]["same_assignment_replay"] == "FORBIDDEN"
+    launcher.truth = TruthRuntime(truth.store.path)
+    with pytest.raises(AgentRuntimeError, match="WORKER_ASSIGNMENT_REPLAY_FORBIDDEN"):
+        launcher.execute(assignment, "same attempt")
