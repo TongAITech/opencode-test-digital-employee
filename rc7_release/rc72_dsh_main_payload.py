@@ -56,12 +56,12 @@ def _approved_executable(path):
         if offset < 64 or offset > min(size - 26, 1024 * 1024):
             raise DshMainPayloadError("DSH_MAIN_PE_HEADER_INVALID")
         stream.seek(offset)
-        if stream.read(4) != b"PE\\x00\\x00":
+        if stream.read(4) != b"PE\x00\x00":
             raise DshMainPayloadError("DSH_MAIN_PE_SIGNATURE_INVALID")
-        if stream.read(2) != b"\\x64\\x86":  # IMAGE_FILE_MACHINE_AMD64
+        if stream.read(2) != b"\x64\x86":  # IMAGE_FILE_MACHINE_AMD64
             raise DshMainPayloadError("DSH_MAIN_X64_REQUIRED")
         stream.seek(offset + 24)
-        if stream.read(2) != b"\\x0b\\x02":  # PE32+ optional header
+        if stream.read(2) != b"\x0b\x02":  # PE32+ optional header
             raise DshMainPayloadError("DSH_MAIN_PE32_PLUS_REQUIRED")
 
 
@@ -151,7 +151,7 @@ def main(argv=None):
             if os.path.commonpath([str(root), str(receipt)]) == str(root):
                 raise DshMainPayloadError("DSH_MAIN_RECEIPT_MUST_BE_OUTSIDE_PACKAGE")
             receipt.parent.mkdir(parents=True, exist_ok=True)
-            receipt.write_text(json.dumps(result, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+            receipt.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError, DshMainPayloadError) as exc:
         print(json.dumps({"status": "HOLD", "reason": str(exc),
                           "field_verified": False, "bank_final": False}, sort_keys=True))
