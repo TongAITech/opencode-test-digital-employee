@@ -21,3 +21,11 @@
 施工约束：所有中途提交仅推 `work/rc7.2-p1-stage-20261108`，最多运行轻量 Python3.8/定向合同 CI。
 独立 C12 在 QA 确认源码后由一次性 `work/rc7.2-p1-c12-verify-20261108` 推进触发，只审核既有 ZIP，不构建新包。
 第二轮待完成的 C05/C08 相关生产缺口不得因 P1-C12 和 P1-STATUS 通过而声称完整核销。
+
+## 第二轮运行时防重放施工
+
+- Runtime Profile 名称严格限定自定义单目录，拒绝绝对路径、父目录与 symlink 指向受保护 profile。
+- R1 Captain handoff 首次 takeover 写入唯一接管事实，相同新 Captain 冷重入返回同一接管事实，旧 Captain 与争抢者拒绝。
+- DSH Worker 记录 WORKER_STARTED 后，重启重用同 Assignment 时拒绝重新调用工具；429/502/STREAM_CLOSED 的原始输出和 UNKNOWN 作用进入 R1，而非自动重放。
+- 第二轮需要实际 DSH AgentTeams 成员与行内模型/授权真实证据，不能用模拟事件冒充 Field PASS。
+- 既有 C12 独立 run #42444200781 真实结果：SHA + 解包通过，但独立完整性审计为 HOLD，原因 DSH_MAIN_NOT_CARRIED_AND_CHECKSUMMED（离线包缺少签名/校验的 dsh.exe）。绝不降低 C12 检查或重复构建未修复的源码包。
