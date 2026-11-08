@@ -1,8 +1,7 @@
 name: RC7.2 P0 One-Shot Qualified Portable Transport
 
-# A single controlled fast-forward from the frozen, fully qualified source
-# SHA triggers this only once. Never run this on P0 intermediate commits,
-# ordinary PR updates, or work/rc7.2 pushes.
+# Only a deliberate post-qualification one-time advance of this dedicated
+# branch can trigger this release; no feature, staging, PR or main push can.
 on:
   push:
     branches:
@@ -10,15 +9,74 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: rc72-p0-one-shot-full-transport
   cancel-in-progress: false
 
 jobs:
+  qualify-source:
+    name: Verify merged PR and all qualified PR checks at exact SOURCE_COMMIT
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require exact SOURCE_COMMIT to be present in merged RC7.2 main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/work/rc7.2:refs/remotes/origin/work/rc7.2
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/work/rc7.2
+          echo "P0_SOURCE_ON_MERGED_MAIN=$GITHUB_SHA"
+      - name: Require signed-off merged PR #76 and all eleven same-HEAD CI suites
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            if (context.ref !== 'refs/heads/work/rc7.2-p0-final-transport-20261108') {
+              core.setFailed('RC72_P0_RELEASE_WRONG_SOURCE_BRANCH');
+              return;
+            }
+            const pr = (await github.rest.pulls.get({owner, repo, pull_number: 76})).data;
+            if (!pr.merged || pr.head.sha !== context.sha || pr.base.ref !== 'work/rc7.2') {
+              core.setFailed('RC72_P0_RELEASE_NOT_MERGED_EXACT_PR76_SOURCE');
+              return;
+            }
+            const expected = [
+              'RC7.2 ABCD-v3 Same-HEAD Product and Independent QA Qualification',
+              'RC7.2 ABCD-v4 Same-HEAD Product and Independent QA Qualification',
+              'RC6 Wave 1 Runtime Kernel',
+              'RC7 Field Hardening',
+              'RC7.2 A N8 Multi-Round and Q7 CLI Side-Effect Admission',
+              'RC7.2 C08 Mandatory N1-N10 Denominator Integrity',
+              'RC7.2 Runtime C06-C07 Contract Qualification',
+              'RC7.2 C07 Captain-Fenced Independent N9 DSH Bridge Admission',
+              'RC7.2 C04 Package Native Independent N9 DSH Host',
+              'RC7.2 C01-C02 Whole-N5 Independent Proof Regression',
+              'RC7.2 C10 Deterministic Bank Quota Window Qualification',
+            ];
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+              owner, repo, head_sha: context.sha, event: 'pull_request', per_page: 100,
+            });
+            const missingOrRed = expected.filter(name => !runs.some(run =>
+              run.name === name && run.event === 'pull_request' &&
+              run.head_sha === context.sha && run.status === 'completed' &&
+              run.conclusion === 'success'));
+            if (missingOrRed.length) {
+              core.setFailed('RC72_P0_SOURCE_CHECKS_MISSING_OR_RED: ' + missingOrRed.join('; '));
+              return;
+            }
+            core.info('all qualified PR checks passed on exact SOURCE_COMMIT: ' + context.sha);
+
   build-and-verify-exact-qualified-sha:
-    # The reusable workflow preserves its manual final_qualification gate,
-    # all physical payload checks, clean-extract checks and artifacts.
+    name: Build physical portable ZIP once after exact PR qualifications
+    needs: qualify-source
+    if: needs.qualify-source.result == 'success'
     uses: ./.github/workflows/rc7.2-portable-transport.yml
     with:
       final_qualification: true
