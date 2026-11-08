@@ -60,8 +60,8 @@ jobs:
       - name: Verify exact source is merged into main and belongs to PR76
         shell: pwsh
         run: |
-          git fetch origin refs/heads/work/rc7.2:refs/remotes/origin/work/rc7.2
-          if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_FETCH_CURRENT_MAIN' }
+          # checkout fetch-depth:0 already fetches all branch history;
+          # do not re-introduce persisted GitHub credentials for QA source.
           git merge-base --is-ancestor $env:TARGET_MAIN_SHA refs/remotes/origin/work/rc7.2
           if ($LASTEXITCODE -ne 0) { throw 'C12_SOURCE_NOT_ON_MERGED_MAIN' }
           $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls/76" | ConvertFrom-Json
