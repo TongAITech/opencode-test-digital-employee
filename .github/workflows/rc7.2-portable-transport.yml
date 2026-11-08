@@ -51,12 +51,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'plugin payload acquisition failed' }
       - name: Build exact RC7.2 source and materialize offline runtimes
         shell: pwsh
+        env:
+          RC72_DSH_MAIN_URL: ${{ secrets.RC72_DSH_MAIN_URL }}
+          RC72_DSH_MAIN_SHA256: ${{ vars.RC72_DSH_MAIN_SHA256 }}
+          RC72_DSH_MAIN_AUTHORIZATION: ${{ secrets.RC72_DSH_MAIN_AUTHORIZATION }}
         run: |
           python -m rc7_release.rc72_package build --repo-root . --output dist --source-commit $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'RC7.2 build failed' }
           $pkg = (Resolve-Path 'dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10').Path
           python -m rc7_release.runtime_payload_materializer --package-root $pkg
           if ($LASTEXITCODE -ne 0) { throw 'offline runtime materialization failed' }
+          # C12: the DSH plugin tree does not contain the actual DSH engine.
+          # Never seal a turnkey release unless the approved native x64 main
+          # executable is physically present, checked against an out-of-band
+          # approved SHA-256, and subsequently included in manifest/checksums.
+          if (-not $env:RC72_DSH_MAIN_URL -or -not $env:RC72_DSH_MAIN_SHA256) {
+            throw 'RC72_DSH_MAIN_APPROVED_SOURCE_AND_SHA256_REQUIRED'
+          }
+          python -m rc7_release.rc72_dsh_main_payload --package-root $pkg --receipt dist/evidence/approved-dsh-main.json
+          if ($LASTEXITCODE -ne 0) { throw 'RC72_DSH_MAIN_PHYSICAL_PAYLOAD_NOT_QUALIFIED' }
           Copy-Item packaging/rc7.2/start-rc7.2.cmd (Join-Path $pkg 'start-rc7.2.cmd')
           Copy-Item packaging/rc7.2/TRANSPORT-README.md (Join-Path $pkg 'READ-ME-FIRST.md')
           python -c "import pathlib,os; from rc7_release.rc72_package import _rewrite_manifest,verify_package; from rc7_release.runtime_payload_materializer import _repack; p=pathlib.Path(r'$pkg'); _rewrite_manifest(p,pathlib.Path('.').resolve(),os.environ['GITHUB_SHA']); verify_package(p,expected_source_commit=os.environ['GITHUB_SHA']); _repack(p,pathlib.Path('dist/RC72-PORTABLE-WIN10-'+os.environ['GITHUB_SHA'][:12]+'.zip'))"
