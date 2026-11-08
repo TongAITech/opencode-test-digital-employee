@@ -1,5 +1,6 @@
 """Independent policy checks for a real, exact-SHA C12 audit with no rebuild."""
 from pathlib import Path
+import re
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 
@@ -91,3 +92,47 @@ def test_p1_final_qualifies_runnable_worker_contract_and_independent_qa():
         "tests/test_rc72_n5_existing_data_repair.py",
     ):
         assert "'" + path + "'" in trigger
+
+
+def test_c12_third_round_uses_exact_merged_source_and_approved_real_zip():
+    audit = (WORKFLOWS / "rc7.2-qa-physical-transport.yml").read_text(encoding="utf-8")
+    caller = (WORKFLOWS / "rc7.2-p2-one-shot-portable.yml").read_text(encoding="utf-8")
+    independent = (WORKFLOWS / "rc7.2-independent-qa.yml").read_text(encoding="utf-8")
+    assert "- p2" in audit.split("\njobs:", 1)[0]
+    assert "C12_SOURCE_NOT_EXACT_MERGED_P2_PR" in audit
+    assert "work/rc7.2-p2-stage-20261108" in audit
+    assert "RC7.2 P2 One-Shot Qualified Portable Transport" in audit
+    assert ".github/workflows/rc7.2-p2-one-shot-portable.yml" in audit
+    assert "work/rc7.2-p2-final-transport-20261108" in audit
+    assert "C12_EXACT_ROUND_ONESHOT_BUILD_NOT_SUCCESSFUL" in audit
+    assert "rc72_qa_offline_audit.py" in audit
+    assert "rc7_release.rc72_package build" not in audit
+    assert "tests/test_rc72_c12_source_contract.py" in independent
+    assert "rc7.2-qa-physical-transport.yml" in independent
+
+    header = caller.split("\njobs:", 1)[0]
+    assert "work/rc7.2-p2-final-transport-20261108" in header
+    assert "\n  pull_request:" not in header
+    assert "cancel-in-progress: false" in caller
+    assert "listPullRequestsAssociatedWithCommit" in caller
+    assert "p.head.ref === 'work/rc7.2-p2-stage-20261108'" in caller
+    assert "P2_FINAL_EXACT_MERGED_SOURCE_PR_REQUIRED" in caller
+    assert "P2_FINAL_CI_MISSING_OR_RED" in caller
+    assert "RC7.2 ABCD-v3 Same-HEAD Product and Independent QA Qualification" in caller
+    assert "RC7.2 ABCD-v4 Same-HEAD Product and Independent QA Qualification" in caller
+    assert "RC7.2 Independent QA Product and Transport" in caller
+    assert "RC7.2 P2 C04 and C12 Fail-Closed Source Regression (No ZIP)" in caller
+    assert "secrets: inherit" in caller
+    assert caller.count("uses: ./.github/workflows/rc7.2-portable-transport.yml") == 1
+    assert "final_qualification: true" in caller
+
+
+def test_p2_one_shot_required_check_array_has_valid_js_string_entries():
+    caller = (WORKFLOWS / "rc7.2-p2-one-shot-portable.yml").read_text(encoding="utf-8")
+    exact = caller.split("const expected = [", 1)[1].split("];", 1)[0]
+    rows = [line for line in exact.splitlines() if line.strip()]
+    assert len(rows) >= 9
+    for line in rows:
+        assert re.fullmatch(r"\s*'[^']+',?\s*", line), "Invalid one-shot JS entry: " + line
+    assert len(rows) == len(set(rows))
+    assert "RC7.2 Independent QA Product and Transport" in exact

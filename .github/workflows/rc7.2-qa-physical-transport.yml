@@ -12,7 +12,7 @@ on:
         required: true
         type: boolean
       source_round:
-        description: 'Exact controlled source family: p0 or p1'
+        description: 'Exact controlled source family: p0, p1 or p2'
         required: false
         default: 'p0'
         type: string
@@ -28,12 +28,13 @@ on:
         type: boolean
         default: false
       source_round:
-        description: 'Exact source: p0 or p1; defaults to first-round audit'
+        description: 'Exact source: p0, p1 or p2; defaults to first-round audit'
         required: false
         type: choice
         options:
           - p0
           - p1
+          - p2
         default: p0
 
 permissions:
@@ -71,14 +72,14 @@ jobs:
         run: |
           python tools/rc72_qa_source_provenance.py --repo-root . --expected-head $env:EXACT_QA_HEAD --expected-base $env:TARGET_MAIN_SHA --report qa-source-provenance.json
           if ($LASTEXITCODE -ne 0) { throw 'C12_QA_SOURCE_PROVENANCE_NOT_ACCEPTED' }
-      - name: Verify exact source is merged into main and belongs to PR76
+      - name: Verify exact source is merged into main and belongs to approved round PR
         shell: pwsh
         run: |
           # checkout fetch-depth:0 already fetches all branch history;
           # do not re-introduce persisted GitHub credentials for QA source.
           git merge-base --is-ancestor $env:TARGET_MAIN_SHA refs/remotes/origin/work/rc7.2
           if ($LASTEXITCODE -ne 0) { throw 'C12_SOURCE_NOT_ON_MERGED_MAIN' }
-          if ($env:SOURCE_ROUND -notin @('p0', 'p1')) { throw 'C12_UNKNOWN_RELEASE_SOURCE_ROUND' }
+          if ($env:SOURCE_ROUND -notin @('p0', 'p1', 'p2')) { throw 'C12_UNKNOWN_RELEASE_SOURCE_ROUND' }
           if ($env:SOURCE_ROUND -eq 'p0') {
             $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls/76" | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_PR76' }
@@ -86,14 +87,19 @@ jobs:
               throw 'C12_SOURCE_NOT_EXACT_MERGED_PR76'
             }
           } else {
+            $roundSpec = if ($env:SOURCE_ROUND -eq 'p2') {
+              @{ branch='work/rc7.2-p2-stage-20261108'; error='C12_SOURCE_NOT_EXACT_MERGED_P2_PR' }
+            } else {
+              @{ branch='work/rc7.2-p1-stage-20261108'; error='C12_SOURCE_NOT_EXACT_MERGED_P1_PR' }
+            }
             $associated = gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TARGET_MAIN_SHA/pulls?per_page=100" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_P1_SOURCE' }
+            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_SOURCE' }
             $matches = @($associated | Where-Object {
               $_.merged_at -and $_.head.sha -eq $env:TARGET_MAIN_SHA -and
-              $_.head.ref -eq 'work/rc7.2-p1-stage-20261108' -and
+              $_.head.ref -eq $roundSpec.branch -and
               $_.base.ref -eq 'work/rc7.2' -and $_.head.repo.full_name -eq $env:GITHUB_REPOSITORY
             })
-            if ($matches.Count -ne 1) { throw 'C12_SOURCE_NOT_EXACT_MERGED_P1_PR' }
+            if ($matches.Count -ne 1) { throw $roundSpec.error }
           }
       - name: Locate exact-source qualified one-shot portable build and download real bytes
         shell: pwsh
@@ -101,7 +107,9 @@ jobs:
           if ($env:TARGET_MAIN_SHA -notmatch '^[0-9a-f]{40}$') { throw 'C12_EXACT_MAIN_SHA_REQUIRED' }
           $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:TARGET_MAIN_SHA&per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_RUNS' }
-          $expectations = if ($env:SOURCE_ROUND -eq 'p1') {
+          $expectations = if ($env:SOURCE_ROUND -eq 'p2') {
+            @{ name='RC7.2 P2 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p2-one-shot-portable.yml'; branch='work/rc7.2-p2-final-transport-20261108' }
+          } elseif ($env:SOURCE_ROUND -eq 'p1') {
             @{ name='RC7.2 P1 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p1-one-shot-portable.yml'; branch='work/rc7.2-p1-final-transport-20261108' }
           } else {
             @{ name='RC7.2 P0 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p0-one-shot-portable.yml'; branch='work/rc7.2-p0-final-transport-20261108' }
@@ -116,7 +124,7 @@ jobs:
             $_.event -eq 'push' -and $_.status -eq 'completed' -and
             $_.conclusion -eq 'success'
           } | Sort-Object run_number -Descending | Select-Object -First 1)
-          if ($run.Count -ne 1) { throw 'C12_EXACT_PR76_ONESHOT_BUILD_NOT_SUCCESSFUL' }
+          if ($run.Count -ne 1) { throw 'C12_EXACT_ROUND_ONESHOT_BUILD_NOT_SUCCESSFUL' }
           $artifacts = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($run[0].id)/artifacts?per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_ARTIFACT' }
           $name = 'RC72-PORTABLE-WIN10-' + $env:TARGET_MAIN_SHA

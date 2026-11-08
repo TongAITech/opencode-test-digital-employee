@@ -3,6 +3,8 @@ import hashlib
 import os
 from pathlib import Path
 import struct
+from urllib.error import HTTPError
+from rc7_release import rc72_dsh_main_payload as source_module
 
 import pytest
 
@@ -122,3 +124,73 @@ def test_c12_independent_qa_physically_checks_pe32plus_and_amd64(tmp_path):
     assert _native_dsh_executable(wrong_machine, DSH_RELATIVE_PATH) is False
     wrong_optional_header, _ = _fixture_binary(tmp_path, magic=0x10B)
     assert _native_dsh_executable(wrong_optional_header, DSH_RELATIVE_PATH) is False
+
+
+def test_remote_approved_source_denies_redirect_before_any_payload(monkeypatch, tmp_path):
+    """A cross-host redirect may not inherit the approved vendor/bank token."""
+    visited = []
+    class RedirectingOpener:
+        def open(self, request, timeout):
+            visited.append(request.full_url)
+            assert request.get_header("Authorization") == "Bearer synthetic-test-token"
+            raise HTTPError(request.full_url, 302, "Redirect", {
+                "Location": "https://other-host.example/unauthorized.exe"}, None)
+    def opener(*handlers):
+        assert len(handlers) == 1
+        assert isinstance(handlers[0], source_module._DenyRedirect)
+        return RedirectingOpener()
+    monkeypatch.setattr(source_module, "build_opener", opener)
+    monkeypatch.setenv("RC72_DSH_MAIN_AUTHORIZATION", "Bearer synthetic-test-token")
+    target = tmp_path / "no-redirected-binary"
+    with pytest.raises(DshMainPayloadError, match="HTTP_REDIRECT_FORBIDDEN"):
+        source_module._stream_download("https://approved.example/dsh.exe", target)
+    assert visited == ["https://approved.example/dsh.exe"]
+    assert not target.exists()
+
+
+def test_remote_approved_source_does_not_disclose_transport_error(monkeypatch, tmp_path):
+    from urllib.error import URLError
+    class FailingOpener:
+        def open(self, request, timeout):
+            raise URLError("synthetic-private-approved-token")
+    monkeypatch.setattr(source_module, "build_opener", lambda *args: FailingOpener())
+    with pytest.raises(DshMainPayloadError, match="DSH_MAIN_HTTPS_FETCH_FAILED") as exc:
+        source_module._stream_download("https://approved.example/dsh.exe",
+                                       tmp_path / "no-secret-output")
+    assert "synthetic-private-approved-token" not in str(exc.value)
+    assert not (tmp_path / "no-secret-output").exists()
+
+
+def test_remote_approved_source_rejects_authorization_header_newlines(monkeypatch, tmp_path):
+    monkeypatch.setenv("RC72_DSH_MAIN_AUTHORIZATION", "Bearer test\nX-Leak: test")
+    with pytest.raises(DshMainPayloadError, match="AUTHORIZATION_HEADER_INVALID"):
+        source_module._stream_download("https://approved.example/dsh.exe",
+                                       tmp_path / "invalid-header")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="platform symlink unsupported")
+def test_parent_runtime_symlink_cannot_redirect_approved_main_outside_package(tmp_path):
+    root = _package(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    nested = root / "workspace-template"
+    try:
+        nested.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlink creation not permitted")
+    source, digest = _fixture_binary(tmp_path)
+    with pytest.raises(DshMainPayloadError, match="TARGET_SYMLINK_OR_NONDIR"):
+        materialize(root, expected_sha256=digest, source_file=source)
+    assert not (outside / "runtime/dsh/dsh.exe").exists()
+
+
+def test_local_approved_main_rejects_oversized_source_before_copy(tmp_path):
+    from rc7_release.rc72_dsh_main_payload import MAX_SIZE
+    root = _package(tmp_path)
+    large = tmp_path / "oversized.exe"
+    with large.open("wb") as file:
+        file.seek(MAX_SIZE)
+        file.write(b"X")
+    with pytest.raises(DshMainPayloadError, match="BINARY_SIZE_INVALID"):
+        materialize(root, expected_sha256="a" * 64, source_file=large)
+    assert not (root / DSH_RELATIVE_PATH).exists()

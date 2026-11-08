@@ -18,7 +18,8 @@ import shutil
 import struct
 import tempfile
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -65,30 +66,52 @@ def _approved_executable(path):
             raise DshMainPayloadError("DSH_MAIN_PE32_PLUS_REQUIRED")
 
 
+class _DenyRedirect(HTTPRedirectHandler):
+    """Never forward approved-source Authorization to a redirected host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _stream_download(url, destination):
     parts = urlsplit(url)
-    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
+    if (parts.scheme != "https" or not parts.hostname or parts.username
+            or parts.password or parts.fragment):
         raise DshMainPayloadError("DSH_MAIN_APPROVED_HTTPS_SOURCE_REQUIRED")
     if parts.hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
         raise DshMainPayloadError("DSH_MAIN_LOOPBACK_SOURCE_FORBIDDEN")
     headers = {"User-Agent": "RC72-Offline-Release-Builder"}
     authorization = os.environ.get("RC72_DSH_MAIN_AUTHORIZATION", "").strip()
     if authorization:
+        if "\r" in authorization or "\n" in authorization:
+            raise DshMainPayloadError("DSH_MAIN_AUTHORIZATION_HEADER_INVALID")
         headers["Authorization"] = authorization
-    with urlopen(Request(url, headers=headers), timeout=90) as response:
-        final = urlsplit(response.geturl())
-        if final.scheme != "https":
-            raise DshMainPayloadError("DSH_MAIN_INSECURE_REDIRECT_FORBIDDEN")
-        with Path(destination).open("wb") as output:
-            total = 0
-            while True:
-                block = response.read(1024 * 1024)
-                if not block:
-                    break
-                total += len(block)
-                if total > MAX_SIZE:
-                    raise DshMainPayloadError("DSH_MAIN_BINARY_TOO_LARGE")
-                output.write(block)
+    # urllib.urlopen transparently follows redirects, including cross-host
+    # HTTPS redirects with the Authorization header. C12 has no authority to
+    # disclose a bank/vendor token to a URL not independently approved.
+    opener = build_opener(_DenyRedirect())
+    try:
+        with opener.open(Request(url, headers=headers), timeout=90) as response:
+            if response.geturl() != url or response.status != 200:
+                raise DshMainPayloadError("DSH_MAIN_SOURCE_RESPONSE_CHANGED")
+            with Path(destination).open("wb") as output:
+                total = 0
+                while True:
+                    block = response.read(1024 * 1024)
+                    if not block:
+                        break
+                    total += len(block)
+                    if total > MAX_SIZE:
+                        raise DshMainPayloadError("DSH_MAIN_BINARY_TOO_LARGE")
+                    output.write(block)
+    except HTTPError as exc:
+        if 300 <= exc.code < 400:
+            raise DshMainPayloadError("DSH_MAIN_HTTP_REDIRECT_FORBIDDEN") from None
+        raise DshMainPayloadError("DSH_MAIN_HTTPS_FETCH_FAILED") from None
+    except (URLError, OSError, ValueError):
+        # An underlying exception may embed the approved URL/token; never
+        # serialize it into a build receipt or CI log.
+        raise DshMainPayloadError("DSH_MAIN_HTTPS_FETCH_FAILED") from None
 
 
 def materialize(package_root, *, expected_sha256, source_file=None, source_url=None):
@@ -100,8 +123,13 @@ def materialize(package_root, *, expected_sha256, source_file=None, source_url=N
     if not root.is_dir() or not (root / "SOURCE_COMMIT").is_file():
         raise DshMainPayloadError("DSH_MAIN_PACKAGE_ROOT_REQUIRED")
     target_dir = root / "workspace-template/runtime/dsh"
-    if target_dir.is_symlink() or target_dir.exists() and not target_dir.is_dir():
-        raise DshMainPayloadError("DSH_MAIN_TARGET_SYMLINK_OR_NONDIR")
+    # Reject inherited parent symlinks too. A checked dsh directory alone
+    # cannot prevent a package-root/runtime junction from escaping the ZIP.
+    parent = root
+    for component in ("workspace-template", "runtime", "dsh"):
+        parent = parent / component
+        if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+            raise DshMainPayloadError("DSH_MAIN_TARGET_SYMLINK_OR_NONDIR")
     target = target_dir / "dsh.exe"
     if target.is_symlink():
         raise DshMainPayloadError("DSH_MAIN_TARGET_SYMLINK_FORBIDDEN")
@@ -112,6 +140,8 @@ def materialize(package_root, *, expected_sha256, source_file=None, source_url=N
             source = Path(source_file)
             if source.is_symlink() or not source.is_file():
                 raise DshMainPayloadError("DSH_MAIN_SOURCE_NOT_REGULAR_FILE")
+            if not MIN_SIZE <= source.stat().st_size <= MAX_SIZE:
+                raise DshMainPayloadError("DSH_MAIN_BINARY_SIZE_INVALID")
             shutil.copyfile(str(source), str(staged))
         else:
             _stream_download(source_url, staged)
