@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
-from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher, WorkerInvocation
+from rc6_runtime.agent_runtime import AgentRuntimeError, DshHeadlessWorkerLauncher, WorkerInvocation
 from rc6_runtime.truth import TruthRuntime
 
 from .candidate_payload import CandidatePayloadReader
@@ -907,7 +907,17 @@ class N5DataVerificationDshHandoffService:
             prompt = ("Re-verification of exact existing DataRef %s at binding revision %d. "
                       "Observe it again with the allowed real-system tools; prior evidence is not a new observation.\n"
                       % (binding['data_ref'], binding_revision)) + prompt
-        invocation, candidate = self.launcher.execute(assignment, prompt)
+        try:
+            invocation, candidate = self.launcher.execute(assignment, prompt)
+        except AgentRuntimeError as exc:
+            # Earlier Worker-layer rejection may precede N5's signed anchor
+            # comparison. Never claim that a specific producer session was
+            # reused when the lower layer only proves non-independence.
+            if str(exc) == "WORKER_SESSION_NOT_INDEPENDENT":
+                raise N5DataVerificationHandoffError(
+                    "RC72_N5_DATA_VERIFY_VERIFIER_SESSION_NOT_INDEPENDENT"
+                ) from exc
+            raise
         self._validate_v2_candidate(
             candidate,
             requirement=requirement,

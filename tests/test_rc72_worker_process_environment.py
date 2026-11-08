@@ -130,9 +130,18 @@ def test_separate_signed_grants_do_not_share_a_profile_even_for_one_identity(tmp
     original=_assignment(launcher)
     first=launcher.execute(original,'Environment probe.')[1]
     lease=authority.issue_lease(original.identity.worker_id,'task:OTHER/attempt:OTHER',[],['file_read'])
-    successor=replace(original,lease=lease,scope=lease.scope_ref,attempt_id='OTHER')
+    # A fresh, independently authorized scope requires a NEW Assignment ID.
+    # Reusing the old Assignment ID even with a different lease is a
+    # fail-closed replay, not an independent task.
+    successor=replace(original,lease=lease,scope=lease.scope_ref,attempt_id='OTHER',
+                      assignment_id=original.assignment_id+'-OTHER-GRANT')
     second=launcher.execute(successor,'Environment probe.')[1]
     assert first['home']!=second['home'] and first['dsh_home']!=second['dsh_home']
+    assert len(calls)==2
+    before=truth.store.path.read_bytes()
+    with pytest.raises(AgentRuntimeError,match='WORKER_ASSIGNMENT_REPLAY_FORBIDDEN_RECONCILE_R1'):
+        launcher.execute(original,'Old assignment cannot be replayed.')
+    assert len(calls)==2 and truth.store.path.read_bytes()==before
 
 
 @pytest.mark.parametrize('env',[{'pfc_rc7_dsh_session_mode':'INTERACTIVE_CONTROL'},

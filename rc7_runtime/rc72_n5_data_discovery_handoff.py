@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
-from rc6_runtime.agent_runtime import DshHeadlessWorkerLauncher, WorkerAssignment, WorkerInvocation
+from rc6_runtime.agent_runtime import AgentRuntimeError, DshHeadlessWorkerLauncher, WorkerAssignment, WorkerInvocation
 from rc6_runtime.truth import TruthRuntime
 
 from .models import ContractError
@@ -908,9 +908,19 @@ class N5DataDiscoveryDshHandoffService:
             allowed_artifact_types=(),
             allowed_tools=tuple(self.allowed_tools),
         )
-        invocation, candidate = self.launcher.execute(
-            runtime_assignment, self._prompt(assignment, dispatch)
-        )
+        try:
+            invocation, candidate = self.launcher.execute(
+                runtime_assignment, self._prompt(assignment, dispatch)
+            )
+        except AgentRuntimeError as exc:
+            # The hardened Worker runtime detects reused DSH session bytes
+            # before N5 can independently inspect HANDOFF_RETURNED. Preserve
+            # its fail-closed R1 failure and expose the N5 domain contract.
+            if str(exc) == "WORKER_SESSION_NOT_INDEPENDENT":
+                raise N5DataDiscoveryHandoffError(
+                    "RC72_N5_DISCOVERY_HANDOFF_DSH_SESSION_REUSED"
+                ) from exc
+            raise
         self._validate_candidate(candidate, assignment)
         events = self._handoff_events(
             str(assignment["mission_id"]), runtime_assignment_id

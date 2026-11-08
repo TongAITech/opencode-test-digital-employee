@@ -14,16 +14,18 @@ from tools.rc72_qa_offline_audit import GROUPS, QualificationError, qualify, mai
 COMMIT = "a" * 40
 
 
-def _synthetic_pe_bytes():
-    # Bytes intentionally synthetic; they only exercise PE header recognition.
+def _synthetic_pe_bytes(*, machine=0x8664, optional_magic=0x20b):
+    # Structural-only PE fixture; it is NOT a runnable DSH program.
     stub = bytearray(8192)
     stub[:2] = b"MZ"
     stub[0x3c:0x40] = (0x80).to_bytes(4, "little")
     stub[0x80:0x84] = bytes((80, 69, 0, 0))
+    stub[0x84:0x86] = machine.to_bytes(2, "little")
+    stub[0x98:0x9a] = optional_magic.to_bytes(2, "little")
     return bytes(stub)
 
 
-def _make_fixture(tmp_path):
+def _make_fixture(tmp_path, *, machine=0x8664, optional_magic=0x20b):
     root = tmp_path / "clean payload"
     root.mkdir()
     data = {
@@ -34,7 +36,7 @@ def _make_fixture(tmp_path):
         "packaging/rc7.2/AITEST.sh": "echo command",
         "packaging/rc7.2/MISSION.cmd": "echo command",
         "packaging/rc7.2/Q3-TARGET-LINUX-PROBE.sh": "echo command",
-        "workspace-template/runtime/dsh/dsh.exe": _synthetic_pe_bytes(),
+        "workspace-template/runtime/dsh/dsh.exe": _synthetic_pe_bytes(machine=machine, optional_magic=optional_magic),
     }
     data["RC72_RELEASE_IDENTITY.json"] = json.dumps({
         "schema": "pfc.aitest.rc7.2.release-identity.v1", "release_family": "RC7.2",
@@ -300,3 +302,13 @@ def test_checksums_reject_duplicate_slash_alias_even_if_real_bytes_are_unchanged
     checksums.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with pytest.raises(QualificationError, match="NONCANONICAL_RELATIVE_PATH"):
         qualify(root, expected_source=COMMIT)
+
+
+@pytest.mark.parametrize("machine,optional_magic", [(0x14c, 0x20b), (0x8664, 0x10b)])
+def test_independent_c12_qa_rejects_checksummed_wrong_architecture(tmp_path, machine, optional_magic):
+    root = _make_fixture(tmp_path, machine=machine, optional_magic=optional_magic)
+    receipt = qualify(root, expected_source=COMMIT,
+                      dsh_relpath="workspace-template/runtime/dsh/dsh.exe")
+    assert receipt["status"] == "HOLD"
+    assert receipt["hold_reasons"] == ["DSH_MAIN_NATIVE_EXECUTABLE_NOT_ATTESTED"]
+    assert receipt["bank_final"] is False and receipt["field_verified"] is False
