@@ -20,3 +20,11 @@ P2 仍未核销：C03 所有 N8 语义回边的银行实体行为，C04 真正�
 - 第三轮同一 SHA Linux/Windows Python 3.8/3.11 P2 NO-ZIP 回归；PR 同 SHA 继承 CI 复核通过才合并。
 - 全部代码变更批量提交、验证，最后在批准真实 DSH 主程序到位时才构建完整 ZIP 一次。
 - `FIELD_VERIFIED=false`, `BANK_FINAL=false`，没有银行真实 R1 时不能上报 Mission 完成。
+
+
+## 第三轮最终一次性搬运与独立 C12 合同
+
+- 第三轮源提交必须来自 `work/rc7.2-p2-stage-20261108` 的确切 PR HEAD，且已经合入 `work/rc7.2`。`rc7.2-p2-one-shot-portable.yml` 只接受专用 `work/rc7.2-p2-final-transport-20261108` 分支一次性推进，校验同 SHA 全量产品/独立 QA CI 与四平台 P2 NO-ZIP 回归。
+- P2 只复用通用包构建器本身，仍要求审批的 DSH 主程序 URL + SHA256；未获批准时必须 fail-closed，不得隐式使用上一轮 ZIP。
+- `rc7.2-qa-physical-transport.yml` 新增 `source_round=p2` 精确匹配 merged PR 的 source branch、repo、SHA、工作流 name/path/branch 和真 artifact，要求独立 ZIP SHA/解压/PE32+ AMD64+完整文件校验。P0/P1 原精确规则不变。
+- 独立 QA 代码修改触发合同包含 C12 P2 源选择，不能构成自动独立物理 PASS。真实 DSH 程序未提供前 `BANK_FINAL=NO`。
