@@ -11,6 +11,11 @@ on:
         description: 'Explicit independent physical audit of existing ZIP; no build'
         required: true
         type: boolean
+      source_round:
+        description: 'Exact controlled source family: p0 or p1'
+        required: false
+        default: 'p0'
+        type: string
   workflow_dispatch:
     inputs:
       target_main_sha:
@@ -22,6 +27,14 @@ on:
         required: true
         type: boolean
         default: false
+      source_round:
+        description: 'Exact source: p0 or p1; defaults to first-round audit'
+        required: false
+        type: choice
+        options:
+          - p0
+          - p1
+        default: p0
 
 permissions:
   contents: read
@@ -40,6 +53,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_MAIN_SHA: ${{ inputs.target_main_sha }}
+      SOURCE_ROUND: ${{ inputs.source_round }}
       EXACT_QA_HEAD: ${{ github.sha }}
     steps:
       - name: Checkout exact independent QA source
@@ -64,10 +78,22 @@ jobs:
           # do not re-introduce persisted GitHub credentials for QA source.
           git merge-base --is-ancestor $env:TARGET_MAIN_SHA refs/remotes/origin/work/rc7.2
           if ($LASTEXITCODE -ne 0) { throw 'C12_SOURCE_NOT_ON_MERGED_MAIN' }
-          $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls/76" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_PR76' }
-          if (-not $pr.merged_at -or $pr.head.sha -ne $env:TARGET_MAIN_SHA -or $pr.base.ref -ne 'work/rc7.2') {
-            throw 'C12_SOURCE_NOT_EXACT_MERGED_PR76'
+          if ($env:SOURCE_ROUND -notin @('p0', 'p1')) { throw 'C12_UNKNOWN_RELEASE_SOURCE_ROUND' }
+          if ($env:SOURCE_ROUND -eq 'p0') {
+            $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls/76" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_PR76' }
+            if (-not $pr.merged_at -or $pr.head.sha -ne $env:TARGET_MAIN_SHA -or $pr.base.ref -ne 'work/rc7.2') {
+              throw 'C12_SOURCE_NOT_EXACT_MERGED_PR76'
+            }
+          } else {
+            $associated = gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TARGET_MAIN_SHA/pulls?per_page=100" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_CHECK_MERGED_P1_SOURCE' }
+            $matches = @($associated | Where-Object {
+              $_.merged_at -and $_.head.sha -eq $env:TARGET_MAIN_SHA -and
+              $_.head.ref -eq 'work/rc7.2-p1-stage-20261108' -and
+              $_.base.ref -eq 'work/rc7.2' -and $_.head.repo.full_name -eq $env:GITHUB_REPOSITORY
+            })
+            if ($matches.Count -ne 1) { throw 'C12_SOURCE_NOT_EXACT_MERGED_P1_PR' }
           }
       - name: Locate exact-source qualified one-shot portable build and download real bytes
         shell: pwsh
@@ -75,11 +101,16 @@ jobs:
           if ($env:TARGET_MAIN_SHA -notmatch '^[0-9a-f]{40}$') { throw 'C12_EXACT_MAIN_SHA_REQUIRED' }
           $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:TARGET_MAIN_SHA&per_page=100" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'C12_CANNOT_QUERY_PORTABLE_RUNS' }
+          $expectations = if ($env:SOURCE_ROUND -eq 'p1') {
+            @{ name='RC7.2 P1 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p1-one-shot-portable.yml'; branch='work/rc7.2-p1-final-transport-20261108' }
+          } else {
+            @{ name='RC7.2 P0 One-Shot Qualified Portable Transport'; path='.github/workflows/rc7.2-p0-one-shot-portable.yml'; branch='work/rc7.2-p0-final-transport-20261108' }
+          }
           $run = @($runs.workflow_runs | Where-Object {
             $_.head_sha -eq $env:TARGET_MAIN_SHA -and
-            $_.name -eq 'RC7.2 P0 One-Shot Qualified Portable Transport' -and
-            $_.path -eq '.github/workflows/rc7.2-p0-one-shot-portable.yml' -and
-            $_.head_branch -eq 'work/rc7.2-p0-final-transport-20261108' -and
+            $_.name -eq $expectations.name -and
+            $_.path -eq $expectations.path -and
+            $_.head_branch -eq $expectations.branch -and
             $_.head_repository.full_name -eq $env:GITHUB_REPOSITORY -and
             $_.repository.full_name -eq $env:GITHUB_REPOSITORY -and
             $_.event -eq 'push' -and $_.status -eq 'completed' -and
@@ -98,9 +129,10 @@ jobs:
             schema='RC72_QA_ACTUAL_PORTABLE_ARTIFACT_SOURCE_V1'
             status='SOURCE_ARTIFACT_SELECTED_NOT_QUALIFIED'
             source_commit=$env:TARGET_MAIN_SHA
-            source_workflow='RC7.2 P0 One-Shot Qualified Portable Transport'
-            source_workflow_path='.github/workflows/rc7.2-p0-one-shot-portable.yml'
-            source_branch='work/rc7.2-p0-final-transport-20261108'
+            release_round=$env:SOURCE_ROUND
+            source_workflow=$expectations.name
+            source_workflow_path=$expectations.path
+            source_branch=$expectations.branch
             source_event='push'
             qa_head=$env:EXACT_QA_HEAD
             workflow_run_id=$run[0].id
