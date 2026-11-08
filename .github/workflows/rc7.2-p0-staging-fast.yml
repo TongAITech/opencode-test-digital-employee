@@ -1,0 +1,70 @@
+name: RC7.2 P0 Staging Fast Check
+
+# Intermediate P0 commits run here WITHOUT opening/updating the integration
+# PR. Heavy ABCD/Q1/Q2/Windows ZIP qualification belongs to the single
+# post-implementation promotion SHA only.
+on:
+  push:
+    branches:
+      - work/rc7.2-p0-stage-20261107
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-p0-stage-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax-and-contract-imports:
+    name: p0-stage-python-3.8-fast
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Compile changed RC6/RC7 runtime and tests (no install, no ZIP)
+        run: |
+          python -m compileall -q rc6_runtime rc7_runtime rc7_release
+          python -m py_compile \
+            tests/test_rc72_n7_execution_planning.py \
+            tests/test_rc72_n7_finalization.py \
+            tests/test_rc72_configured_mission.py
+      - name: Install lightweight Python contract runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run only P0 affected contracts (no full suite, Chromium or ZIP)
+        run: |
+          python -m pytest -q \
+            tests/test_rc72_script_ready_gate.py \
+            tests/test_rc72_dsh_agentteams_host.py \
+            tests/test_rc72_n7_execution_planning.py \
+            tests/test_rc72_n7_finalization.py \
+            tests/test_rc72_configured_mission.py \
+            tests/test_rc72_mission_bindings.py \
+            tests/test_rc72_mission_economy_cli_ingress.py \
+            tests/test_rc72_captain_host_reentry.py \
+            tests/test_rc72_n7_execution_admission.py \
+            tests/test_rc72_n6_completion.py \
+            tests/test_rc72_release_driver.py \
+            tests/test_rc72_release_driver_n6.py \
+            tests/test_rc72_release_driver_n6_recovery.py \
+            tests/test_rc72_release_driver_n7.py \
+            tests/test_rc72_release_driver_n8.py \
+            tests/test_rc72_mission_factory.py \
+            tests/test_rc72_captain_n7_pipeline.py \
+            tests/test_rc72_n7_pipeline.py \
+            tests/test_rc72_n8_product_recovery.py \
+            tests/test_rc72_n8_retry_continuation.py \
+            tests/test_rc72_n8_multi_round.py::test_two_actual_data_repair_rounds_keep_required_disposition_and_both_failed_histories \
+            tests/test_rc72_n8_multi_round_executed_peer.py::test_second_round_reuses_actual_regression_peer_not_invalidated_original_result
+      - name: Validate RC6 Wave1 on pinned Python 3.8 without duplicate full suite
+        run: python -m unittest discover -s tests -p 'test_runtime_kernel.py' -v
+      - name: Assert no package or full-suite build in staging
+        run: |
+          test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
+          echo "RC72_P0_STAGING_ONLY: no packaged runtime or full regression"

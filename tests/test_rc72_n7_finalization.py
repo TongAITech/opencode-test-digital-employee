@@ -171,3 +171,75 @@ def test_live_precondition_or_data_failure_blocks_runner_and_preserves_diagnosis
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_review_receipt_rejects_byte_identical_external_file_even_with_valid_signature(tmp_path, monkeypatch):
+    """P1-6: signed verdict/digest cannot authorize an unrelated evidence file."""
+    from copy import deepcopy
+    import hashlib
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        finalizer = ExecutionFinalizationService(review)
+        assert finalizer.finalize(bundle['bundle_id'])['state'] == 'N7_PASS'
+        receipt = truth.query('rc72_n7_execution_review')[0]
+        original = Path(receipt['stdout_ref'][len('file://'):])
+        detached = tmp_path / 'unrelated-review-output.json'
+        detached.write_bytes(original.read_bytes())
+        forged = deepcopy(receipt)
+        forged['stdout_ref'] = 'file://' + str(detached)
+        # The native private signer can sign a payload in this adversarial
+        # test. File-scope validation must independently refuse it anyway.
+        signed = {k: v for k, v in forged.items()
+                  if k not in {'signature', 'artifact_type', 'artifact_version'}}
+        forged['signature'] = prep.authority._sign(signed)
+        assert forged['stdout_sha256'] == hashlib.sha256(detached.read_bytes()).hexdigest()
+        before = list(truth.store.iter_raw())
+        with pytest.raises(ExecutionFinalizationError, match='N7_REVIEW_PROCESS_EVIDENCE_SCOPE_CHANGED'):
+            finalizer._verify(forged)
+        assert list(truth.store.iter_raw()) == before
+        assert len(server.calls) == len(plan['items'])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_final_gate_rechecks_current_case_fanout_without_repeating_business_io(tmp_path, monkeypatch):
+    """An ETU mutated after PASS cannot be used to justify an older N7 Gate."""
+    from rc7_runtime.rc72_n7_execution_planning import ExecutionPlanningError
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        finalizer = ExecutionFinalizationService(review)
+        assert finalizer.finalize(bundle['bundle_id'])['state'] == 'N7_PASS'
+        etu = truth.query('rc72_etu', etu_id=plan['items'][0]['etu_id'])[0]
+        etu['case_ids'] = list(etu['case_ids']) + ['TC-UNAPPROVED-POST-EXECUTION']
+        etu['artifact_version'] += 1
+        truth.append_atomic('RC72_ETU_UPSERTED', etu)
+        before = list(truth.store.iter_raw())
+        with pytest.raises(ExecutionPlanningError, match='N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH'):
+            finalizer.audit(bundle['bundle_id'])
+        assert list(truth.store.iter_raw()) == before
+        assert len(server.calls) == len(plan['items'])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_independent_gate_rejects_attempt_rebound_to_another_case_after_real_dispatch(tmp_path, monkeypatch):
+    """P1-5/P1-6: an actual Attempt cannot be claimed by a sibling Case."""
+    from rc7_runtime.rc72_n7_evidence_review import EvidenceReviewError
+    truth, plan, prep, server, review, bundle = _bundle(tmp_path, monkeypatch)
+    try:
+        first = bundle['case_results'][0]
+        attempt = truth.query('execution_attempt', attempt_id=first['attempt_id'])[0]
+        attempt['tc_id'] = 'UNRELATED-CASE-ID'
+        attempt['artifact_version'] += 1
+        truth.append_atomic('EXECUTION_ATTEMPT_UPSERTED', attempt)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(EvidenceReviewError, match='N7_REVIEW_ATTEMPT_ASSERTION_MISMATCH'):
+            ExecutionFinalizationService(review).finalize(bundle['bundle_id'])
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == len(plan['items'])
+        assert not truth.query('rc72_n7_execution_review')
+    finally:
+        server.shutdown()
+        server.server_close()

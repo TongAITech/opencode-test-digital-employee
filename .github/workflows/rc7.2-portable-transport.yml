@@ -1,6 +1,12 @@
 name: RC7.2 Portable Transport Preparation
 
 on:
+  workflow_call:
+    inputs:
+      final_qualification:
+        description: 'Only a separately qualified RC7.2 source may request final package'
+        required: true
+        type: boolean
   workflow_dispatch:
     inputs:
       final_qualification:
@@ -14,7 +20,9 @@ permissions:
 
 jobs:
   portable-transport:
-    if: github.event_name == 'workflow_dispatch' && inputs.final_qualification == true
+    # Manual Q2 and the one-shot qualified source caller use the same exact
+    # physical materialization, clean-unpack, checksum and offline probes.
+    if: inputs.final_qualification == true
     runs-on: windows-latest
     timeout-minutes: 120
     env:

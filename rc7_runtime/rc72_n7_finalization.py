@@ -72,9 +72,43 @@ class ExecutionFinalizationService:
         signed = {k: v for k, v in receipt.items() if k not in {'signature', 'artifact_version', 'artifact_type'}}
         if not hmac.compare_digest(receipt['signature'], self.preparation.authority._sign(signed)):
             raise ExecutionFinalizationError('N7_REVIEW_SIGNATURE_INVALID')
-        for key in ('stdout', 'stderr'):
-            path = Path(receipt[key + '_ref'][len('file://'):])
-            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != receipt[key + '_sha256']:
+        # P1-6: N8 may reuse an already accepted *earlier* generation.
+        # The previous review's capture root is not the current N8 capture
+        # root. Bind evidence to the signed child process command and its
+        # actual captured input bytes, never to this instance's root.
+        # The original process input path is a signed, durable file source.
+        command = receipt.get('command')
+        if (not isinstance(command, list) or len(command) != 4
+                or command[1] != '-I'
+                or Path(command[2]).name != 'rc72_review_worker.py'
+                or not isinstance(command[3], str) or not command[3]):
+            raise ExecutionFinalizationError('N7_REVIEW_PROCESS_COMMAND_INVALID')
+        input_path = Path(command[3])
+        root = input_path.parent
+        if (not input_path.is_absolute()
+                or root.name != receipt.get('review_id')
+                or root.parent.name != 'reviews'
+                or input_path.name != receipt.get('input_sha256', '') + '.json'):
+            raise ExecutionFinalizationError('N7_REVIEW_PROCESS_INPUT_SCOPE_CHANGED')
+        if (root.is_symlink() or root.parent.is_symlink()
+                or input_path.is_symlink()):
+            raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_SYMLINK_FORBIDDEN')
+        if (not input_path.is_file()
+                or hashlib.sha256(input_path.read_bytes()).hexdigest()
+                    != receipt['input_sha256']):
+            raise ExecutionFinalizationError('N7_REVIEW_PROCESS_INPUT_CHANGED')
+        # Both output files must be siblings of the *signed* reviewer input,
+        # not caller-controlled files with identical digests. This remains
+        # valid after R1 restart and across N8 repair generations.
+        for key, name in (('stdout', 'stdout.json'), ('stderr', 'stderr.log')):
+            path = root / name
+            if receipt.get(key + '_ref') != 'file://' + str(path):
+                raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_SCOPE_CHANGED')
+            if path.is_symlink():
+                raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_SYMLINK_FORBIDDEN')
+            if (not path.is_file()
+                    or hashlib.sha256(path.read_bytes()).hexdigest()
+                        != receipt[key + '_sha256']):
                 raise ExecutionFinalizationError('N7_REVIEW_PROCESS_EVIDENCE_CHANGED')
         return receipt
 

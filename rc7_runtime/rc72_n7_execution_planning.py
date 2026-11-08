@@ -44,6 +44,12 @@ def _validate(payload):
         contracts._require_string_list(item, 'input_artifact_refs')
     if len({item['case_id'] for item in out['items']}) != len(out['items']):
         raise contracts.DomainValidationError('N7_PLAN_CASE_DUPLICATE')
+    # A Case fanout must never share a WorkItem, frozen executable or
+    # signed admission with a different Case. ETUs may deliberately group
+    # compatible Cases; their exact membership is checked against R1 below.
+    for field in ('workitem_id', 'contract_id', 'admission_id'):
+        if len({item[field] for item in out['items']}) != len(out['items']):
+            raise contracts.DomainValidationError('N7_PLAN_%s_DUPLICATE' % field.upper())
     for key in ('actual_result', 'assertion_result', 'data_lease_id', 'field_verified', 'bank_final'):
         if key in out:
             raise contracts.DomainValidationError('N7_PLAN_PREMATURE_CLAIM')
@@ -190,6 +196,38 @@ class ExecutionPlanningService:
         self.truth.append_atomic(_EVENT, payload)
         return self.assert_current(plan_id)
 
+    def assert_fanout(self, plan):
+        """Read-only Case/ETU/WorkItem snapshot guard at planning AND review."""
+        if (plan.get('source_commit') != self.source_commit
+                or plan.get('release_id') != self.release_id):
+            raise ExecutionPlanningError('N7_PLAN_SOURCE_MISMATCH')
+        snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
+        # P1-5: enforce the *entire* Case -> ETU -> WorkItem denominator.
+        # Checking only "my Case is in my ETU" allowed extra/duplicate
+        # members to be silently dispatched under another Case's authority.
+        # No R1 event, lease, Worker or business I/O may follow a mismatch.
+        etu_ids = snapshot.get('etu_ids')
+        if (not isinstance(etu_ids, list)
+                or len(etu_ids) != len(set(etu_ids))
+                or set(etu_ids) != {item['etu_id'] for item in plan['items']}):
+            raise ExecutionPlanningError('N7_PLAN_CASE_FANOUT_ETU_DENOMINATOR_MISMATCH')
+        fanout = {}
+        for etu_id in etu_ids:
+            etu = self._one('rc72_etu', etu_id=etu_id)
+            if (etu.get('mission_id') != plan['mission_id']
+                    or etu.get('release_batch_id') != plan['release_batch_id']
+                    or etu.get('planning_snapshot_ref') != plan['snapshot_id']
+                    or not isinstance(etu.get('case_ids'), list)
+                    or not etu['case_ids']):
+                raise ExecutionPlanningError('N7_PLAN_CASE_FANOUT_ETU_SCOPE_MISMATCH')
+            for case_id in etu['case_ids']:
+                if case_id in fanout:
+                    raise ExecutionPlanningError('N7_PLAN_CASE_FANOUT_DUPLICATE_CASE')
+                fanout[case_id] = etu_id
+        if fanout != {item['case_id']: item['etu_id'] for item in plan['items']}:
+            raise ExecutionPlanningError('N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH')
+        return snapshot
+
     def assert_current(self, plan_id: str, *, review_only: bool = False) -> Dict[str, Any]:
         plan = self._one(_ARTIFACT, plan_id=plan_id)
         if plan.get('source_commit') != self.source_commit or plan.get('release_id') != self.release_id:
@@ -204,7 +242,7 @@ class ExecutionPlanningService:
         obligations = {item.obligation_id: item for item in design.obligations}
         if {item['case_id'] for item in plan['items']} != set(source_cases):
             raise ExecutionPlanningError('N7_PLAN_CASE_DENOMINATOR_MISMATCH')
-        snapshot = self._one('rc72_decomposition_snapshot', snapshot_id=plan['snapshot_id'])
+        snapshot = self.assert_fanout(plan)
         current_inputs, current_cases = [], []
         for item in plan['items']:
             admission, current_input = self.admission._current_input(item['admission_id'], review_only=review_only)

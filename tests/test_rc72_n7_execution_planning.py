@@ -91,3 +91,85 @@ def test_planning_snapshot_cannot_change_the_approved_auth_role(tmp_path, monkey
     with pytest.raises(ExecutionPlanningError, match='SNAPSHOT_STALE'):
         _service(truth).assert_current(plan['plan_id'])
     assert list(truth.store.iter_raw()) == before
+
+
+def test_fanout_rejects_extra_etu_case_without_new_business_or_r1_effect(tmp_path, monkeypatch):
+    """P1-5: an ETU cannot borrow an unapproved Case during cold continuation."""
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    etu = truth.query('rc72_etu', etu_id=plan['items'][0]['etu_id'])[0]
+    etu['case_ids'] = list(etu['case_ids']) + ['TC-UNAPPROVED-FANOUT']
+    etu['artifact_version'] += 1
+    truth.append_atomic('RC72_ETU_UPSERTED', etu)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(ExecutionPlanningError, match='N7_PLAN_CASE_FANOUT_LINEAGE_MISMATCH'):
+        _service(truth).assert_current(plan['plan_id'])
+    assert list(truth.store.iter_raw()) == before
+    assert not truth.query('rc72_n7_execution_preparation')
+    assert not truth.query('execution_attempt')
+
+
+def test_fanout_cannot_reuse_another_case_workitem_even_with_distinct_case_id(tmp_path, monkeypatch):
+    """P1-5: a different Case must not inherit another Case's WorkItem."""
+    from copy import deepcopy
+    from rc6_runtime.contracts import DomainValidationError
+    from rc7_runtime.rc72_n7_execution_planning import _validate
+    truth, _ = _ready(tmp_path, monkeypatch)
+    plan = _service(truth).plan(release_batch_id=BATCH)
+    changed = deepcopy(plan)
+    stolen = deepcopy(plan['items'][0])
+    stolen.update(case_id='TC-FORGED', contract_id='N6-FORGED',
+                  admission_id='N7-ADMISSION-FORGED')
+    changed['items'] = [deepcopy(plan['items'][0]), stolen]
+    with pytest.raises(DomainValidationError, match='N7_PLAN_WORKITEM_ID_DUPLICATE'):
+        _validate(changed)
+
+
+def test_rc72_legacy_script_admission_cannot_bypass_native_node_gate(tmp_path, monkeypatch):
+    """GAP-01: arbitrary evidence strings cannot promote a formal R1 batch."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import (
+        AutonomousMissionOrchestrator, MissionOrchestrationError)
+    truth, _ = _ready(tmp_path, monkeypatch)
+    legacy = MissionRuntime(str(tmp_path / 'legacy-mission'))
+    state = legacy.create(MISSION, RELEASE)
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    before = list(truth.store.iter_raw())
+    with pytest.raises(MissionOrchestrationError, match='RC72_FORMAL_N6_N7_GATE_REQUIRED'):
+        AutonomousMissionOrchestrator(legacy, truth).record_verified_gate(
+            MISSION, 'SCRIPT_READY_ADMITTED', 'r1://artifact/unchecked')
+    assert list(truth.store.iter_raw()) == before
+    assert 'SCRIPT_READY_ADMITTED' not in legacy.load(MISSION).completed_gates
+    assert legacy.load(MISSION).stage == 'SCRIPT_READY'
+
+
+def test_legacy_script_gate_historical_missions_remain_compatible(tmp_path):
+    """Do not redefine old RC6 state on a ledger with no RC7.2 batch."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import AutonomousMissionOrchestrator
+    truth = TruthRuntime(tmp_path / 'legacy-r1.jsonl')
+    legacy = MissionRuntime(str(tmp_path / 'legacy'))
+    state = legacy.create('OLD-ONLY', 'LEGACY')
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    accepted = AutonomousMissionOrchestrator(legacy, truth).record_verified_gate(
+        'OLD-ONLY', 'SCRIPT_READY_ADMITTED', 'legacy-evidence-ref')
+    assert 'SCRIPT_READY_ADMITTED' in accepted.completed_gates
+
+
+def test_formal_rc72_script_ready_does_not_repeat_legacy_run_gate(tmp_path, monkeypatch):
+    """GAP-01: legacy coordinator emits explicit HOLD, not a perpetual RUN_GATE."""
+    from rc6_runtime.mission import MissionRuntime
+    from rc6_runtime.orchestrator import AutonomousMissionOrchestrator
+    truth, _ = _ready(tmp_path, monkeypatch)
+    legacy = MissionRuntime(str(tmp_path / 'legacy-script-state'))
+    state = legacy.create(MISSION, RELEASE)
+    state.stage = 'SCRIPT_READY'
+    legacy.save(state)
+    original = truth.store.path.read_bytes()
+    step = AutonomousMissionOrchestrator(legacy, truth).plan_next(MISSION)
+    assert step.action == 'HOLD'
+    assert 'RC72_FORMAL_N6_N7_GATE_REQUIRED' in step.blocking_reasons
+    assert truth.store.path.read_bytes() == original
+    assert legacy.load(MISSION).stage == 'SCRIPT_READY'

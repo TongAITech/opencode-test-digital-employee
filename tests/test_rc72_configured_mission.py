@@ -602,3 +602,85 @@ def test_package_config_live_dsh_host_starts_first_captain_and_n9_with_one_signe
         source_commit=COMMIT, release_batch_id=BATCH)
     assert restored.captain_binding.captain_lease_id == lease[0]["lease_id"]
     assert truth.store.path.read_bytes() == after
+
+
+def test_full_package_field_run_requires_actual_host_captain(tmp_path):
+    """GAP-02: full Field run cannot fall back to DSH chat-only team."""
+    from types import SimpleNamespace
+    import pytest
+    from rc7_runtime.models import ContractError
+    from rc7_release.rc72_mission_cli import _require_field_captain
+    (tmp_path / 'PACKAGE_MANIFEST.json').write_text('{}', encoding='utf-8')
+    ungoverned = SimpleNamespace(captain_binding=None)
+    with pytest.raises(ContractError, match='C07_REAL_DSH_CAPTAIN_HOST_REQUIRED_FOR_FIELD_RUN'):
+        _require_field_captain('run', tmp_path, ungoverned)
+    # Read-only mirror or component checks do not claim a Captain or Field run.
+    _require_field_captain('mirror-check', tmp_path, ungoverned)
+    (tmp_path / 'PACKAGE_MANIFEST.json').unlink()
+    _require_field_captain('run', tmp_path, ungoverned)
+    # Positive Host observation remains the responsibility of the signed
+    # captain_bootstrap/reentry and MissionFactory, not a string in a config.
+
+
+def test_trusted_local_agentteams_factory_probes_dsh_before_real_captain_binding(tmp_path, monkeypatch):
+    """GAP-02: package factory accepts only separately signed live membership."""
+    from rc7_release.rc72_dsh_agentteams_factory import (
+        CaptainProviderWiring, configured_agentteams_host_bindings)
+    from test_rc72_dsh_agentteams_host import _local_server, _host, _proof
+
+    truth, _config, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
+    server = _local_server()
+    try:
+        host, membership_key = _host(server)
+        provider = ModuleType('bank_agentteams_control_plane_provider')
+        def observe(**kwargs):
+            assert kwargs['truth'] is truth
+            assert kwargs['release_batch_id'] == BATCH
+            return CaptainProviderWiring(
+                proof=_proof(membership_key),
+                membership_authority=membership_key,
+                host_authority=host.host_authority,
+                role_profiles={'L3_EXECUTE': ('api_http',)},
+                approved_capabilities=('api_http',))
+        provider.create_captain_observation_provider = observe
+        monkeypatch.setitem(sys.modules, provider.__name__, provider)
+        bound = configured_agentteams_host_bindings(
+            truth, release_id=RELEASE, source_commit=COMMIT,
+            release_batch_id=BATCH, config_path=path,
+            provider_module=provider.__name__,
+            dsh_base_url='http://127.0.0.1:%d' % server.server_port)
+        assert bound.captain_binding is not None
+        assert bound.captain_binding.captain_session_id == 'session-real-dsh-captain-001'
+        assert len(truth.query('rc72_captain_dispatch_lease')) == 1
+        assert not truth.query('execution_attempt')
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_run_rejects_q7_hold_before_any_signed_host_observation_or_lease(tmp_path, monkeypatch, capsys):
+    """GAP-02: failed bank admission must not even invoke DSH Host provider."""
+    truth, _config, path = _setup(tmp_path, monkeypatch)
+    start_n1(truth)
+    admission = truth.query('rc72_q7_admission')[0]
+    admission.update(status='HOLD', reason='unaccepted bank mirror',
+                     hold_reasons=['bank mirror not verified'],
+                     artifact_version=admission['artifact_version'] + 1)
+    truth.append_atomic('RC72_Q7_ADMISSION_UPSERTED', admission)
+    provider = ModuleType('must_not_observe_dsh_before_q7')
+    def forbidden(**kwargs):
+        pytest.fail('real DSH provider called before Q7 admission')
+    provider.create_captain_observation_provider = forbidden
+    monkeypatch.setitem(sys.modules, provider.__name__, provider)
+    before = truth.store.path.read_bytes()
+    code = main(['run', '--ledger', str(truth.store.path),
+        '--source-commit', COMMIT, '--release-batch', BATCH,
+        '--release-id', RELEASE, '--package-root', str(tmp_path / 'package'),
+        '--evidence-root', str(tmp_path / 'evidence'), '--mission-config', str(path),
+        '--captain-observer-module', provider.__name__])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 37 and result['reason'] == 'FIELD_MISSION_Q7_ADMISSION_HOLD'
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_captain_dispatch_lease')
+    assert not (tmp_path / 'owned-state').exists()

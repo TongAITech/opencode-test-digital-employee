@@ -334,6 +334,40 @@ class ReleaseBatchDriver:
                 lease.get('captain_session_id') != n7.captain_session_id):
             raise ContractError('RC72_RELEASE_DRIVER_CAPTAIN_SCOPE_MISMATCH')
 
+    def _admit_formal_n7_script_gate(self, batch):
+        """Every Field N7 path shares one signed Gate, including resume/audit.
+
+        The ordinary Engineering component path remains independent, but
+        deleting a previously transported full-package manifest cannot
+        downgrade an already Field-qualified ReleaseBatch.
+        """
+        from pathlib import Path
+        mirror = self.bank_pip_mirror
+        root = getattr(mirror, 'root', None)
+        # Only the trusted CLI ingress owns authoritative package validation
+        # (including refusing deletion after earlier full-package qualification).
+        # This internal driver also runs source-only *engineering* fixtures:
+        # upstream R1 mirror rows can be test prerequisites, not physical
+        # transport facts. Never promote those rows to Field identity here.
+        # A physically present full package always requires the signed Gate.
+        if root is None or not (Path(root) / 'PACKAGE_MANIFEST.json').is_file():
+            return None
+        from .rc72_script_ready_gate import NativeScriptReadyGateProducer
+        from .rc72_mission_factory import MissionCaptainBinding
+        n7 = self.n7_pipeline
+        if n7 is None or n7.captain_scheduler is None:
+            raise ContractError('SCRIPT_READY_FIELD_CAPTAIN_REQUIRED')
+        captain = MissionCaptainBinding(
+            scheduler=n7.captain_scheduler,
+            captain_session_id=n7.captain_session_id,
+            captain_lease_id=n7.captain_lease_id, team_id=n7.team_id)
+        return NativeScriptReadyGateProducer(
+            self.truth, release_id=batch['release_id'],
+            source_commit=self.source_commit,
+            authority=n7.preparation.authority).issue(
+                release_batch_id=batch['release_batch_id'],
+                captain_binding=captain)
+
     def _has_gate(self,node_type):
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
@@ -425,6 +459,9 @@ class ReleaseBatchDriver:
             N1StrictDshHandoffService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
                 allowed_tools=self.n1_tools).audit_recorded_native_handoff(release_batch_id=batch['release_batch_id'])
         if node_type=='N7_EXECUTION' and self.n7_pipeline is not None:
+            signed = self._admit_formal_n7_script_gate(batch)
+            if signed is not None and signed['status'] != 'ADMITTED':
+                return dict(status='HOLD', reason=signed.get('reason', 'SCRIPT_READY_TRUSTED_GATE_REQUIRED'))
             return self.n7_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N6_EXECUTABLE_READINESS':
             return N6PipelineService(self.truth,release_id=batch['release_id'],source_commit=self.source_commit).complete(release_batch_id=batch['release_batch_id'])
@@ -588,6 +625,11 @@ class ReleaseBatchDriver:
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
                 elif node['node_type']=='N7_EXECUTION' and self.n7_pipeline is not None:
+                    signed = self._admit_formal_n7_script_gate(batch)
+                    if signed is not None and signed['status'] != 'ADMITTED':
+                        return dict(self.status(release_batch_id=release_batch_id),
+                                    status='HOLD',
+                                    reason=signed.get('reason', 'SCRIPT_READY_TRUSTED_GATE_REQUIRED'))
                     result = self.n7_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
                         # N7 runner/process failures have already persisted
