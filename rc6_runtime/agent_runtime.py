@@ -472,6 +472,9 @@ class DshHeadlessWorkerLauncher:
                 details.append(str(event.get("code") or event.get("message")
                                    or event.get("error") or "")[:2048])
         message = " ".join(details).lower()
+        if returncode == 0 and not any(e.get("type") in
+                ("error", "provider_error", "transport_error") for e in events):
+            return None
         if ("quota_exceeded" in message or "rate_limit_exceeded" in message
                 or re.search(r"\b(?:http[ /:]*)?429\b", message)):
             return "DSH_PROVIDER_429_QUOTA_HOLD_NO_REPLAY"

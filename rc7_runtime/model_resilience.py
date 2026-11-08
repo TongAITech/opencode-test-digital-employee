@@ -413,6 +413,27 @@ def install_rc7_1_model_resilience() -> None:
                         recovery_action="MISSION_AUTOPILOT_R1_RESUME_REQUIRED",
                     )
                     raise AgentRuntimeError("MODEL_RECOVERY_REQUIRED:SIDE_EFFECT_UNCERTAIN") from exc
+                # A signed Worker STARTED event outlives this Python process.
+                # Even when no tool receipt was captured, a broken stream does
+                # not prove that the bank side effect never happened. Resume a
+                # new independently admitted Attempt from R1; NEVER re-launch
+                # the same assignment via the local automatic retry loop.
+                started = any(row.get("event_name") == "WORKER_STARTED"
+                              for row in self.truth.query("agent_runtime_event",
+                                  assignment_id=assignment.assignment_id))
+                if started:
+                    self.emit_control_event(
+                        "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT",
+                        assignment.mission_id,
+                        task_id=task_id,
+                        assignment_id=assignment.assignment_id,
+                        attempt_id=assignment.attempt_id,
+                        failure_category=failure.category,
+                        unsafe_tool_calls=[],
+                        reason="R1_WORKER_STARTED_UNKNOWN_EFFECT",
+                        recovery_action="MISSION_AUTOPILOT_R1_RESUME_REQUIRED",
+                    )
+                    raise
                 if retry_index >= max_retries:
                     self.emit_control_event(
                         "MODEL_RETRY_EXHAUSTED",

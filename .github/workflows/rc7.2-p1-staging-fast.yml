@@ -24,7 +24,7 @@ jobs:
       - run: python -m pip install --disable-pip-version-check pytest
       - name: Execute first P1 targeted read-only status and C12 provenance contracts
         run: |
-          python -m pytest -q tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc7_final_only_transport_policy.py tests/test_rc72_release_driver.py tests/test_rc7_dsh_runtime_profile.py tests/test_agent_runtime.py tests/test_agent_runtime_hardening.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_worker_restart_fail_closed.py
+          python -m pytest -q tests/test_rc72_missing_batch_status.py tests/test_rc72_c12_source_contract.py tests/test_rc7_final_only_transport_policy.py tests/test_rc72_release_driver.py tests/test_rc7_dsh_runtime_profile.py tests/test_agent_runtime.py tests/test_agent_runtime_hardening.py tests/test_rc7_1_model_resilience.py tests/test_rc72_phase5_worker_lifecycle_contract.py tests/test_rc72_worker_restart_fail_closed.py
       - name: No intermediate transport build
         run: |
           test ! -d dist/PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10
