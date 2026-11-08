@@ -15,9 +15,12 @@ def test_c12_consumes_only_actual_merged_p0_source_and_artifact():
     assert "C12_SOURCE_NOT_EXACT_MERGED_PR76" in text
     assert "$pr.head.sha -ne $env:TARGET_MAIN_SHA" in text
     assert "$pr.base.ref -ne 'work/rc7.2'" in text
-    assert "$_.name -eq 'RC7.2 P0 One-Shot Qualified Portable Transport'" in text
-    assert "$_.path -eq '.github/workflows/rc7.2-p0-one-shot-portable.yml'" in text
-    assert "$_.head_branch -eq 'work/rc7.2-p0-final-transport-20261108'" in text
+    assert "name='RC7.2 P0 One-Shot Qualified Portable Transport'" in text
+    assert "$_.name -eq $expectations.name" in text
+    assert "path='.github/workflows/rc7.2-p0-one-shot-portable.yml'" in text
+    assert "$_.path -eq $expectations.path" in text
+    assert "branch='work/rc7.2-p0-final-transport-20261108'" in text
+    assert "$_.head_branch -eq $expectations.branch" in text
     assert "$_.head_sha -eq $env:TARGET_MAIN_SHA" in text
     assert "$_.conclusion -eq 'success'" in text
     assert "C12_EXACT_SHA_VALID_ARTIFACT_MISSING_OR_AMBIGUOUS" in text
