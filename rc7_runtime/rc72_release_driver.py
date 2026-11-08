@@ -379,7 +379,8 @@ class ReleaseBatchDriver:
         return (node_type in self._gate_types() or node_type=='N6_EXECUTABLE_READINESS'
                 or node_type=='N7_EXECUTION' and self.n7_pipeline is not None
                 or node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None
-                or node_type=='N9_DEFECT' and self.n9_pipeline is not None
+                or node_type=='N9_DEFECT' and (self.n9_pipeline is not None
+                    or self.n9_professional_pipeline is not None)
                 or node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None)
 
     def _diagnosis_bypassed(self,nodes,mission_id):
@@ -442,6 +443,34 @@ class ReleaseBatchDriver:
             'N3_CODE_ANALYSIS': N3DeliveryGateService, 'N4_TEST_DESIGN': N4ParentScopedDeliveryGateService,
             'N5_TEST_DATA': N5OwnedWorkItemGateService}
 
+    def _n9_professional_history(self, batch):
+        """R1-only professional routing, including pending work before reproduction.
+
+        Historical signed discrepancies cannot become a clean N9 clearance
+        simply because the expensive independent reproduction is not finished.
+        Never rely on a caller-supplied 'defect_confirmed' or PASS label.
+        """
+        release_batch_id = batch['release_batch_id']
+        mission_id = batch['mission_id']
+        for kind in ('rc72_n9_professional_dsh_analysis',
+                     'rc72_n9_reproduction_authorization_request',
+                     'rc72_n9_approved_reproduction_execution',
+                     'rc72_n9_professional_disposition_review'):
+            if self.truth.query(kind, release_batch_id=release_batch_id):
+                return True
+        for row in self.truth.query('rc7_task', mission_id=mission_id):
+            if (row.get('node') in {'DEFECT', 'N9_DEFECT'}
+                    or row.get('task_type') in {
+                        'N9_DISCREPANCY_QUALIFICATION', 'DEFECT_REPRODUCTION',
+                        'QUALIFY_DEFECT', 'DEFECT_RCA', 'DEFECT_REGRESSION',
+                        'DEFECT_RESOLUTION'}):
+                return True
+        for row in self.truth.query('rc7_gap', mission_id=mission_id):
+            if (row.get('target_node') in {'DEFECT', 'N9_DEFECT'}
+                    or row.get('category') in {'VALID_TEST_FAILURE', 'PRODUCT_DEFECT'}):
+                return True
+        return False
+
     def _complete_gate(self, node_type, batch):
         if node_type=='N8_DIAGNOSIS_RECOVERY' and self.n8_pipeline is not None:
             n7=self._one('rc72_mission_node',mission_id=batch['mission_id'],node_type='N7_EXECUTION')
@@ -451,17 +480,21 @@ class ReleaseBatchDriver:
         if node_type=='N10_RELEASE_CONVERGENCE' and self.n10_pipeline is not None:
             return self.n10_pipeline.complete(release_batch_id=batch['release_batch_id'])
         if node_type=='N9_DEFECT':
-            # N9's original accepted-scope path is only valid when no real
-            # professional discrepancy exists. A confirmed C04 reproduction
-            # MUST consume independent professional disposition; it may not
-            # take the ordinary empty-discrepancy shortcut.
-            if (self.n9_professional_pipeline is not None and
-                    self.truth.query('rc72_n9_approved_reproduction_execution',
-                        release_batch_id=batch['release_batch_id'])):
+            # Professional routing starts with the *first* signed N8/DSH
+            # discrepancy or qualification WorkItem, not only after the last
+            # approved reproduction has already executed. Never fall back to
+            # the clean AcceptedScope gate when specialist handling is absent.
+            if self._n9_professional_history(batch):
+                if self.n9_professional_pipeline is None:
+                    return dict(status='HOLD',
+                        reason='N9_PROFESSIONAL_DISPOSITION_PROVIDER_REQUIRED',
+                        field_verified=False, bank_final=False)
                 return self.n9_professional_pipeline.complete(
                     release_batch_id=batch['release_batch_id'])
             if self.n9_pipeline is not None:
                 return self.n9_pipeline.complete(release_batch_id=batch['release_batch_id'])
+            return dict(status='HOLD', reason='N9_NATIVE_GATE_PROVIDER_REQUIRED',
+                        field_verified=False, bank_final=False)
         if node_type=='N1_REALITY':
             N1StrictDshHandoffService(self.truth, source_commit=self.source_commit, launcher=self.n1_launcher,
                 allowed_tools=self.n1_tools).audit_recorded_native_handoff(release_batch_id=batch['release_batch_id'])
@@ -666,7 +699,8 @@ class ReleaseBatchDriver:
                     result=self.n10_pipeline.complete(release_batch_id=release_batch_id)
                     if result.get('status')=='HOLD':
                         return dict(self.status(release_batch_id=release_batch_id), **result)
-                elif node['node_type']=='N9_DEFECT' and self.n9_pipeline is not None:
+                elif node['node_type']=='N9_DEFECT' and (self.n9_pipeline is not None
+                        or self.n9_professional_pipeline is not None):
                     # The active N9 route must use the same independent
                     # professional-disposition gate as REVIEW_PENDING and
                     # cold reentry. Calling the accepted-scope provider

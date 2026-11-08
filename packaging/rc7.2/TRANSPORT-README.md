@@ -33,3 +33,8 @@ workspace-template\runtime\python\python.exe -m rc7_release.runtime_delivery_con
 不等于真实银行任务通过。Q3 信创 Linux、Q4 正式离线验收、Q5 Browser/BSK、
 Q6 可信人工审批、Q7 真实 ReleaseBatch、Q8 恢复演练及最终验收由现场证据决定。
 `field_verified=false`，`bank_final=false`。
+
+
+### 第三轮 P2 离线主程序来源安全要求
+
+离线构建从经批准的 **HTTPS 直接下载地址** 获取 DSH 主程序，禁止重定向（即使跳向另一个 HTTPS 域名），避免携带批准的 Authorization 密钥跨主机转发。来源不可提供不可控的 HTTP 302/307 跳转下载链接，应提供最终直连、具有再分发授权且 SHA-256 独立固定的源。网络错误不会回显批准 URL/凭证。包内 `workspace-template/runtime/dsh` 各级目录不得为符号链接/重解析逃逸；本地源必须先满足物理大小范围再复制。这些只是工程候选安全控制，不替代 Authenticode/厂商身份证明及真实 DSH 启动、Q3–Q9。
