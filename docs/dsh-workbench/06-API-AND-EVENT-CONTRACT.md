@@ -37,3 +37,11 @@ mission.updated、workitem.updated、attempt.created、evidence.verified、nodeg
 5. **Evidence 与结果：** 命令 accepted、Agent 派发、截图、服务端 API 返回 200 不等于 PASS；以独立有效 Attempt、Oracle、Evidence、NodeGate 为准。重试保留旧失败和新签名 Attempt，无法判断副作用的执行必须 HOLD。
 
 工程负向 oracle：tools/dsh_workbench/w0_contract_gate.py + tests/test_dsh_workbench_w0.py 覆盖 T1–T10、未授权/伪主体、版本冲突、禁用发布、事件水位缺口、非商业许可证拦截。**它不是 HTTP 实现、数据库迁移、真实 SSE 或幂等落库验收。** B/D/E/F 尚未签署此合同，A03 只能保持 IN_PROGRESS。
+
+## WB-A03 v0.3：待签收的授权、命令、SSE 与 R1 真相
+- 真实端点授权矩阵和角色签署表见 [WB-A03-CROSS-GROUP-SIGNOFF.md](WB-A03-CROSS-GROUP-SIGNOFF.md)；拟议 /api/workbench/v1 仍不存在。
+- 授权先行：项目不可读 403 且不泄露对象存在性；授权后无资源 404、非法真实关联 422、命令/修订冲突 409、R1 truth 不可用 503。错误不可修改关系、Attempt、R1。
+- 命令主体来源由 DSH 宿主/服务端提供，拒绝客户端自报。服务端把 principal、project_id、mission_id、scope_ref、expected_state_revision、idempotency_key 联合授权及原子持久化；相同键同 payload 返回原 command_ref，不同 payload 409；未批准的 publish/NodeGate override 禁止。
+- SSE 的订阅身份和水位至少绑定 project_id、batch_id、access_scope_revision；事件要有 source_ref、truth_revision（区别于流 revision）和带时区时间。切换同项目批次也须取消旧流、重授权及丢弃旧 cursor；快照-补放-订阅必须无缝，event gap 不得伪实时。
+- UI 发布不是拖卡片结果：NodeGate PASS 且 N10 完成、Evidence 合格、所需人审通过方可放行；NEEDS_REVISION/BLOCKED/HUMAN_GATE、未结束、过期或无真相一律不可 PASS；原 QA 的 WARN 不等于 NodeGate PASS。
+- Python 契约 oracle 的事件与命令校验仅用于设计期测试，不证明真实 HTTP、R1、持久事务或 SSE 已实现。

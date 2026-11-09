@@ -28,3 +28,11 @@ Scope={project_id,batch_id,release_date,requirement_ids[],system_version_ids[],s
 
 ## 反例验收
 T1 同需求三版本各有多 SST；T2 两需求共享相同系统版本但 SST 不同；T3 多系统相同 version_label；T4 跨日期重名需求/SST；T5 未拆分 SST 显示“待拆分”；T6 关联不存在/跨批次必须阻断；T7 同一用例覆盖多 SST 不重复计数；T8 日期调整引用不断链；T9 重启后 Scope 恢复合法；T10 权限不足不能越权查另一项目。
+
+## WB-A03 v0.3：待签收的领域约束
+- 稳定 batch_id 保留历史 R1 关系，用户可见的 release_date 是业务日期而非 UTC 日期。BUSINESS_TZ 必须由业务责任人批准；缺失或冲突的旧 ReleaseBatch 进入 MIGRATION_HOLD，不得默认时区或静默合并。
+- 同项目有效批次唯一键 (project_id, release_date)。BatchRequirement PK(batch_id, requirement_id)，BatchSystemVersion PK(batch_id,system_version_id)，BatchRequirementVersion PK(batch_id,requirement_id,system_version_id)，通过双复合外键关联前两表；BatchRequirementVersionSST PK(batch_id,requirement_id,system_version_id,sst_id)，复合外键指向要求版本关联，另核对 SST 来源系统和版本身份。
+- 未拆分 SST 以合法要求版本关联的 UNSPLIT 状态呈现，不插入假 SST 主键。多需求共用版本不等于共用 SST。跨批次相同 ID 不继承连边。
+- 写入须同一事务、验证主体项目 Scope、expected_relation_revision、稳定 request_id；非法关联 422 完整回滚，已有 Evidence 的关联删除做审计停用，不物理擦除历史。
+- 旧 RC7.2 ReleaseBatch 迁移先 dry-run 计数、冲突隔离、来源映射、双向审计及回滚演练；原始 Mission/Attempt/Evidence 不重写，迁移前后分母和对象可追溯。
+- 责任和复合关系例子见 [WB-A03-CROSS-GROUP-SIGNOFF.md](WB-A03-CROSS-GROUP-SIGNOFF.md)。上述只是合同，未执行 SQL 迁移。
