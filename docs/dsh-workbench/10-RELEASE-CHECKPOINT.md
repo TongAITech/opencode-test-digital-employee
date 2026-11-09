@@ -93,7 +93,7 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 
 - A W0 审查基线：`75fd2c64159db863cfd1319d41a887785b556d40`；F 独立复验 PR #94 已完成该精确源 SHA 审查。F 结论仍 `REVIEWED_WITH_BLOCKERS / W0_NOT_FROZEN`。
 - FG18：`DESIGN_CI_RECHECK_PASS`；FG20：`DESIGN_REGISTER_RECONCILED`。均为设计期证据，不是 PostgreSQL 或正式工作台功能 QA。
-- FG17：A 已修复 Journey DOM Oracle 的异步等待问题。Q1 Python3.8/Playwright1.48/真实 Chromium 修复源 `f41e8ca882d674150349f9a1b4f0aab44e30d197` 五轮 3/3 PASS，run `42661016254`，artifact `13694826014`。Python3.11/Playwright1.62 五轮在源 `5de7cad44608847d4cc735f2a1dfb862247d0274` 验证中；待 CI 结束与 F 新 SHA 复核。FG17 暂不标 CLOSED。
+- FG17：A 已修复 Journey DOM Oracle 的异步等待问题。Q1 Python3.8/Playwright1.48 与 Python3.11/Playwright1.62 两套真实 Chromium 环境均连续 5 轮、每轮 3/3 PASS；源 `e3d6d43bcbf891b65a80eaf6da1d66affff092a2`，run `42662288273`，artifacts `13695417093` / `13695571649`；adapter 单测各 27/27 PASS。W0 合同 CI 156/156、Node 15/15、CI policy PASS，run `42662543446`。最终统一集成 HEAD 仍须重跑同源检查，F 新 SHA 复核后才能关闭 FG17。
 - FG21：已复现仅一个主线冲突文件 `.github/workflows/rc7.2-abcd-v4-qualification.yml`；正在进行无损解决，PR #84 目前仍不得标记 mergeable/merged。
 - A02 `BLOCKED_LICENSE`；W0 `NOT_FROZEN`；B06 真实 PostgreSQL/API、C01 正式六页面、D 行内 DSH1.18.26、E 真实 R1/Command/SSE、人审、Teams32、Windows 离线与 W1–W4 FIELD_QA 均 NOT_RUN。
 - 下一准入：Python3.11 同源回归 → FG17 新 SHA F 独立复核 → FG21 主线 merge clean + 同 SHA 完整资格 → B/D/E 对最终 A03 SHA 复签。商业授权独立阻断未解除前不制作银行 ZIP、不发布。
