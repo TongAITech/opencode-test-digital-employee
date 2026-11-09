@@ -57,3 +57,8 @@
 ## R4-07 启动可用性拒绝退化
 - 严守 RC7 原有“克隆配置后 DSH 本体必须能启动，不得让可选插件恢复/安装阻断 UI”合同。32 人配置检查返回 HOLD 时保留 `state/rc72-team-capacity.json`，以醒目非 PASS 提示继续 DSH UI 启动；不静默称其已扩容，不做前置 npm/plugin 安装。
 - 正式 Mission 仍以独立真实 DSH AgentTeams proof 与 R1 Captain 绑定为前提；`HOLD` 是现场未获资格而非 32 人已达标。代码和脚本专项验收单列。
+
+## R4 最新同源 CI 失败与修复（2026-11-09）
+- SHA `70115c8a0c68` 共 46 项 Check，30 失败/14 成功/2 skipped，5 类独立 CI 日志抽查指向共同回归 `CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN`（N7 pipeline 重建时非必要拒绝新 reviewer 对象，连带 C07/C09/C04/ABCD 等）。
+- 修复：`CaptainFencedWorkItemScheduler.bind_n7_cleanup_review` 只允许同一 R1、同一原生签名 authority、同一 source commit、同一工具白名单的第二个 N7 Pipeline 进行只读重入；始终保留最初绑定的审核服务，不允许真正替换审核权威。新 Pipeline 的 Captain/TaskLease 权限依旧由 `_prepare_governed_item` 验证，过期/外来 Captain 不被放行。
+- 回归：新增同源重复构造无 R1 写入、不同签名 authority/变更 source 严拒、原有外来 Captain 禁止执行测试。**本修复须新的同 SHA CI 验证成功才能算工程修复完成。**

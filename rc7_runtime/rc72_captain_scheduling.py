@@ -190,8 +190,19 @@ class CaptainFencedWorkItemScheduler:
                 or review.preparation.truth is not self.truth
                 or review.preparation.release_id != self.release_id):
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_SCOPE_INVALID")
-        if self._n7_cleanup_review is not None and self._n7_cleanup_review is not review:
-            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN")
+        previous = self._n7_cleanup_review
+        if previous is not None and previous is not review:
+            # A second N7 pipeline is normal during signed Captain reentry,
+            # expiry audit or cold product-driver reconstruction.  Never
+            # replace the trusted first verifier; only allow an equivalent
+            # view of exactly the same canonical R1 and in-process signing
+            # authority.  Foreign Captain identity is checked separately
+            # at the N7 WorkItem/TaskLease admission boundary.
+            if (previous.preparation.authority is not review.preparation.authority
+                    or previous.preparation.source_commit != review.preparation.source_commit
+                    or previous.preparation.tool_registry != review.preparation.tool_registry):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN")
+            return
         self._n7_cleanup_review = review
 
     def _n7_execution_settled(self, session):
