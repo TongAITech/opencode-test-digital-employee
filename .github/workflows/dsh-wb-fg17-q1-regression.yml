@@ -7,6 +7,8 @@ on:
       - 'tests/test_rc72_journey_playwright_adapter.py'
       - 'rc7_runtime/rc72_journey_playwright.py'
       - '.github/workflows/dsh-wb-fg17-q1-regression.yml'
+      - '.github/workflows/dsh-wb-w0-contract.yml'
+      - 'docs/dsh-workbench/qa/WB-A-FG17-ASYNC-DOM-ORACLE-FIX-20261110.md'
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2]
@@ -15,6 +17,8 @@ on:
       - 'tests/test_rc72_journey_playwright_adapter.py'
       - 'rc7_runtime/rc72_journey_playwright.py'
       - '.github/workflows/dsh-wb-fg17-q1-regression.yml'
+      - '.github/workflows/dsh-wb-w0-contract.yml'
+      - 'docs/dsh-workbench/qa/WB-A-FG17-ASYNC-DOM-ORACLE-FIX-20261110.md'
   workflow_dispatch:
 
 permissions:
