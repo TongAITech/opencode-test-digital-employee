@@ -1,6 +1,6 @@
 # WB-C W0 原创 UI 可行性验证：证据与独立验收缺口
 
-状态：`C_W0_PROBE_CODE_SUBMITTED`，`C_W0_LOCAL_UNIT_PASS`，`C_W0_BROWSER_SCREENSHOT_BLOCKED_LOCALLY`，`C_W0_BROWSER_CI_PROBE_PASS`、`C_W0_MULTISELECT_FORM_CI_PASS`，`C01/C02_W1_NOT_STARTED`，`F_RECHECK_75FD2C6_CONTRACT_PASS`、`FOLLOWUP_VISUAL_REVIEW_NOT_RUN`、`F02_NOT_RUN`。该状态**不能**转化为 W0 DESIGN_FROZEN 或 W1 QA_PASS。
+状态：`C_W0_PROBE_CODE_SUBMITTED`，`C_W0_LOCAL_UNIT_PASS`，`C_W0_BROWSER_SCREENSHOT_BLOCKED_LOCALLY`，`C_W0_BROWSER_CI_PROBE_PASS`、`C_W0_MULTISELECT_FORM_CI_PASS`、`C_W0_FOLLOWUP_HEAD_CI_PASS`，`C01/C02_W1_NOT_STARTED`，`F_RECHECK_75FD2C6_CONTRACT_PASS`、`FOLLOWUP_VISUAL_REVIEW_NOT_RUN`、`F02_NOT_RUN`。该状态**不能**转化为 W0 DESIGN_FROZEN 或 W1 QA_PASS。
 
 ## 证据来源与版本
 - 最新已查 A 组源基线（建 C 分支时）：`work/dsh-wb-w0@515f6a367bd16d3b83197fa2c89e15d63a83c4fe`；PR #84 OPEN/DRAFT，PR #85 OPEN/F REVIEWED_WITH_BLOCKERS。
@@ -72,3 +72,11 @@ python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py \
 - [B→C isolated merge job 129316185823](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662146741/job/129316185823)：真实顺序合并探针 PASS，合并树 Node **15/15 PASS**。不代表完整 A/B/C/D/E 最终发布合并。
 - [E 同源 W0 contract job 129316182812](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662146333/job/129316182812) SUCCESS。
 - F 对本 follow-up SHA 的独立视觉复核尚未执行；F02 正式 UI/API/Host QA 仍 NOT_RUN。旧 A 75fd 的 F 结论不转移。
+
+
+## 最新 follow-up HEAD 同 SHA 复跑（2026-11-10）
+- 最新 PR HEAD：d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8；此 HEAD 仅在已通过的代码 SHA 00f3a2e 上回写证据与扩展 CI 路径，没有改动 Scope/UI/测试实现。
+- [最新同 SHA C run 42662706264 / job 129318183234](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183234)：**20/20 Node PASS、真实 Chromium PASS、3 PNG 上传成功**；截图哈希与上节一致。
+- 最新 [截图 artifact 13693719815](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/artifacts/13693719815)。
+- 最新 [B→C merge probe job 129318183968](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183968)：合并探针 SUCCESS、15/15 Node PASS；最新 [E contract job 129318139591](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706275/job/129318139591) SUCCESS。
+- F 已完成对 A 75fd 源的独立审核，但对 follow-up 最新 SHA 的视觉复核仍待；W0_NOT_FROZEN / C01-C02 NOT_STARTED / A02 BLOCKED_LICENSE 不变。
