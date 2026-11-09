@@ -78,6 +78,15 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA；原版受限源码不得进入银行交付。
 
 
+
+### C 组 W0 原型深化后状态（2026-11-10）
+| GAP | 当前状态 | 本轮进展 | 未关闭条件 |
+|---|---|---|---|
+| WB-CG01 六页面/十分区 | W0_PROTOTYPE_EXPANDED / W1_NOT_STARTED | 十区逐个增加领域字段表单与原生必填校验，提交 fail-closed；六页导航与六阶段保留 | C01 正式 Host/API 实现、全量原版交互与 F02 |
+| WB-CG02 Scope | W0_MULTISELECT_PROBE / B06_BLOCKED | 多需求/多版本/多 SST 关系联动、无效组合原子拒绝、级联清理、只读快照 | B06 真实 PostgreSQL/API/ACL/分页/SSE + C02 联调 |
+| WB-CG03 浏览器证据 | CI_PENDING | 新 Playwright 逐区表单、Scope 多选、截图、错误/窄屏场景已提交待跑 | 新 HEAD 同 SHA job/artifact、F 视觉复核 |
+| WB-CG04 设计/许可门禁 | BLOCKED | F 仍 W0_NOT_FROZEN；A02 BLOCKED_LICENSE；FG17/FG21 仍 OPEN | A/F 正式 W0 冻结、授权或原创来源审计；RC7.2 merge gate |
+
 ## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
 | E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
 |---|---|---|---|---|
