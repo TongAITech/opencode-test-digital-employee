@@ -114,3 +114,15 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 F 独立复验与 A 整改增量
+
+| GAP | 当前状态 | 最新证据与下一步 |
+|---|---|---|
+| WB-FG17 / P0 | `ROOT_CAUSE_IDENTIFIED / PY38_5X_PASS / PY311_PENDING / F_RECHECK_PENDING` | 根因是 network-idle 后立即读取 SPA 文本，未等待 DOM 业务 Oracle。A 已在 JourneyPlaywrightAdapter 对 text/attribute Oracle 实现有界轮询；650ms 延迟 SUT 竞态下 Q1 Python3.8/Playwright1.48 真 Chromium 5 轮均 3/3 PASS。保留历史红灯；等待 Python3.11 同源五轮和 F 新 SHA 独立复验。 |
+| WB-FG18 / P0 | `DESIGN_CI_RECHECK_PASS` | F PR #94 在 A+F 同源树复跑原始跨版本 SST source identity 反例通过；仅设计/SQLite 级，真实 PostgreSQL、迁移、回滚仍 NOT_RUN。 |
+| WB-FG20 / P1 | `DESIGN_REGISTER_RECONCILED` | F 已确认 50 条候选登记（35 O/A + 15 N）与 C 差异矩阵一致；50 个正式产品动作仍 NOT_RUN。 |
+| WB-FG21 / P0 | `ONE_FILE_MERGE_CONFLICT_IDENTIFIED / FIX_PENDING` | 只读 Git merge probe 仅发现 `.github/workflows/rc7.2-abcd-v4-qualification.yml` 冲突；须用 W0 的严格准入版本保留 base job 内容，形成合并提交后再验证 PR #84。 |
+| WB-A02 / BLOCKER | `BLOCKED_LICENSE` | naodeng/dsh-qa PolyForm Noncommercial 商业授权未获批准；不得复制受限源码或删除许可声明。 |
+
+以上均不得把设计期合同测试升级为现场/正式产品 QA_PASS。
