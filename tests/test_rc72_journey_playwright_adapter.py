@@ -164,6 +164,9 @@ def test_cdp_adapter_passes_with_durable_actual_and_screenshot(tmp_path):
 
 def test_real_replay_assertion_failure_has_failure_file_and_screenshot(tmp_path):
     truth, pool, lease, page, adapter, service = make_replay(tmp_path, page=FakePage(text="Not saved"))
+    # Keep the negative-oracle unit test fast while the production adapter
+    # now polls asynchronous DOM state up to its configured timeout.
+    adapter.timeout_ms = 1000
     result = run_replay(service, lease)
     assert result.state.value == "FAILED"
     steps = sorted(truth.query("rc72_journey_replay_step", replay_id="REAL-1"), key=lambda x: x["sequence"])
