@@ -5,7 +5,7 @@ on:
   # A GitHub App direct ref update may not emit a PR synchronize run.
   # No pull_request listener: a single SHA gets exactly one fast W0 run.
   push:
-    branches: [work/dsh-wb-w0]
+    branches: [work/dsh-wb-w0, work/dsh-wb-w0-fg17-fg21]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'
@@ -26,6 +26,11 @@ jobs:
           python-version: '3.11'
       - name: Negative-first W0 contracts, FG15 gate DAG, license and page boundaries
         run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: C original feature reconciliation and Scope contracts
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
       - name: Verify 3-tier CI admission topology (negative-first)
         run: python tools/dsh_workbench/ci_admission.py
       - name: Boundaries are not product acceptance
