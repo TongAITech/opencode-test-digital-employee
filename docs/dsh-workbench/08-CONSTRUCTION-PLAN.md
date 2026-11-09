@@ -112,3 +112,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 新的 F04_FIELD_QA 必须有 F03_AUTONOMOUS_QA + D04_OFFLINE_QUALIFICATION，最终 BANK_RELEASE 还要 F02_FUNCTIONAL_QA、A04_FINAL_INTEGRATION 以及商业 LICENSE；不可用 W1 集成 QA 或静态 oracle 假代真实验收。
 - `w0_dependency_gate.py` 校验 release **所有跨阶段必需祖先闭包**、缺节点、缺直连关键依赖与 W0/W1 设计循环；`test_dsh_workbench_gate_dag.py` 新增移除或绕过 F02/F03/D04 的对抗测试。可选 E07 QA Replay 非最终商业发布前置。
 - 本轮仅静态代码整改，不是 F02/F03/D04/F04 实际证据；**FG16=CODE_FIX_SUBMITTED / F_RECHECK_PENDING**，A02 继续 BLOCKED_LICENSE，B/D/E DESIGN_SIGNOFF 继续 PENDING，W0 NOT_FROZEN，未合并不打 ZIP。
+
+## C 组 W0 原创探针进度（2026-11-09，待 A/F 审核合并）
+- 施工分支 `work/dsh-wb-ui` 由 `work/dsh-wb-w0@515f6a367bd1` 创建，C 的 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 已形成六主页面/十区、表单/动作/错误态/搜索/主题/导航/原创组件/API 接口的候选对账；演示代码 `tools/dsh_workbench/ui_w0_prototype/` 与 `tests/test_dsh_workbench_ui_w0.mjs` 隔离于正式产品。
+- 本地 Node 单测 9/9 PASS，语法检查 PASS；浏览器导航被 `ERR_BLOCKED_BY_ADMINISTRATOR` 阻断，**无真实截图，浏览器 QA NOT_RUN**，详见 `WB-C-W0-TEST-EVIDENCE.md`。独立 CI 工作流配置为同 HEAD Node/Playwright 浏览器探针、截图上传；是否真正通过以该 SHA job 为准。
+- **WB-C01=TODO、WB-C02=TODO、C03/C04/C05/C06=TODO**；本轮是 W0 可行性探针，不满足 A01/F W0 设计冻结，不进入 W1，也不将纯函数 Demo 等同真实 B06 复合关系/ACL API。
+- 源码采取独立创作路径；原版 `naodeng/dsh-qa` PolyForm Noncommercial 受限文件零复制，A02 `BLOCKED_LICENSE` 不变。请 A/F 以该分支真实 PR/同 SHA CI 审核后在正式总账记录，不由 C 代签 W0。
