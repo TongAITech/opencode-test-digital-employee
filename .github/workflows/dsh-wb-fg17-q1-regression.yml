@@ -1,7 +1,15 @@
 name: FG17 Q1 Python 3.8 Real Chromium Async DOM Oracle Regression
 on:
   push:
-    branches: [work/dsh-wb-w0-fg17-fg21]
+    branches: [work/dsh-wb-w0-fg17-fg21, work/dsh-wb-w0]
+    paths:
+      - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
+      - 'tests/test_rc72_journey_playwright_adapter.py'
+      - 'rc7_runtime/rc72_journey_playwright.py'
+      - '.github/workflows/dsh-wb-fg17-q1-regression.yml'
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [work/rc7.2]
     paths:
       - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
       - 'tests/test_rc72_journey_playwright_adapter.py'
@@ -14,13 +22,14 @@ permissions:
 
 jobs:
   q1-real-chromium:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: fg17-q1-py38-5x-real-chromium-dom-oracle
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -61,13 +70,14 @@ jobs:
           if-no-files-found: warn
 
   py311-real-chromium:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: fg17-py311-5x-real-chromium-dom-oracle
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
