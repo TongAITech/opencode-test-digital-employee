@@ -264,6 +264,37 @@ class JourneyPlaywrightAdapter:
         elif wait not in {"", "none", "visible", "explicit"}:
             raise ContractError("JOURNEY_WAIT_SEMANTICS_UNSUPPORTED")
 
+    def _wait_for_oracle_value(
+        self,
+        read_value: Callable[[int], Any],
+        expected: Any,
+        failure_code: str,
+    ) -> None:
+        """Poll a DOM oracle until the exact business state is observable.
+
+        HTTP/network-idle completion is not a guarantee that an SPA has
+        committed its response handler to the DOM. Keep the business Oracle
+        authoritative and fail closed when the expected value never appears.
+        """
+        deadline = time.monotonic() + (self.timeout_ms / 1000.0)
+        last_error = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            read_timeout = max(1, min(1000, int(remaining * 1000)))
+            try:
+                if read_value(read_timeout) == expected:
+                    return
+            except Exception as exc:
+                last_error = exc
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(0.05, remaining))
+        if last_error is not None:
+            raise ContractError(failure_code) from last_error
+        raise ContractError(failure_code)
+
     def _assert(self, page: Any, step: Mapping[str, Any], context: Mapping[str, Any]) -> None:
         ref = str(step.get("oracle_ref") or "")
         oracle = self.resolve(ref, "oracle", context)
@@ -305,12 +336,20 @@ class JourneyPlaywrightAdapter:
                 if not locator.is_visible():
                     raise ContractError("JOURNEY_ASSERT_NOT_VISIBLE")
             elif kind == "text_equals":
-                if locator.inner_text(timeout=self.timeout_ms) != oracle.get("expected"):
-                    raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH")
+                self._wait_for_oracle_value(
+                    lambda timeout: locator.inner_text(timeout=timeout),
+                    oracle.get("expected"),
+                    "JOURNEY_ASSERT_TEXT_MISMATCH",
+                )
             elif kind == "attribute_equals":
                 attribute = str(oracle.get("attribute") or "")
-                if not attribute or locator.get_attribute(attribute, timeout=self.timeout_ms) != oracle.get("expected"):
+                if not attribute:
                     raise ContractError("JOURNEY_ASSERT_ATTRIBUTE_MISMATCH")
+                self._wait_for_oracle_value(
+                    lambda timeout: locator.get_attribute(attribute, timeout=timeout),
+                    oracle.get("expected"),
+                    "JOURNEY_ASSERT_ATTRIBUTE_MISMATCH",
+                )
         else:
             raise ContractError("JOURNEY_ORACLE_TYPE_UNSUPPORTED")
 
