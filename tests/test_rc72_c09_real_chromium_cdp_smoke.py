@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -20,7 +21,7 @@ from urllib.request import urlopen, url2pathname
 # Deliberately required: any CI suite collecting this module must provision
 # Python Playwright and the matching real Chromium. Never silently skip a
 # required browser proof in an RC7.2 qualification job.
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
 from rc7_runtime.rc72_journey_replay import JourneyReplayService
@@ -323,10 +324,15 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
         assert observed_response.status == 200, (
             "FG17_SUT_POST_RESPONSE_NOT_200: " + str(observed_response.status)
         )
-        recorder.page.wait_for_load_state("networkidle", timeout=15000)
-        assert recorder.page.locator("#toast").inner_text(timeout=10000) == "Saved on server", (
-            "FG17_SUT_TOAST_ORACLE_NOT_MET"
-        )
+        # networkidle may already have fired before this XHR starts; it is
+        # not a fence for the SPA promise continuation. Wait for the exact
+        # business Oracle, without sleeping or weakening the expected value.
+        try:
+            expect(recorder.page.locator("#toast")).to_have_text(
+                re.compile(r"^Saved on server$"),
+                timeout=15000, use_inner_text=True)
+        except AssertionError as exc:
+            raise AssertionError("FG17_SUT_TOAST_ORACLE_NOT_MET") from exc
         observed_events = []
         for _ in range(30):
             observed_events = recorder.poll(page_role="CONFIGURATION")
