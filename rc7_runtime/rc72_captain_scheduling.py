@@ -16,6 +16,7 @@ from .truth_overlay import install_rc7_truth_overlay
 from .control_plane import TaskScheduler
 from .models import ContractError, TaskStatus
 from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+from .rc72_agentteams_capacity import TeamCapacityPolicy
 from .rc72_ledger_lock import ledger_lock
 from .rc72_worker_lifecycle import WorkerLifecycleService
 
@@ -90,7 +91,8 @@ class CaptainFencedWorkItemScheduler:
 
     def __init__(self, *, truth, release_id: str, fencer: CaptainDispatchFencer,
                  lifecycle: WorkerLifecycleService, scheduler: TaskScheduler,
-                 role_profiles: Mapping[str, Sequence[str]]):
+                 role_profiles: Mapping[str, Sequence[str]],
+                 capacity_policy: TeamCapacityPolicy = None):
         install_captain_etu_admission_overlay()
         if (fencer.truth is not truth or lifecycle.truth is not truth
                 or scheduler.truth is not truth or fencer.release_id != release_id
@@ -113,6 +115,27 @@ class CaptainFencedWorkItemScheduler:
         self.truth, self.fencer = truth, fencer
         self.lifecycle, self.scheduler = lifecycle, scheduler
         self.release_id, self.role_profiles = release_id, validated
+        if capacity_policy is not None and type(capacity_policy) is not TeamCapacityPolicy:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPACITY_POLICY_INVALID")
+        self.capacity_policy = capacity_policy if capacity_policy is not None else TeamCapacityPolicy()
+
+    def _assert_active_team_capacity(self, team_id):
+        """Capacity is reserved for ACTIVE R1 WorkerSessions, not roster size.
+
+        Under the same R1 ledger lock as worker assignment, even a crashed
+        pre-TaskLease session consumes capacity until governed checkpoint/
+        closure. No forced reclamation, invented idle worker or task replay.
+        """
+        sessions = self.truth.query("rc72_worker_session")
+        active = [s for s in sessions
+                  if s.get("team_id") == team_id and s.get("state") == "ACTIVE"]
+        if len({s.get("session_id") for s in active}) != len(active):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_TEAM_SESSION_DUPLICATE")
+        if len(active) >= self.capacity_policy.max_active_workers:
+            raise CaptainSchedulingError(
+                "CAPTAIN_SCHEDULER_ACTIVE_CAPACITY_REACHED")
+        # This gate does not prove observed DSH model concurrency or that
+        # the plugin has actually created all 32 member identities.
 
     def _assert_n7_planning_lineage(self, *, mission_id, batch, task, etu):
         """Enforce exact canonical N7 Case -> ETU -> WorkItem mapping.
@@ -257,6 +280,7 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_SCOPE_DRIFT")
             if terminal and terminal["state"] != "CLOSED":
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PRIOR_SESSION_RECOVERY_REQUIRED")
+            self._assert_active_team_capacity(team_id)
             if not isinstance(canonical_refs, Mapping):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CANONICAL_REFS_REQUIRED")
             # Assign first: if process crashes before Task lease the orphan
