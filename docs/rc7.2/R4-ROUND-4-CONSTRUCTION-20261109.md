@@ -67,3 +67,11 @@
 
 - 移除 `dispatch_ready_batch` 对入参 WorkItem 数量的 `len > team_member_capacity` 错误拒绝：一个投产批次可以拥有超过 32 个有效 ETU/WorkItem；32 是插件成员数，初始 4 是活跃任务并发数，**都不是批次待执行案例数量**。
 - 对 33 个真实入账 R1 READY WorkItem 增加调度回归：只允许 4 个 signed admission / WorkerSession，剩余 29 条保持 READY；重复调用不得二次派工或改变 R1；测试不声称 33 名真实 DSH Agent 已创建。
+
+
+## R4-07 第四施工切片：只读现场成员名册观测工具（source qualified candidate）
+
+- 正式代码 `rc7_release.rc72_team_roster_observation`；行内通过 `python -m rc7_release.rc72_team_roster_observation --team-state-file <workspace>/.agent-teams/<team-id>/team.json --team-id <team-id> --dsh-url http://127.0.0.1:4096 --output state/rc72-team-roster-observation.json` 收集本地插件现存 Team JSON 的 SHA256、非 removed 名册计数、已创建子会话计数、Captain 真实 loopback `/session/<id>` / `/session/status`。此工具**不调用模型、不新增成员、不改变 R1**。
+- 原生 NanmiCoder 插件 `src/state.ts` 以 `<workspace>/<stateDir>/<teamId>/team.json` 存团队；`stateDir` 默认 `.agent-teams`、可自定义，所以必须从真实运行配置传入 team-state-file，不得猜路径。成员 `status=idle/working/removed`；`id=''` 表示仍未创建子会话，不允许当作缺陷。
+- 仅 `ROSTER_SNAPSHOT_AND_LIVE_CAPTAIN_OBSERVED`，输出 `field_verified=false/bank_final=false`：磁盘快照+本地 DSH session 不是原生插件 HMAC membership proof，也不是第33人的真实添加拒绝；后续仍要求受控 DSH AgentTeams 第33人拒绝结果、正式 N7 R1 Session/Lease、真实模型和 E 独立现场验证。不可把测试合成的 32 members 误报为现场。
+- 四平台 read-only 正反例测试独立 CI，不构建 ZIP。
