@@ -31,3 +31,11 @@
 不允许自动从配置文本伪造 Team 成员，不允许仅凭 DSH 配置读取宣布 32 个实际 Session 已建立。
 
 当前：`R4_SOURCE_PARTIAL` / `R4_07_FIELD_PENDING` / `C12_PHYSICAL_HOLD` / `BANK_FINAL=NO`。
+
+## R4-07 第二施工批次 — 2026-11-09，32 人真正进入隔离运行配置
+- DSH 的 `cordis.patch.yml` 覆盖是整个插件配置替换，而非键级合并。禁止在通用 `--patch` 中仅声明 `maxMembers: 32` 覆盖整个插件配置。
+- 增加 `rc7_release.rc72_team_profile_capacity`：只有 DSH 原生安全 clone 建立且严格验证来源 marker/base digest、插件真实 manifest、单条显式 `agent-teams` YAML 行后，才在**隔离 clone**中保留其他字段、只新增/替换 `maxMembers: 32`。
+- 启动路径：`packaging/rc7.2/AITEST.sh` 设置 R4-07 开关；继承 `packaging/rc7/AITEST.sh` 在 clone 后、生成 DSH patch 前应用改造；不在安装前调 `npm`，不修改银行受保护的 `web` profile。
+- 支持无 `config` / 已有 `config` / 已有数字键 / 幂等重启，拒绝缺失/重复插件行、非数值/脚本成员数、未核准插件来源、来源漂移、符号链接。
+- 返回 `SOURCE_CONFIG_APPLIED_NOT_RUNTIME_VERIFIED`，**不宣称 DSH 运行进程确实加载了该字段**。真实 DSH `--dump-config`、32 真实成员创建、33 人阻断、DSH 会话/团队身份绑定以及行内 429/502、真实 R1 在下一 Field Gate 中独立验收。
+- 本批次不修改固定冻结的 R1 Captain/TaskLease/Browser/Data/认证权限语义；不触发 GB ZIP。

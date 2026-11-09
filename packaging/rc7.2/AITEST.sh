@@ -22,6 +22,7 @@ export PFC_PYTHON="$PY"
 # RC7 identity verifier while retaining every other RC7 startup safety check.
 export PFC_RC7_SKIP_QUALIFY=1
 export PFC_RC7_DSH_PROFILE="${PFC_RC72_DSH_PROFILE:-rc7.2-bank}"
+export PFC_RC72_TEAM_CAPACITY32=1
 
 if [[ "$PFC_RC7_DSH_PROFILE" == "${PFC_RC7_DSH_BASE_PROFILE:-web}" ]]; then
   echo "[RC7.2] runtime profile must not equal protected bank base profile" >&2

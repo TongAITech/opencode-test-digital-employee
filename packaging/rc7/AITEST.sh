@@ -74,6 +74,16 @@ fi
   --output "$ROOT/state/rc7-dsh-runtime-profile.json" \
   --require-pass
 
+# RC7.2 only: apply the 32-member limit to the isolated profile's actual
+# AgentTeams row. The protected bank profile is never edited or overwritten.
+# On missing/ambiguous plugin config, fail closed rather than claim expansion.
+if [[ "${PFC_RC72_TEAM_CAPACITY32:-0}" == "1" ]]; then
+  "$PY" -m rc7_release.rc72_team_profile_capacity \
+    --runtime-profile "$PFC_RC7_DSH_PROFILE" \
+    --base-profile "$PFC_RC7_DSH_BASE_PROFILE" \
+    --output "$ROOT/state/rc72-team-capacity.json"
+fi
+
 "$PY" -m rc7_release.dsh \
   --output "$ROOT/state/rc7-dsh.patch.yml" \
   --home "$ROOT" \
