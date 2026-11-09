@@ -25,5 +25,7 @@ jobs:
           python-version: '3.11'
       - name: Negative-first W0 contracts, FG15 gate DAG, license and page boundaries
         run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: Verify 3-tier CI admission topology (negative-first)
+        run: python tools/dsh_workbench/ci_admission.py
       - name: Boundaries are not product acceptance
         run: echo 'W0 CONTRACT TESTS ONLY; no DSH host, bank field, F review or commercial license approval'
