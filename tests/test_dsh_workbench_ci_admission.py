@@ -42,9 +42,9 @@ class TestCIAdmission(unittest.TestCase):
                      "V4_OLD_SHA_TASKS_NOT_CANCELLED")
 
     def test_w0_double_push_and_pr_runs_are_rejected(self):
-        self.changed("w0", "  pull_request:",
-                     "  push:\n    branches: [work/dsh-wb-w0]\n  pull_request:",
-                     "W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
+        self.changed("w0", "  workflow_dispatch:",
+                     "  pull_request:\n    branches: [work/rc7.2]\n  workflow_dispatch:",
+                     "W0_DUPLICATE_OR_MISSING_BRANCH_GATE")
 
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",

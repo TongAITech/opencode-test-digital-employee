@@ -8,7 +8,7 @@
 ## L0 / L1 / L2
 | 门槛 | 触发条件 | 内容与边界 |
 |---|---|---|
-| L0 W0 快速准入 | 每次 W0 PR 更新 | Python W0 + B/D/E/F 负向用例 + 机器 CI 策略反例；不意味着真 UI/DB/R1 通过 |
+| L0 W0 快速准入 | 每次 A 集成分支 push | Python W0 + B/D/E/F 负向用例 + 机器 CI 策略反例；同 SHA 只触发一份 push，避免 GitHub App 写入 ref 时 PR synchronize 事件不可靠；不意味着真 UI/DB/R1 通过 |
 | L1 综合集成 | PR 标记 ready_for_review 或以 expected_source_sha 手动运行 | B/C/D/E/F 联合契约 + C 15 个 Node 测试；仅人工选择 include_browser 才下载 Chromium 运行原型截图 |
 | L2 正式 RC7.2 QA | 非草稿 PR 与明确手动验收 | V4 完整 4 环境矩阵 + 真实 Chromium + 原有全部 test_rc7*.py，不删除用例；V3 历史对比转手动/历史分支 |
 

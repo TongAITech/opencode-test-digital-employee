@@ -1,10 +1,11 @@
 name: DSH Workbench W0 Fast Contract Gates
 
 on:
-  # One per PR head, not the old duplicate push + pull_request pair.
-  # workflow_dispatch remains available for an explicit pinned recheck.
-  pull_request:
-    branches: [work/rc7.2]
+  # Single source of truth is the A integration branch push.
+  # A GitHub App direct ref update may not emit a PR synchronize run.
+  # No pull_request listener: a single SHA gets exactly one fast W0 run.
+  push:
+    branches: [work/dsh-wb-w0]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'

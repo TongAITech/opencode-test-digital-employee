@@ -61,10 +61,10 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "python: ['3.8', '3.11']", "windows-2022",
     )):
         errors.append("V4_FULL_RELEASE_COVERAGE_DROPPED")
-    if re.search(r"(?m)^  push:", e["w0"]) or not re.search(
+    if not re.search(r"(?m)^  push:", e["w0"]) or re.search(
         r"(?m)^  pull_request:", e["w0"]
-    ):
-        errors.append("W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
+    ) or "work/dsh-wb-w0" not in e["w0"]:
+        errors.append("W0_DUPLICATE_OR_MISSING_BRANCH_GATE")
     if not all(x in sources["w0"] for x in (
         "test_dsh_workbench*.py", "ci_admission.py", "workflow_dispatch:",
     )):
