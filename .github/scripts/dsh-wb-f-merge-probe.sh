@@ -11,6 +11,7 @@ git config user.name "WB-F Independent QA"
 git config user.email "qa-bot@users.noreply.github.com"
 git checkout --detach "$A"
 git switch -c wb-f-synthetic-aggregate
+conflicts=0
 for pair in "B:$B" "C:$C" "D:$D" "E:$E"; do
   name="${pair%%:*}"
   sha="${pair#*:}"
@@ -22,8 +23,12 @@ for pair in "B:$B" "C:$C" "D:$D" "E:$E"; do
     git diff --name-only --diff-filter=U
     git status --short
     git merge --abort || true
-    exit 2
+    conflicts=$((conflicts+1))
   fi
   echo "::endgroup::"
 done
-echo "F_SYNTHETIC_INTEGRATION_MERGE_ONLY head=$(git rev-parse HEAD); NOT REAL API/UI/R1 QA"
+echo "F_SYNTHETIC_INTEGRATION_MERGE_ONLY head=$(git rev-parse HEAD) conflicts=$conflicts; NOT REAL API/UI/R1 QA"
+if [ "$conflicts" -ne 0 ]; then
+  echo "::error::F_PREMERGE_BLOCKED: $conflicts branch(es) could not be integrated automatically"
+  exit 2
+fi
