@@ -196,7 +196,7 @@ def verify_bank_staging(staging: Path, manifest: Mapping[str, Any]) -> int:
     for entry in entries:
         if entry.get("origin_kind") == "third_party":
             notice_path = _relative_path(entry["license_file"]).as_posix()
-            _require(notice_path == entry["path"] and notice_path in by_name,
+            _require(notice_path != entry["path"] and notice_path in by_name,
                      "THIRD_PARTY_NOTICES_MISSING")
     return len(entries)
 
