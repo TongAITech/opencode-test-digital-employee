@@ -264,37 +264,6 @@ class JourneyPlaywrightAdapter:
         elif wait not in {"", "none", "visible", "explicit"}:
             raise ContractError("JOURNEY_WAIT_SEMANTICS_UNSUPPORTED")
 
-    def _wait_for_oracle_value(
-        self,
-        read_value: Callable[[int], Any],
-        expected: Any,
-        failure_code: str,
-    ) -> None:
-        """Poll a DOM oracle until the exact business state is observable.
-
-        HTTP/network-idle completion is not a guarantee that an SPA has
-        committed its response handler to the DOM. Keep the business Oracle
-        authoritative and fail closed when the expected value never appears.
-        """
-        deadline = time.monotonic() + (self.timeout_ms / 1000.0)
-        last_error = None
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            read_timeout = max(1, min(1000, int(remaining * 1000)))
-            try:
-                if read_value(read_timeout) == expected:
-                    return
-            except Exception as exc:
-                last_error = exc
-            remaining = deadline - time.monotonic()
-            if remaining > 0:
-                time.sleep(min(0.05, remaining))
-        if last_error is not None:
-            raise ContractError(failure_code) from last_error
-        raise ContractError(failure_code)
-
     def _assert(self, page: Any, step: Mapping[str, Any], context: Mapping[str, Any]) -> None:
         ref = str(step.get("oracle_ref") or "")
         oracle = self.resolve(ref, "oracle", context)
@@ -336,20 +305,33 @@ class JourneyPlaywrightAdapter:
                 if not locator.is_visible():
                     raise ContractError("JOURNEY_ASSERT_NOT_VISIBLE")
             elif kind == "text_equals":
-                self._wait_for_oracle_value(
-                    lambda timeout: locator.inner_text(timeout=timeout),
-                    oracle.get("expected"),
-                    "JOURNEY_ASSERT_TEXT_MISMATCH",
-                )
+                expected = oracle.get("expected")
+                if not isinstance(expected, str):
+                    raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH")
+                # HTTP response completion / networkidle does not imply that a
+                # SPA has committed its asynchronous DOM state. Use Playwright's
+                # retrying assertion with an exact, anchored text Oracle.
+                waiter = getattr(locator, "wait_for_text", None)
+                if callable(waiter):
+                    try:
+                        waiter(expected, timeout_ms=self.timeout_ms)
+                    except Exception as exc:
+                        raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH") from exc
+                else:
+                    try:
+                        from playwright.sync_api import expect
+                        expect(locator).to_have_text(
+                            re.compile(r"^" + re.escape(expected) + r"$"),
+                            timeout=self.timeout_ms, use_inner_text=True)
+                    except ImportError as exc:
+                        raise ContractError(
+                            "JOURNEY_PLAYWRIGHT_TEXT_ASSERTION_RUNTIME_MISSING") from exc
+                    except Exception as exc:
+                        raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH") from exc
             elif kind == "attribute_equals":
                 attribute = str(oracle.get("attribute") or "")
-                if not attribute:
+                if not attribute or locator.get_attribute(attribute, timeout=self.timeout_ms) != oracle.get("expected"):
                     raise ContractError("JOURNEY_ASSERT_ATTRIBUTE_MISMATCH")
-                self._wait_for_oracle_value(
-                    lambda timeout: locator.get_attribute(attribute, timeout=timeout),
-                    oracle.get("expected"),
-                    "JOURNEY_ASSERT_ATTRIBUTE_MISMATCH",
-                )
         else:
             raise ContractError("JOURNEY_ORACLE_TYPE_UNSUPPORTED")
 
