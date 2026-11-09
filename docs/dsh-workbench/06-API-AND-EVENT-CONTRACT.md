@@ -26,3 +26,14 @@ mission.updated、workitem.updated、attempt.created、evidence.verified、nodeg
 
 ## 典型错误
 400 INVALID_SCOPE / VALIDATION_ERROR；403 FORBIDDEN；404 RESOURCE_NOT_FOUND；409 STATE_REVISION_CONFLICT / GATE_BLOCKED；422 ILLEGAL_ASSOCIATION；503 TRUTH_SOURCE_UNAVAILABLE。中文面向用户提示，保留可检索的英文错误码。
+
+## WB-A03 v0.2 补充 — 未签收的安全与真相边界
+**现状盘点：** 本仓库 rc7_admin/server.py 现有 /api/health、/api/meta、/api/missions/{id}/overview 或 detail、通用资源列表、用例写入及修订；product_server.py 增 /api/requirement-hierarchy。并不存在拟议 /api/workbench/v1 完整入口。新接口不得与旧查询路径混为已实现。
+
+1. **Scope 与 ACL：** 服务端依据已认证宿主主体验证项目权限；投产日期必须按银行业务日 yyyy-MM-dd 解析稳定 batch_id，不通过 UTC 时间戳制造一天偏移。需求/系统版本/SST 必须来自真实复合关系表，不能根据名称或两个合法 ID 集合做笛卡尔组合。未拆分 SST 返回待拆分。跨项目 403、关联非法 422、无资源 404、R1 不可用 503，不得返回空成功假象。分页游标绑定主体、Scope、关联版本、truth_revision；增加 access_scope_revision。
+2. **命令权威：** 客户端只能提交 command_id、idempotency_key、expected_state_revision、scope_ref、action、reason。原草案写的 principal/authorization 是服务端验证所得上下文，**不得从请求体信任这两个字段**。暂定候选动作 pause、resume、retry_failed、request_human_gate，UI 不提供 publish/任意 NodeGate PASS/直接修改 R1。按 (principal, project, idempotency_key) 原子落库，重复同负载返回原 command_ref、同键不同负载 409；授权、状态机合法边、Worker/Browser 资源租约及 Human Gate 必须真实受控。
+3. **事件与续传：** 每事件包含 event_id、type、revision、project_id、batch_id、timestamp(时区明确)、source_ref、truth_revision，按需 mission_id。事件流 revision 与 R1 全局 truth_revision 独立。相同 event_id 原内容重播去重，变内容冲突；revision 缺号不得继续显示假实时。冷恢复要获取带水位的快照，再从水位可靠补放/订阅，保证快照与订阅间不丢事件；切换项目/批次必须丢弃旧订阅并重新授权。
+4. **关系和迁移：** 新增 BatchRequirement、BatchSystemVersion、BatchRequirementVersion、BatchRequirementVersionSST 的复合键/复合外键/来源修订，避免不同系统同 version_label 和跨批次同 SST 污染；变更投产日期要保留稳定 batch_id 及历史。迁移可逆并核对历史分母；不更改 RC7.2 原始 R1 Event/Case/Attempt/Evidence。破坏性字段改动须另升 API 版本。
+5. **Evidence 与结果：** 命令 accepted、Agent 派发、截图、服务端 API 返回 200 不等于 PASS；以独立有效 Attempt、Oracle、Evidence、NodeGate 为准。重试保留旧失败和新签名 Attempt，无法判断副作用的执行必须 HOLD。
+
+工程负向 oracle：tools/dsh_workbench/w0_contract_gate.py + tests/test_dsh_workbench_w0.py 覆盖 T1–T10、未授权/伪主体、版本冲突、禁用发布、事件水位缺口、非商业许可证拦截。**它不是 HTTP 实现、数据库迁移、真实 SSE 或幂等落库验收。** B/D/E/F 尚未签署此合同，A03 只能保持 IN_PROGRESS。

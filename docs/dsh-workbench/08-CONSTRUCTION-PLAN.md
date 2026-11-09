@@ -22,10 +22,10 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 ## W0 — 设计冻结与前置调查
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-A00 | A | 本目录合同首次提交、建立 W0 PR | 无 | CODE_COMPLETE（PR #84，待 F 组审查） |
-| WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | TODO |
-| WB-A02 | A | 许可证/商业授权与源码复用方式确认 | WB-A00 | BLOCKED |
-| WB-A03 | A | API/事件/数据迁移合同跨组评审 | WB-A00 | TODO |
+| WB-A00 | A | 本目录合同首次提交、建立 W0 PR | 无 | CODE_COMPLETE / PR_VERIFIED / F_PENDING（不关闭） |
+| WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | CODE_COMPLETE_CANDIDATE / F_PENDING（未冻结） |
+| WB-A02 | A | 许可证/商业授权与源码复用方式确认 | WB-A00 | BLOCKED_LICENSE（仍需权利人书面授权或独立实现） |
+| WB-A03 | A | API/事件/数据迁移合同跨组评审 | WB-A00 | IN_PROGRESS（契约+负向测试，跨组未签） |
 | WB-F00 | F | W0 设计审查、补反例与独立签收 | WB-A01,A03 | TODO |
 
 ## W1 — 最小真实业务纵向链路
@@ -81,3 +81,11 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 
 ## 当前唯一合理下一步
 A 完成 WB-A00 的 PR 创建并交由 F 审阅合同；A/B/C/D/E 不能在合同未冻结前把未批准的业务接口当成既有事实。B 的 WB-B01 至少等 API/领域约束明确后再开始，C 可以先调查原始 UI 功能但不得复制未授权代码。
+
+## 2026-11-09 A 组现场 GitHub 审计/施工证据
+WB-A00：PR #84 OPEN DRAFT、base=work/rc7.2、head=work/dsh-wb-w0、11 文档原始 HEAD 12a16a2a0e5726ffe275571ae59e6eacb4f4c4e8 存在；F 尚无 Review。只能核销提交产物，不能 CLOSED。
+WB-A01：01 文件新增源 upstream commit fc5a054a48973d004580a3cc1de60da3f701150b 与 27 项页面/分区/交互候选，需 F 逐条验收。实际新 UI 未实施。
+WB-A02：原创许可证/manifest/哈希门禁与契约测试提交 4046029591b0b324e6a33028629dc22034d511d0，代码通知路径修复 82c18fdd93867e7d27107f665e124c5edcae8b2c。无商业授权；源代码溯源仍需 F/法务审阅，正式 Windows 包流水线尚未接入该门禁。
+WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E/F 未签收，实际 /api/workbench/v1 不存在。
+运行命令：python -m unittest discover -s tests -p 'test_dsh_workbench_w0.py' -v。首轮同 HEAD run 42582069489 执行 32 tests，30 OK、1 FAIL、1 ERROR；许可证通知路径比较方向反、01 缺原版源码 SHA 两项已定位并修订。只有新 HEAD CI 成功才能写 CI_PASS。
+所有功能仍不得宣称 field PASS；WB-B01/C01/E01 等依赖未满足任务不能启动，D01 只可做调查。F 独立审查与授权门禁前不 W0 冻结，不合入 work/rc7.2，也不重复打包全量 ZIP。
