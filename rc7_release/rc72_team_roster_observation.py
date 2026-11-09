@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
@@ -156,6 +159,48 @@ def collect_roster_observation(*, team_state_file, team_id, dsh_url, timeout=3):
     return result
 
 
+def _safe_output_path(*, team_state_file, output):
+    """A read-only probe may write its summary, never the native Team store.
+
+    Outputs must live outside the native AgentTeams state root, with no
+    symlinked path component. Even a caller passing team.json as --output
+    must not be able to turn observation into an in-place Team mutation.
+    """
+    source = Path(team_state_file).expanduser().resolve()
+    target = Path(output).expanduser().absolute()
+    if not target.name or target.exists() and not target.is_file():
+        raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_PATH_UNSAFE")
+    if any(item.is_symlink() for item in (target,) + tuple(target.parents)):
+        raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
+    # Source layout: <workspace>/<stateDir>/<teamId>/team.json
+    native_state_root = source.parent.parent
+    try:
+        target.resolve().relative_to(native_state_root)
+    except ValueError:
+        pass
+    else:
+        raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_INSIDE_NATIVE_STATE")
+    return target
+
+
+def _write_observation_atomic(out, report):
+    """Do not leave a half-written summary after a process interruption."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", prefix=".r4-roster-",
+                suffix=".tmp", dir=str(out.parent), delete=False) as fh:
+            temp = Path(fh.name)
+            fh.write(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(temp), str(out))
+    finally:
+        if temp is not None and temp.exists():
+            temp.unlink()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="R4-07 real DSH team read-only snapshot audit")
     parser.add_argument("--team-state-file", required=True)
@@ -166,10 +211,15 @@ def main(argv=None):
     report = collect_roster_observation(
         team_state_file=args.team_state_file, team_id=args.team_id,
         dsh_url=args.dsh_url)
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-                   encoding="utf-8")
+    try:
+        out = _safe_output_path(
+            team_state_file=args.team_state_file, output=args.output)
+        _write_observation_atomic(out, report)
+    except (TeamRosterAuditError, OSError) as exc:
+        # A diagnostic must not contain member/captain names, tokens or paths.
+        reason = str(exc) if isinstance(exc, TeamRosterAuditError) else "R4_OBSERVATION_OUTPUT_WRITE_FAILED"
+        print(reason, file=sys.stderr)
+        return 2
     return 0 if report["status"] == "ROSTER_SNAPSHOT_AND_LIVE_CAPTAIN_OBSERVED" else 2
 
 
