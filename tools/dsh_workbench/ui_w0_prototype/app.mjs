@@ -134,7 +134,6 @@ function renderSection(next) {
   $('section-title').textContent = next;
   $('section-content').textContent = sectionMessages[next] + '（W0 原型：正式 API 未接入）';
   $('detail-error').hidden = true;
-  $('section-form-error').hidden = true;
   for (const button of $('detail-tabs').querySelectorAll('button')) {
     button.classList.toggle('active', button.textContent === next);
   }
