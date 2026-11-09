@@ -1,6 +1,6 @@
 # WB-C W0 原创 UI 可行性验证：证据与独立验收缺口
 
-状态：`C_W0_PROBE_CODE_SUBMITTED`，`C_W0_LOCAL_UNIT_PASS`，`C_W0_BROWSER_SCREENSHOT_BLOCKED_LOCALLY`，`C_W0_BROWSER_CI_PROBE_PASS`，`C01/C02_W1_NOT_STARTED`，`F_INDEPENDENT_QA_NOT_RUN`。该状态**不能**转化为 W0 DESIGN_FROZEN 或 W1 QA_PASS。
+状态：`C_W0_PROBE_CODE_SUBMITTED`，`C_W0_LOCAL_UNIT_PASS`，`C_W0_BROWSER_SCREENSHOT_BLOCKED_LOCALLY`，`C_W0_BROWSER_CI_PROBE_PASS`，`C01/C02_W1_NOT_STARTED`，`F_RECHECK_75FD2C6_CONTRACT_PASS`、`FOLLOWUP_VISUAL_REVIEW_NOT_RUN`、`F02_NOT_RUN`。该状态**不能**转化为 W0 DESIGN_FROZEN 或 W1 QA_PASS。
 
 ## 证据来源与版本
 - 最新已查 A 组源基线（建 C 分支时）：`work/dsh-wb-w0@515f6a367bd16d3b83197fa2c89e15d63a83c4fe`；PR #84 OPEN/DRAFT，PR #85 OPEN/F REVIEWED_WITH_BLOCKERS。
@@ -52,3 +52,11 @@ python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py \
   - `wb-c-w0-mobile.png` SHA256 `0f8d9d2e68d3f356b1b18c2347611955c0d11f39383188da30064a03817fdb42`，63277 B。
 - 历史红 CI [run 42621898654](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42621898654) 因 ubuntu-latest 指向 Ubuntu 26.04，Playwright 1.56.0 不支持；修复是固定 runner ubuntu-24.04，**没有删浏览器测试或跳过截图**。
 - 这是 **W0 原创静态演示 UI / 业务关系可行性验证**，不是银行正式 DSH 1.18.26 Host、/api/workbench/v1、B06 数据库关联、E R1、正式项目数据、真实 F02 原版全功能 QA。F 仍须独立审核截图和真实产品验收。当前 W0_NOT_FROZEN、C01/C02 TODO、A02 BLOCKED_LICENSE。
+
+
+## 2026-11-10 W0 交互深化的待验证证据
+- 本轮源码基线 A 75fd2c64159db863cfd1319d41a887785b556d40；C follow-up 分支 work/dsh-wb-ui-followup。目标是把单值筛选提升为合法关系多选、十区表单字段/必填校验和统一只读快照。
+- 新增 5 个纯函数反例：多需求→多系统版本→多 SST、非法多选原子拒绝、上级缩小级联、清空筛选保留下级合法选择、query 快照冻结；原 9 项保留。
+- Playwright W0 浏览器探针扩充为逐一打开十区、验证十区同一 Scope 快照、检查十个分区表单必填与提交 fail-closed、验证空搜索结果和窄屏/主题/原六阶段。
+- 本提交后的 Node/Chromium/截图结果以 follow-up PR 的精确 HEAD 同 SHA job 为准。当前尚未取得新 job 前，状态 CODE_SUBMITTED / CI_PENDING，不得沿用 75fd2c6 旧版 CI。
+- F 的 75fd2c6 独立复验：156 W0 合同、C Node 15/15、FG18/FG20 设计层通过；FG17 仍 FLAKY_OBSERVED / ROOT_CAUSE_PENDING，FG21 work/rc7.2 merge dirty；W0 仍 NOT_FROZEN，A02 BLOCKED_LICENSE。F 未对本轮新交互视觉逐项签收，F02 NOT_RUN。
