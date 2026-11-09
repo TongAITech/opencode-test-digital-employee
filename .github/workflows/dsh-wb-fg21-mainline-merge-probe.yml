@@ -29,8 +29,8 @@ jobs:
             '+refs/heads/work/dsh-wb-w0-fg17-fg21:refs/remotes/origin/work/dsh-wb-w0-fg17-fg21'
           base_sha="$(git rev-parse origin/work/rc7.2)"
           head_sha="$(git rev-parse origin/work/dsh-wb-w0-fg17-fg21)"
-          echo "FG21_BASE_SHA=\${base_sha}"
-          echo "FG21_HEAD_SHA=\${head_sha}"
+          echo "FG21_BASE_SHA=${base_sha}"
+          echo "FG21_HEAD_SHA=${head_sha}"
           git checkout -B fg21-readonly-probe origin/work/rc7.2
           if git merge --no-edit --no-ff --no-commit origin/work/dsh-wb-w0-fg17-fg21; then
             echo "FG21_MERGE_PROBE_CLEAN"
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fg21-merge-probe-\${{ github.sha }}
+          name: fg21-merge-probe-${{ github.sha }}
           path: fg21-conflicts.txt
           retention-days: 14
           if-no-files-found: warn
