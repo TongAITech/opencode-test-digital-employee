@@ -1,0 +1,171 @@
+{
+  "schema": "dsh-workbench-gates/v1",
+  "note": "Design signoff cannot require W1 real implementation; bank commercial release has a separate license gate.",
+  "gates": [
+    {
+      "id": "WB-A00_CODE_COMPLETE",
+      "phase": "W0",
+      "kind": "design",
+      "depends_on": []
+    },
+    {
+      "id": "WB-A01_DESIGN_SIGNED",
+      "phase": "W0",
+      "kind": "design",
+      "depends_on": [
+        "WB-A00_CODE_COMPLETE"
+      ]
+    },
+    {
+      "id": "WB-A03_CONTRACT_SIGNED",
+      "phase": "W0",
+      "kind": "design",
+      "depends_on": [
+        "WB-A00_CODE_COMPLETE"
+      ]
+    },
+    {
+      "id": "WB-F00_DESIGN_ACCEPTED",
+      "phase": "W0",
+      "kind": "design",
+      "depends_on": [
+        "WB-A01_DESIGN_SIGNED",
+        "WB-A03_CONTRACT_SIGNED"
+      ]
+    },
+    {
+      "id": "WB-W0_DESIGN_FROZEN",
+      "phase": "W0",
+      "kind": "design",
+      "depends_on": [
+        "WB-F00_DESIGN_ACCEPTED"
+      ]
+    },
+    {
+      "id": "WB-B01_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-A03_CONTRACT_SIGNED",
+        "WB-W0_DESIGN_FROZEN"
+      ]
+    },
+    {
+      "id": "WB-B02_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-A03_CONTRACT_SIGNED",
+        "WB-W0_DESIGN_FROZEN"
+      ]
+    },
+    {
+      "id": "WB-B03_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B01_IMPLEMENTATION_QA_PASS",
+        "WB-B02_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-B04_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B03_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-B05_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B04_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-B06_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B05_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-C01_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-A01_DESIGN_SIGNED",
+        "WB-W0_DESIGN_FROZEN"
+      ]
+    },
+    {
+      "id": "WB-C02_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B06_IMPLEMENTATION_QA_PASS",
+        "WB-C01_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-D01_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-A00_CODE_COMPLETE"
+      ]
+    },
+    {
+      "id": "WB-E01_IMPLEMENTATION_QA_PASS",
+      "phase": "W1",
+      "kind": "implementation",
+      "depends_on": [
+        "WB-B06_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-F01_INTEGRATION_QA_PASS",
+      "phase": "W1",
+      "kind": "integration",
+      "depends_on": [
+        "WB-C02_IMPLEMENTATION_QA_PASS",
+        "WB-D01_IMPLEMENTATION_QA_PASS",
+        "WB-E01_IMPLEMENTATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-W1_INTEGRATION_QA_PASS",
+      "phase": "W1",
+      "kind": "integration",
+      "depends_on": [
+        "WB-F01_INTEGRATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-A02_LICENSE_RELEASE_APPROVED",
+      "phase": "W4",
+      "kind": "license",
+      "depends_on": []
+    },
+    {
+      "id": "WB-F04_FIELD_QA_PASS",
+      "phase": "W4",
+      "kind": "field",
+      "depends_on": [
+        "WB-W1_INTEGRATION_QA_PASS"
+      ]
+    },
+    {
+      "id": "WB-W4_BANK_RELEASE_APPROVED",
+      "phase": "W4",
+      "kind": "field",
+      "depends_on": [
+        "WB-F04_FIELD_QA_PASS",
+        "WB-A02_LICENSE_RELEASE_APPROVED"
+      ]
+    }
+  ]
+}

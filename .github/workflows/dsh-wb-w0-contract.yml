@@ -6,14 +6,14 @@ on:
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'
-      - 'tests/test_dsh_workbench_w0.py'
+      - 'tests/test_dsh_workbench*.py'
       - '.github/workflows/dsh-wb-w0-contract.yml'
   pull_request:
     branches: [work/rc7.2]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'
-      - 'tests/test_dsh_workbench_w0.py'
+      - 'tests/test_dsh_workbench*.py'
       - '.github/workflows/dsh-wb-w0-contract.yml'
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Negative-first W0 scope, command, event, license and page contracts
-        run: python -m unittest discover -s tests -p 'test_dsh_workbench_w0.py' -v
+      - name: Negative-first W0 contracts, FG15 gate DAG, license and page boundaries
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
       - name: Boundaries are not product acceptance
         run: echo 'W0 CONTRACT TESTS ONLY; no DSH host, bank field, F review or commercial license approval'

@@ -25,23 +25,23 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 | WB-A00 | A | 本目录合同首次提交、建立 W0 PR | 无 | CODE_COMPLETE / PR_VERIFIED / F_PENDING（不关闭） |
 | WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | CODE_COMPLETE_CANDIDATE / F_PENDING（未冻结） |
 | WB-A02 | A | 许可证/商业授权与源码复用方式确认 | WB-A00 | BLOCKED_LICENSE（仍需权利人书面授权或独立实现） |
-| WB-A03 | A | API/事件/数据迁移合同跨组评审 | WB-A00 | IN_PROGRESS（契约+负向测试，跨组未签） |
-| WB-F00 | F | W0 初审及新 HEAD 独立复验 | WB-A01,A03 | F_INITIAL_REVIEWED_WITH_BLOCKERS；FG11/12 CONTRACT_CI_PASS；最终复验待完成 |
+| WB-A03 | A | W0 DESIGN_SIGNOFF：字段/状态机/负向合同、跨组可实现性评审（不得要求 W1 实库证据） | WB-A00 | CONTRACT_DRAFT / B-D-E_DESIGN_SIGNOFF_PENDING |
+| WB-F00 | F | W0 独立 DESIGN_REVIEW（不是 W1 产品 QA） | WB-A01_DESIGN_SIGNED, WB-A03_CONTRACT_SIGNED | REVIEWED_WITH_BLOCKERS / WB-FG15_OPEN / F_DESIGN_RECHECK_PENDING |
 
 ## W1 — 最小真实业务纵向链路
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-B01 | B | 投产日期与唯一性/变更历史 | A03 | TODO |
-| WB-B02 | B | 系统/系统版本规范对象 | A03 | TODO |
+| WB-B01 | B | 投产日期与唯一性/变更历史，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | TODO |
+| WB-B02 | B | 系统/系统版本规范对象，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | TODO |
 | WB-B03 | B | 批次-需求/批次-版本关系 | B01,B02 | TODO |
 | WB-B04 | B | 需求-版本多对多合法关系 | B03 | TODO |
 | WB-B05 | B | 需求-版本-SST 关联及错误阻断 | B04 | TODO |
 | WB-B06 | B | 跨分区 Scope 关联查询与分页 | B05 | TODO |
-| WB-C01 | C | 六页面/十分区不缺失的导航骨架 | A01 | TODO |
+| WB-C01 | C | 六页面/十分区不缺失的导航骨架，真实 UI IMPLEMENTATION_QA | A01_DESIGN_SIGNED, W0_DESIGN_FROZEN | TODO |
 | WB-C02 | C | 项目详情投产日期/需求/版本/SST 联动 | B06,C01 | TODO |
 | WB-D01 | D | DSH 宿主版本/面板真实兼容性探测 | A00 | TODO |
 | WB-E01 | E | RC7.2 R1 只读 Scope 与 Evidence 适配 | B06 | TODO |
-| WB-F01 | F | 真实日期、跨版本、多 SST 纵向核验 | C02,D01,E01 | TODO |
+| WB-F01 | F | 真实日期、跨版本、多 SST 纵向核验，独立 INTEGRATION_QA | C02_IMPLEMENTATION_QA, D01_IMPLEMENTATION_QA, E01_IMPLEMENTATION_QA | TODO |
 
 ## W2 — 保留原能力与资产增强
 | 工单 | Owner | 内容 | 依赖 | 状态 |
@@ -98,3 +98,10 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - WB-A03 新增 WB-A03-CROSS-GROUP-SIGNOFF.md，02/06 同步迁移、复合外键、授权优先级、命令幂等、batch SSE、R1 NodeGate 真值表；**B/D/E/F 尚未签署**，真实 API/DB/SSE 未实现。
 - 测试增加项目+批次事件隔离、命令 scope 拒绝和 staging 非规范路径/符号链接拒绝；只是 W0 Oracle 单测，不能代替真实 R1/SUT。
 - 本次提交后：再次查询同 HEAD CI、请 B/D/E 留合同签署或异议、请 F 复查最新 HEAD；未经独立接受 W0 不冻结、不合并、不构建银行 ZIP。
+
+## 2026-11-09 WB-FG15 依赖环纠正：设计/实现/现场三级不能混淆
+- 新审查证据：F 组 [PR #85](https://github.com/TongAITech/opencode-test-digital-employee/pull/85) `WB-F00-HEAD-DELTA-6EDB9FB.md`，针对 A HEAD 6edb9fb7 复核 **28/28 GitHub Checks、W0 39/39**，提出 **WB-FG15 P0**：A03 W0 签署依赖 W1 真 DB/API/宿主运行，W1 B01 又依赖 A03 的闭环。
+- 本次 A 将 A03 的 B/D/E/F 签署定义为 `DESIGN_SIGNOFF`（字段/关系/状态/ACL/反例/可实现性和签署 SHA）；F 只验 W0 设计/依赖安全。**不要求 W1 实际实现来签 W0**。
+- W1 工单仍在 W0 设计签收及 F 独立设计接受后按 DAG 启动。B/C/D/E 的真实代码/数据库/API/DSH Host 和 F 实测分别受 `IMPLEMENTATION_QA_PASS`、`INTEGRATION_QA_PASS` 约束，绝不提前 PASS。
+- W4 银行商业打包仍需 **独立的 LICENSE_RELEASE_APPROVED + FIELD_QA_PASS**；A02 BLOCKED_LICENSE 的阻断不因 W0 设计冻结而放松。受限源码始终不得进入银行交付。
+- 机器验证：`docs/dsh-workbench/W0-W1-GATE-MANIFEST.json` + `tools/dsh_workbench/w0_dependency_gate.py` + `tests/test_dsh_workbench_gate_dag.py`，必须证明无环、拒绝 W0 依赖 W1 实现、拒绝缺许可/现场 Gate 的发布。最新提交 CI 验证前仍标记 CI_PENDING。
