@@ -53,13 +53,17 @@ O=原版候选交互，需要 C/F 复核源码入口；A=原版可能仅服务�
 | D10-01 | O | [app.js:L1716](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/app.js#L1716) `renderGates()` / [index.html:L193](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/index.html#L193) `#project-detail-tabs` | 人审需求/用例/报告/发布 | 决议、理由、时间齐 | 驳回/WARN 不等于 PASS | Review E |
 | D10-02 | N | N/A（新增能力，无上游入口） / [index.html:L193](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/index.html#L193) `#project-detail-tabs` | NodeGate 及 Human Gate | R1 状态与 UI 一致 | NEEDS_REVISION/BLOCKED 不可 PASS | R1 E |
 
+| X01-01 | O | [app.js:L148](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/app.js#L148) `setThemePreference()` / [index.html:L46](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/index.html#L46) `#btn-settings` | 切换中文/英文、浅/深/系统主题，调整导航或项目雷达宽度 | 设置有界且与原版显示一致 | 无效主题/缺翻译/折叠状态恢复可见 | Host UI C/D |
+| X02-01 | O | [app.js:L1981](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/app.js#L1981) `openNewProject()` / [index.html:L80](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/index.html#L80) `#btn-new-iteration` | 新建项目/迭代及父子关联 | 类型、父项目及本地目录可追溯 | 目录无权限、错父项目或非法名称拒绝 | Project/Host C/D |
+| X03-01 | N | N/A（新增能力，无上游入口） | 离线失联、Host 缺失、R1 无 Evidence、重复请求与错误 Scope | 显示阻断及修复动作，不出现假成功 | 无主体验证/无证据/重放/越权均不得 PASS | R1/Host B/D/E/F |
+
 ## 逐项 Evidence 模板与设计/实现边界
 每条：feature_id, original_source_ref(文件+SHA+入口), target_source_sha, project_id, batch_id, action, precondition, expected, negative_case, actual, screenshot_ref, network_trace_ref, host_log_ref, R1_evidence_ref, result, reviewer, observed_at。
 当前统一 actual=NOT_RUN、screenshot_ref=NONE、target_source_sha=NONE；原版的每个具体按钮还需 C/F 逐条核对其真实入口，缺失时标 ORIGINAL_UI_NOT_PRESENT，不可由 A 的设计候选直接转成已验收功能。
 
 
 ## A01 固定源代码锚点核查（2026-11-09）
-- 固定上游版本 `naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b` 的 `public/index.html`（六页面 DOM 入口）和 `public/app.js`（具名交互函数）按实际文件行号逐项定位。本表 **47 条**目标原子项中，O/A 候选 **33 条**有具名源码参考函数，N 新增 **14 条**不应冒称上游已有。
+- 固定上游版本 `naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b` 的 `public/index.html`（六页面 DOM 入口）和 `public/app.js`（具名交互函数）按实际文件行号逐项定位。本表 **50 条**目标原子项中，O/A 候选 **35 条**有具名源码参考函数，N 新增 **15 条**不应冒称上游已有。
 - 行号来自该**固定 SHA 的文件文本**，不是可变 master；锚点仅说明源码中存在关联函数或页面容器，**不证明每一个按钮/参数/异常行为已逐一人工核对，也不是工作台已实现证据**。对于一个函数承载多个入口的复合能力，C/F 在 W1/W2 仍需继续拆分到 DOM/handler 级并执行真实 UI 对照。
 - 原版六主页面在 `index.html` 为五个主导航加从项目入口进入的 **项目详情**，不能错误改造成第六条主导航。项目十区由 `app.js renderProjectDetailTabs()` 与各 `renderX()` 呈现；原项目 `D02-03` 的 API-only 部分需要独立标记后端 API 入口，不能靠 `renderQualityTasks` 声称原 UI 已有所有接口功能。
 - 以上行为索引仅供原创设计的接口/交互验收使用；**不复制 PolyForm Noncommercial 受限 UI 源文件、表达或构建物进入商业交付**，A02 仍 BLOCKED_LICENSE。
