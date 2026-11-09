@@ -1,0 +1,45 @@
+name: RC7.2 R4 Field Roster Read-Only Collector Source Tests
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - rc7_release/rc72_team_roster_observation.py
+      - tests/test_rc72_r4_roster_observation.py
+      - .github/workflows/rc72-r4-roster-observation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-roster-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  field-observation-source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned qualification harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Collector negative tests (no model, no business IO, no ZIP)
+        run: |
+          python -m compileall -q rc7_release/rc72_team_roster_observation.py tests/test_rc72_r4_roster_observation.py
+          python -m pytest -q tests/test_rc72_r4_roster_observation.py --junitxml=r4-roster-audit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-r4-roster-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: r4-roster-audit.xml
+          retention-days: 14
+          if-no-files-found: warn

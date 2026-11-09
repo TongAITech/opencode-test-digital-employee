@@ -34,6 +34,12 @@ class _ScriptedRunner:
         outcome = self.outcomes.pop(0) if self.outcomes else "success"
         self.session_no += 1
         session_id = "session-model-%d" % self.session_no
+        if outcome == "429-no-tool":
+            stdout = "\n".join([
+                json.dumps({"type": "session", "sessionId": session_id}),
+                json.dumps({"type": "error", "code": 429, "message": "LLMRequestError HTTP 429 rate limit"}),
+            ])
+            return subprocess.CompletedProcess(command, 1, stdout=stdout, stderr="")
         if outcome == "502-no-tool":
             stdout = "\n".join([
                 json.dumps({"type": "session", "sessionId": session_id}),
@@ -110,6 +116,58 @@ class ModelResilienceTests(unittest.TestCase):
             now[0] = 110.1
             self.assertTrue(governor.reserve().admitted)
 
+    def test_r4_corrupt_shared_rate_ledger_never_resets_to_empty(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            state_path = governor.state_path
+            bad_states = (
+                "{",
+                "[]",
+                "{}",
+                '{"schema":"wrong","timestamps":[]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":null}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":[null]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":["bad"]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":[NaN]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":[-1]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":[true]}',
+            )
+            for raw in bad_states:
+                state_path.write_text(raw, encoding="utf-8")
+                original = state_path.read_bytes()
+                with self.assertRaisesRegex(
+                        AgentRuntimeError, "MODEL_RATE_GOVERNOR_STATE_UNVERIFIED"):
+                    governor.reserve()
+                self.assertEqual(state_path.read_bytes(), original)
+                self.assertFalse(governor.lock_path.exists())
+            # A valid owned snapshot remains usable; recovery is explicit.
+            state_path.write_text(json.dumps({
+                "schema": "rc7.1-model-rate-window-v1",
+                "timestamps": [],
+            }), encoding="utf-8")
+            self.assertTrue(governor.reserve().admitted)
+            self.assertFalse(governor.reserve().admitted)
+
+    def test_r4_corrupt_rate_ledger_blocks_actual_launcher_before_model_io(self):
+        with tempfile.TemporaryDirectory() as root:
+            runner = _ScriptedRunner(["success"])
+            launcher, truth = self._launcher(root, runner)
+            assignment = self._assignment(launcher, "corrupt-rate-ledger")
+            state_path = Path(root) / "model-governor" / "shared-window.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text("{interrupted-write", encoding="utf-8")
+            with self.assertRaisesRegex(
+                    AgentRuntimeError, "MODEL_RATE_GOVERNOR_STATE_UNVERIFIED"):
+                launcher.execute(assignment, "must not start a model")
+            self.assertEqual(runner.model_calls, 0)
+            self.assertEqual(state_path.read_text(encoding="utf-8"),
+                             "{interrupted-write")
+            self.assertFalse(any(
+                row.get("event_name") == "WORKER_STARTED"
+                for row in truth.query("agent_runtime_event",
+                                       assignment_id=assignment.assignment_id)))
+
     def test_field_failure_strings_are_retryable(self):
         self.assertEqual(classify_failure('SSE stream ended without [DONE]; {"code":502}').category, "SSE_STREAM_CLOSED_BEFORE_DONE")
         self.assertTrue(classify_failure('SSE stream ended without [DONE]; {"code":502}').retryable)
@@ -151,6 +209,31 @@ class ModelResilienceTests(unittest.TestCase):
                 if event["event_type"] == "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT"]
             self.assertEqual(blocked[0]["reason"], "R1_WORKER_STARTED_UNKNOWN_EFFECT")
             self.assertEqual(blocked[0]["recovery_action"], "MISSION_AUTOPILOT_R1_RESUME_REQUIRED")
+
+    def test_r4_429_after_worker_started_never_blindly_relaunches(self):
+        with tempfile.TemporaryDirectory() as root:
+            runner = _ScriptedRunner(["429-no-tool", "success"])
+            launcher, truth = self._launcher(root, runner)
+            launcher._rc71_sleep_fn = lambda _seconds: None
+            assignment = self._assignment(launcher, "r4-429-reentry")
+            with patch.dict(os.environ, {
+                "PFC_RC71_MODEL_RATE_MAX": "100",
+                "PFC_RC71_MODEL_TRANSIENT_RETRIES": "3",
+                "PFC_RC71_MODEL_RETRY_BACKOFF_SECONDS": "0",
+            }, clear=False):
+                with self.assertRaises(AgentRuntimeError):
+                    launcher.execute(assignment, "no repeated side effect")
+            self.assertEqual(runner.model_calls, 1)
+            records = [e["payload"] for e in truth.store.iter_raw()
+                       if e["event_type"] == "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT"]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["failure_category"], "RATE_LIMIT")
+            self.assertEqual(records[0]["reason"], "R1_WORKER_STARTED_UNKNOWN_EFFECT")
+            self.assertEqual(records[0]["recovery_action"],
+                             "MISSION_AUTOPILOT_R1_RESUME_REQUIRED")
+            self.assertFalse(any(
+                e["event_type"] == "MODEL_RETRY_STARTED"
+                for e in truth.store.iter_raw()))
 
     def test_rate_window_waits_then_auto_resumes_without_manual_continue(self):
         with tempfile.TemporaryDirectory() as root:
