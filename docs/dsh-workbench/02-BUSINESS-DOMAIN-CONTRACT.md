@@ -39,3 +39,6 @@ T1 同需求三版本各有多 SST；T2 两需求共享相同系统版本但 SST
 
 ## WB-B-A03 领域签署附录（W0，仅设计）
 B 组签署源 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 的设计可实现性；规范详见 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)。project_id 参与 BR/BV/BRV/BRVS 复合主外键；BRVS 需 source_verified_link；来源身份为 source_system + source_namespace + source_object_id + source_revision，禁止以版本标签或 SST 名称 join。业务日期 UNIQUE(project_id,release_date)，改期留同事务历史，稳定 batch_id 不变；BUSINESS_TZ 未批准的 legacy timestamp 迁移进入 MIGRATION_HOLD。签署不代表 Postgres 迁移已实施，也不关闭 F 的真实验收缺口。
+
+### WB-B A03 原型红测纠正：BRV 来源白名单
+仅 BR(batch,requirement)+BV(batch,version) 两张表的复合外键不足以拒绝将一个合法需求与另一个合法版本任意配对。**BRV 必须另加 FK(project_id,batch_id,requirement_id,system_version_id) → source_verified_requirement_version 的相同复合 PK**，而该表每行必须带独立权威源 link_ref 和 revision。BRVS 还需独立经过 source_verified_link；此双级来源白名单禁止笛卡尔积写入污染。参见 B 组签署及负向 SQL 测试。

@@ -53,3 +53,6 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 
 ## B 组正式设计签署（W0）
 B 组针对 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 与 RC7.2 运行合同做了独立可实现性审查，签署 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)：投产日期唯一/改期事务历史、来源身份与复合 PK/FK、SST 可信连边、多需求多版本 Scope join、ACL 403、修订 409、非法关联 422、迁移 HOLD/回滚边界、B06 C/E 查询接口。B_DESIGN_SIGNOFF_SUBMITTED 只认 B PR 设计增量，非 W1 实库 API 或 F QA。历史 B_PENDING 是初始审核状态，已被此次提交替代；D/E/F 仍 PENDING，W0 NOT_FROZEN。
+
+### B 组红测纠偏（补充设计约束）
+独立 CI 首轮证实 BRV 只引用 BR/BV 时允许 R2×VB 无源连边，故 B 签署增加 source_verified_requirement_version 复合 FK，BRVS 使用独立 source_verified_link 复合 FK；负向测试修订后需同 HEAD 复验。旧 FAIL 不能变成 QA_PASS；本条不替代 D/E/F 签署。

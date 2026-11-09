@@ -40,3 +40,5 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - status=B_DESIGN_SIGNOFF_SUBMITTED；W0_DESIGN_FROZEN=NO；B01..B08 REAL_IMPLEMENTATION_NOT_RUN；正式 PostgreSQL/API/R1/银行 FIELD_QA=NOT_RUN；A/F review pending。
 - open=BUSINESS_TZ_APPROVAL / SOURCE_MAPPING / D_E_SIGNOFF / F_DESIGN_ACCEPTANCE / BLOCKED_LICENSE / FG16_RECHECK。
 - next_ready：A/F 完成 W0 冻结及跨组合同合并后，B01、B02 可进入 READY 并开展真实 schema/事务开发；再 B03→B04→B05→B06（供 C/E 消费），B07→B08。绝不将 SQLite 设计见证写成真实 W1 QA_PASS。
+
+- W0 B 实际红测：GitHub workflow run 42620348983 / job 129170552735 在 SHA 8a7a11612327bf237f8d0df6a72c127384b7b0ed 失败（8 项：7 pass / 1 fail），原因是 BRV 缺独立来源认可需求—版本关系；B tests 已在 d0a38886048bd2183ef364295e6204eb6a742257 增强双层来源 FK。最新 HEAD CI 待核，不沿用绿色历史结果；W1/F QA 仍 NOT_RUN。

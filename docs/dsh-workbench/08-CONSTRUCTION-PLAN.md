@@ -116,3 +116,5 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 ## B 组 WB-A03 正式 DESIGN_SIGNOFF 提交（2026-11-09）
 - source_sha=80efa1bfa585fe29a5939c889d5b5a08e4f742ed；独立分支 work/dsh-wb-domain；签署内容：WB-B-A03-DESIGN-SIGNOFF.md、02/06 增量及 SQLite 设计约束反例 tests/test_dsh_workbench_b_a03_design.py。B_DESIGN_SIGNOFF_SUBMITTED，W1_IMPLEMENTATION_QA_NOT_RUN，F QA 未执行。
 - 需 A 合并 B PR、D/E 分别签 W0、F 独立接受并明示 W0_DESIGN_FROZEN 后，B01/B02 才成为 READY；B03 依赖 B01+B02，B04→B05→B06 后提供 C/E Scope API；B07→B08 仍待 W2 依赖。禁止在 W0 不满足时自报 W1 验收或构建 ZIP。
+
+- B-A03 RED→FIX 设计回归：8 个 SQLite SQL witness 初轮 7 OK/1 FAIL，证实 BRV 应强制需求—版本 source_verified_requirement_version FK；已在 d0a38886048bd2183ef364295e6204eb6a742257 修复设计测试，待新同 HEAD CI 结果。**不是 W1 数据库执行。** B01–B08 仍待 W0 冻结依赖。

@@ -13,7 +13,7 @@
 
 RC7.2 docs/rc7.2/00、02 的运行资产最低要求 ReleaseBatch/Requirement/SST，01 的 ReleaseBatch 有 planned_release_time、version_ids、requirement_ids，但没有 project/release_date/系统版本复合关联。**工作台是独立关联/查询投影，不更改原始 R1 ReleaseBatch/Attempt/Evidence 和 N1–N10 领域真相**。映射通过稳定 source_id + source_ref + mapping_revision，保持历史 R1 hash/事件/分母。
 
-一个项目同一有效投产日期至多一个批次，跨项目允许同一天。同批次内：Requirement ↔ SystemVersion 为多对多，且双方均必须在该 batch；SST 只能挂在经过来源校验的 (project,batch,requirement,system_version) 连边上。同版本可被多个需求共享，不能因此自动把 SST 从一个需求复制到另一个需求。未拆分时保留合法 BRV 和 split_state=UNSPLIT，不造假 SST 行。
+一个项目同一有效投产日期至多一个批次，跨项目允许同一天。同批次内：Requirement ↔ SystemVersion 为多对多，且双方均必须在该 batch；**BR 与 BV 的复合 FK 不能代替需求—版本真实来源连边，BRV 还必须 FK 到 source_verified_requirement_version。** SST 只能挂在经过来源校验的 (project,batch,requirement,system_version) 连边上。同版本可被多个需求共享，不能因此自动把 SST 从一个需求复制到另一个需求。未拆分时保留合法 BRV 和 split_state=UNSPLIT，不造假 SST 行。
 
 ## 2. PostgreSQL 规范化关系（B01–B05 的实施目标，当前无迁移代码）
 
@@ -30,7 +30,8 @@ RC7.2 docs/rc7.2/00、02 的运行资产最低要求 ReleaseBatch/Requirement/SS
 | sst_identity | PK(project_id,system_version_id,sst_id), FK(project_id,system_version_id), UNIQUE(project_id,source_system,source_namespace,source_object_id), source_revision | SST 原始 ID 可同名；系统版本与来源身份必须校验。若源 ID 被不同版本复用，生成不同内部稳定 ID、保留原始 source_ref |
 | batch_requirement BR | PK(project_id,batch_id,requirement_id)；FK batch、requirement_identity | 不允许跨 project |
 | batch_version BV | PK(project_id,batch_id,system_version_id)；FK batch、system_version_identity | 不允许未参与批次的版本 |
-| batch_req_version BRV | PK(project_id,batch_id,requirement_id,system_version_id)，两个复合 FK→BR/BV，split_state UNSPLIT/SPLIT，relation_revision | 合法空 SST 显示待拆分，不能丢失这条关系 |
+| source_verified_requirement_version | PK(project_id,batch_id,requirement_id,system_version_id), source_link_ref、source_revision；FK→BR/BV | **必须有源系统已确认的需求—版本关系**；仅 BR+BV 均存在不授权组合；未获源证明不可创建 BRV |
+| batch_req_version BRV | PK(project_id,batch_id,requirement_id,system_version_id)，复合 FK→BR/BV/**source_verified_requirement_version**，split_state UNSPLIT/SPLIT，relation_revision | 合法空 SST 显示待拆分，不能丢失这条关系 |
 | source_verified_link | PK(project_id,batch_id,requirement_id,system_version_id,sst_id), source_link_ref, verified_source_revision, verified_at；复合 FK→BRV 和 SST | 仅持有来源明确的需求/版本/SST 合法连边，禁止猜测或多对多自然乘积 |
 | batch_req_version_sst BRVS | PK(project_id,batch_id,requirement_id,system_version_id,sst_id)，复合 FK→BRV + source_verified_link | 有来源证明才可写；同 SST 复用多个需求仅当来源分别明确授权，否则 422 |
 
@@ -106,3 +107,6 @@ SQL 在真实实现时必须绑定参数、检查 Array/NULL 语义和固定排�
 **非放行保留项：** BUSINESS_TZ 的银行业务批准及实际 source mapping 未拿到；PostgreSQL DDL/数据源连通/迁移 dry-run/真实 rollback/HTTP/Scope 分页/冷重启均 NOT_RUN；未获商业授权 BLOCKED_LICENSE；PR #85 FG16 的独立核销由 A/F 负责。无需先完成 W1 实库来获得 W0 设计签署，但 W1/W2 的 IMPLEMENTATION_QA 绝不可借本签署提前晋级。
 
 **后续 ready 规则：** A + F 明确 W0_DESIGN_FROZEN 后 WB-B01 与 WB-B02 可并行启动真实 schema/唯一性/日期历史/系统版本身份；B03 依赖 B01+B02；B04 依赖 B03；B05 依赖 B04；B06 依赖 B05，交付 C/E 合法 Scope API；B07、B08 在 W2 分别依赖 B05、B07。未经前置 Gate 满足只开展设计准备，不登记 IMPLEMENTATION_QA_PASS。
+
+## 8. W0 反向测试发现的设计纠错
+首个 B 设计 CI（8 个 SQLite 测试，7 PASS / 1 FAIL）证实只让 BRV FK 到 BR/BV 仍允许 R2 与已参与 B1 的 VB 组成未经授权的关系。修正为先登记 source_verified_requirement_version（含来源 link_ref），BRV 加强制复合外键；再由 source_verified_link 授权 BRVS。三版本五 SST 的 R1 正向 fixture 与不存在的 R2/VB 反例一起验证。**这是真正的设计缺陷纠正，不得把旧红 CI 改写为 PASS；新的同 HEAD CI 以独立结果为准。**

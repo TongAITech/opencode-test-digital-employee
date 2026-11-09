@@ -48,3 +48,6 @@ mission.updated、workitem.updated、attempt.created、evidence.verified、nodeg
 
 ## WB-B-A03 Scope 服务边界附录（W0，仅设计）
 详见 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)。B06 仅返回授权 project+batch 的真实 BRV LEFT JOIN BRVS 关联，含 UNSPLIT、来源、relation_revision、access_scope_revision、稳定游标；多选只筛真实连边，不生成笛卡尔积。服务端可信 principal 权限先判 403；授权后资源不存在 404，非法来源或跨批次关联 422，修订/日期冲突/过期游标 409，真相源不可用 503。游标绑定 principal+project+batch+filter+revision；切批次、权限或关系版本必须重查。E 的命令/SSE/R1 及 D 的宿主身份仍需各自设计签署，B 不代签。
+
+### WB-B A03 双重来源校验
+Scope 的 BRV 不只是 BR 与 BV 均在批次内，**还必须有 authoritative requirement-version link**；SST 另外校验该 requirement-version 的 source_verified_link。没有来源可信连边则拒绝 422，不得把两个合法 filter ID 的笛卡尔组合视作已授权实体。该校验对写入和查询都不可绕过。
