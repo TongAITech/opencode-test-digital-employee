@@ -4,6 +4,8 @@ on:
     branches: [work/dsh-wb-w0-fg17-fg21]
     paths:
       - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
+      - 'tests/test_rc72_journey_playwright_adapter.py'
+      - 'rc7_runtime/rc72_journey_playwright.py'
       - '.github/workflows/dsh-wb-fg17-q1-regression.yml'
   workflow_dispatch:
 
