@@ -127,3 +127,8 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 
 ### B 组同 SHA 契约 CI 结果（仅设计）
 - B PR #89；source commit 7b916e295d8f8461a8134ed2da9583ecb897022a；[GitHub Actions job 129171616901](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42620657398/job/129171616901)：SQLite B 设计 witness **8/8 OK**，合并 W0/B 契约回归 **66/66 OK**。仅设计/CI_PASS，禁止记 W1 IMPLEMENTATION_QA_PASS；下一 ready 仍是 A/F 冻结 W0 后 B01+B02。
+
+## 2026-11-09 B 组执行 F WB-FG18 整改（追加而非覆盖历史）
+- task=WB-A03-B-FG18；状态=CODE_SUBMITTED / NEW_HEAD_CI_PENDING / F_INDEPENDENT_RECHECK_REQUIRED。F 原始 FAIL：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677；旧 B 704c86a SQLite 10/10、合同 68/68 绿不覆盖该反例。
+- 修改 tests/test_dsh_workbench_b_a03_design.py 的 SST 唯一身份域，增加 source_trace 和四组负向/正向证据；修订 WB-B-A03-DESIGN-SIGNOFF、02、06 合同；完整源码以 B PR #89 最新 HEAD 为准。
+- B01/B02 仍依赖 A03_CONTRACT_SIGNED + W0_DESIGN_FROZEN；F 最新 ABCDE 审查为 REVIEWED_WITH_BLOCKERS，FG17/19/20 仍 OPEN，A02 BLOCKED_LICENSE。不能提前解锁 W1、不能打 ZIP。

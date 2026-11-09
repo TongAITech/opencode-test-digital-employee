@@ -51,3 +51,7 @@ mission.updated、workitem.updated、attempt.created、evidence.verified、nodeg
 
 ### WB-B A03 双重来源校验
 Scope 的 BRV 不只是 BR 与 BV 均在批次内，**还必须有 authoritative requirement-version link**；SST 另外校验该 requirement-version 的 source_verified_link。没有来源可信连边则拒绝 422，不得把两个合法 filter ID 的笛卡尔组合视作已授权实体。该校验对写入和查询都不可绕过。
+
+## WB-FG18 跨系统版本 SST 原始来源 ID 复用语义
+
+同一 raw source_object_id 在不同 system_version_id 下可对应独立内部 sst_id，接口返回稳定内部身份以及版本限定的原始 source_ref、source_revision。Scope 及关系写入必须校验 project、batch、requirement、system_version、sst_id、source_verified_link 完整链路；误把 raw ID 相同当作关联即 422，且本事务不能有部分副作用。来源唯一约束不再是全项目的 raw ID 唯一。正式 API/真实来源审计仍属 W1+。

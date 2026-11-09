@@ -42,3 +42,7 @@ B 组签署源 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 的设计可实现性；
 
 ### WB-B A03 原型红测纠正：BRV 来源白名单
 仅 BR(batch,requirement)+BV(batch,version) 两张表的复合外键不足以拒绝将一个合法需求与另一个合法版本任意配对。**BRV 必须另加 FK(project_id,batch_id,requirement_id,system_version_id) → source_verified_requirement_version 的相同复合 PK**，而该表每行必须带独立权威源 link_ref 和 revision。BRVS 还需独立经过 source_verified_link；此双级来源白名单禁止笛卡尔积写入污染。参见 B 组签署及负向 SQL 测试。
+
+## WB-FG18 SST 原始身份作用域修订
+
+F 组已实证同一个 source_system 的 SST 原始 source_object_id 可以在同项目两个系统版本中重复出现。内部稳定 sst_id 必须与原始 source_object_id 分离；源标识唯一性限定为 (project_id,system_version_id,source_system,source_namespace,source_object_id)，同时内部 sst_id 在项目内唯一。若重复出现，生成独立内部 SST ID、保留两个原始 source_ref 与 source_revision。BRVS/Scope 仍以 project_id、batch_id、requirement_id、version_id、sst_id 和 source_verified_link 关联，决不按 raw ID/版本显示标签跨版本串联。此段是 W0 设计纠偏，不是 PostgreSQL W1 验收。

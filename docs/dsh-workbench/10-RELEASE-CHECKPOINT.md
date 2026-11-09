@@ -49,3 +49,7 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - W0 B 实际红测：GitHub workflow run 42620348983 / job 129170552735 在 SHA 8a7a11612327bf237f8d0df6a72c127384b7b0ed 失败（8 项：7 pass / 1 fail），原因是 BRV 缺独立来源认可需求—版本关系；B tests 已在 d0a38886048bd2183ef364295e6204eb6a742257 增强双层来源 FK。最新 HEAD CI 待核，不沿用绿色历史结果；W1/F QA 仍 NOT_RUN。
 
 - WB-A03 B 组 CI 校验：B PR #89 HEAD 历史 SHA 7b916e295d8f8461a8134ed2da9583ecb897022a，run 42620657398 job 129171616901，B SQLite 8/8 SUCCESS、W0+B shared 66/66 SUCCESS。该结果只属于上述 SHA；当前账本提交的新 SHA 仍须另查。B_DESIGN_SIGNOFF_SUBMITTED / DESIGN_CI_PASS_HISTORY，W0_NOT_FROZEN、W1_NOT_RUN、F_QA_NOT_RUN、BLOCKED_LICENSE。
+
+## B 组 F 审查后提交检查点：WB-FG18（2026-11-09）
+- F 独立审核显示 704c86a 设计 10/10、共同 68/68 成功但新增 SST 上游 ID 跨版本重复场景真实失败：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677。B 已修复设计 DDL 的 source ID 唯一域及相应来源审计，补四个专门反例；核验必须使用修复后同 HEAD CI 和 F 独立重跑。
+- 当前 W0 NOT_FROZEN、A #84 Draft、B #89 Draft、F #85 REVIEWED_WITH_BLOCKERS，FG17/FG19/FG20 等跨组阻断未关闭。B01/B02 真库未开始，PCC 现场、R1/Host/API/Windows ZIP 均未验；商业授权 BLOCKED_LICENSE。
