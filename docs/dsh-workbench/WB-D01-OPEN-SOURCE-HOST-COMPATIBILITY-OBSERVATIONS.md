@@ -53,3 +53,29 @@
 审计字段：task_id=WB-D01；source_sha=上述两个锁定 commit；test_command=GitHub read-only fetch_file / compare、`python -m unittest discover -s tests -p 'test_dsh_workbench_host_d.py' -v`；result=SOURCE_AUDIT_COMPLETE（不是 FIELD_QA_PASS）；date=2026-11-09；known_limitations=未访问银行 1.18.26、无真实 DSH Host / model / provider / Windows 日志。
 
 OSS_HOST_CLIENT_SEPARATION：只读来源审计，不代表宿主原生 UI 验收。NO_DUPLICATE_MODEL_KEYS 是 D 组保留的密钥 single-owner 契约。
+
+
+## D01 增量施工：离线只读版本元数据核验（F 审后）
+
+在 F \`WB-F00-ABCDE-INDEPENDENT-REVIEW-20261109.md\` 认可本组 13/13 设计测试、但拒绝现场资格之后，D 组增加 **独立原创的 allowlisted manifest inspector**，不用 DSH 模型额度，不调用任何插件安装器。
+
+源码：\`tools/dsh_workbench/wb_d_manifest_inspector.py\`。输入为用户已合法取得的 DSH 本地解压根目录，而不是配置档案。**仅读取**以下相对 \`package.json\`（可单选）：
+
+- \`package.json\`（根 package 身份）。
+- \`node_modules/@deepseek-ai/dsh/package.json\`（仅当确实存在）。
+- \`node_modules/@nanmicoder/dsh-agent-teams/package.json\`（仅当确实存在）。
+- \`node_modules/@deepseek-ai/deepseek-harness/package.json\`（仅当确实存在）。
+
+非白名单路径、符号链接、非常规 JSON、同名重复字段、超过 64KiB 的 manifest 默认拒绝；无法用相对路径读 \`profiles/\`、\`opencode.json\`、密钥、Credential/Cookie。JSON **只输出**受校验的 name/version/node engine、exports 声明与 client export 是否声明、dsh bundle 元数据声明布尔值、原始 manifest SHA256，不输出路径、API Key、exports 配置内容或 manifest 其他 JSON。仅看 exports 是否“声明”不意味着 client plugin 可加载。
+
+可重复命令（必须在有权执行的现场、目录不含生产秘密且通过本地安全审查之后）：
+
+\`\`\`bash
+python tools/dsh_workbench/wb_d_manifest_inspector.py --root /path/to/authorized/read-only/dsh
+python tools/dsh_workbench/wb_d_manifest_inspector.py --root /path/to/authorized/read-only/dsh --manifest package.json
+python -m unittest discover -s tests -p 'test_dsh_workbench_host_inventory_d.py' -v
+\`\`\`
+
+**不要复制此示例路径作为银行实际根目录**。返回 \`METADATA_OBSERVED\` 仅证明已读取允许的 metadata，并始终携带 \`field_verified=false\`、\`dsh_1_18_26_compatible=false\`、\`bank_final=false\`、\`models/skills/commands/attachments/history/cancel=NOT_PROBED\`。此处兼容字段 false 代表**未获兼容认证**，不是断言不兼容；后续现场必须结合实际 DSH version/exports/运行时 Host+Client 证据进行真实验收。任何非白名单/读错/缺全部 manifest 退出非零，不能借“不存在”宣布版本一致。
+
+新负向测试覆盖泄露秘钥、未知路径、符号链接、root 伪装、重复键、过长数据、无包、错误 JSON、非本地实现依赖与 CLI 返回码。**该 CI 不在银行设备运行，不读取实际 1.18.26 安装包**；故 D01 仍 \`FIELD_QA_NOT_RUN\`、D02/03/04 仍因 W0 门禁 \`NOT_STARTED\`。模型密钥仍只由 DSH Host 拥有（NO_DUPLICATE_MODEL_KEYS）。F 的 FG17–19 及 LICENSE/HOLD 不可因本工具通过而关闭。
