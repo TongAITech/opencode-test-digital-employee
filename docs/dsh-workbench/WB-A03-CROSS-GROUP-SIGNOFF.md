@@ -1,12 +1,12 @@
 # WB-A03 W0 业务/API/事件跨组签收候选
-状态：A_CONTRACT_DRAFT / B_PENDING / D_PENDING / E_PENDING / F_RECHECK_REQUIRED。仅讨论 W0 DESIGN_SIGNOFF；未获得任何组签署，也未取得任何真实功能 QA_PASS。
+状态：A_RECONCILED_CANDIDATE / B_DESIGN_SIGNOFF_WITH_FG18_HOLD / D_DESIGN_SIGNOFF_ISSUED / E_DESIGN_SIGNOFF_WITH_IMPLEMENTATION_HOLDS / F_RECHECK_REQUIRED。各组仅签 W0 设计合同；B 原 SQL 约束 FG18 修复由 A 集成待 B/F 复核；真实产品 QA 尚未执行。
 参照 F 组 PR #85 的 FG02–05、FG10、FG13；W0 Python 合同测试只验证内存 oracle。
 
 | 组 | 签署范围 | 必须带回的可复核证据 | 结论 |
 |---|---|---|---|
-| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：字段/约束/事务/回滚设计评审，T1–T8 反例预期与接口可实现性签署；W1：真实存储、422 rollback、重启保持另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
-| D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：宿主身份/权限/Session 复用/恢复接口边界、不可复用密钥与反例签署；W1+：现场宿主日志、项目隔离和重启恢复另验 | DESIGN_SIGNOFF_PENDING / FIELD_QA_NOT_RUN |
-| E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：R1 数据字段/状态机/SSE 协议/ACL 与 T9–T14 反例设计签署；W1+：真实 API/R1 Evidence/签名 Attempt/SSE 恢复日志另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
+| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：审查 [B DESIGN_SIGNOFF](WB-B-A03-DESIGN-SIGNOFF.md)、跨版本原始 SST ID 的版本限定 UNIQUE 及 T1–T8 反例；W1：真实 PostgreSQL/422 回滚/重启验收 | B_SIGNOFF_SUBMITTED / FG18_B_RECONFIRM_REQUIRED / IMPLEMENTATION_QA_NOT_RUN |
+| D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：[D DESIGN_SIGNOFF](WB-D00-DESIGN-SIGNOFF-AND-D01-HOST-DELTA.md)，可信主体、PROJECT/BATCH_COMMAND/WORKER 三会话、host 失败语义；W1+：行内真实会话/并发/恢复另验 | D_SIGNOFF_ISSUED / FIELD_QA_NOT_RUN |
+| E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：[E DESIGN_SIGNOFF](WB-E-A03-DESIGN-SIGNOFF.md)，明确旧 /api/workbench/v1 不存在与六项实现 HOLD；W1+：真实 API/Evidence/持久幂等/SSE 另验 | E_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS / IMPLEMENTATION_QA_NOT_RUN |
 | F | 独立检查合同遗漏、版权安全与设计退出门槛 | W0：审查设计合同、反例、来源锚点与分层 Gate；W1+：仅按真实证据签 IMPLEMENTATION/INTEGRATION/FIELD_QA_PASS | DESIGN_RECHECK_REQUIRED |
 | A | 依赖、合同分歧、CI/GAP/PR/主线集成 | W0：持有同 SHA 契约 CI、角色书面 DESIGN_SIGNOFF 和 F 设计审查；W1+：各组真代码 + F QA 另行门禁 | IN_PROGRESS |
 
@@ -50,3 +50,8 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 - `INTEGRATION_QA_PASS` = F 验证真实项目→批次日期→需求→系统版本→SST→Case/RC7.2 R1 Evidence 贯通且权限无串扰。
 - `FIELD_QA_PASS` 与 `LICENSE_RELEASE_APPROVED` 在最终离线发布前独立核销；法务权利与 SBOM 保持 BLOCKED_LICENSE，未经许可不得复制 PolyForm 受限源码。
 - 机器可检 DAG 位于 W0-W1-GATE-MANIFEST.json，由 tools/dsh_workbench/w0_dependency_gate.py 验证，拒绝 W0→W1 反向依赖、依赖环、缺失许可或现场发布门禁。该工具只静态校验依赖图，不会自动签署或解锁未获 F 批准的任务。
+
+## A 组真实跨组签收集成基线（2026-11-09）
+- 精确来源 B PR #89 HEAD `704c86aaf9b2c5a9b9b4088648ccd0c50204f2f8`、C PR #92 HEAD `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f`、D PR #90 HEAD `f0b7faeb22f9bf03d2487061a8f81a2776a5213d`、E PR #91 HEAD `bee612b2dd94a6040404db4b9a4a5fd816e136dd`；F 独立审查见 PR #85。
+- B 原签署的 sst 源键 UNIQUE 用了全项目作用域，F FG18 已证明与同原始 source_key 在多系统版本合法复用冲突。A 本次仅修复 **设计见证 SQL** 为 UNIQUE(project_id,version_id,source_system,source_key) 并保留版本限定来源身份；必须由 B 对新合同重新确认且 F 独立负向复验。
+- B/D/E 旧分支签署覆盖本行声明的既有语义，但最新联合集成 SOURCE SHA 与 A03 变更，仍需各组验证不丢信息。F W0 设计 ACCEPTED 与商业法务签署均未获得；W0 NOT_FROZEN、A02 BLOCKED_LICENSE。
