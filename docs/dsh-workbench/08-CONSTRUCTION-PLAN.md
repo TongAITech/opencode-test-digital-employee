@@ -118,3 +118,6 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 需 A 合并 B PR、D/E 分别签 W0、F 独立接受并明示 W0_DESIGN_FROZEN 后，B01/B02 才成为 READY；B03 依赖 B01+B02，B04→B05→B06 后提供 C/E Scope API；B07→B08 仍待 W2 依赖。禁止在 W0 不满足时自报 W1 验收或构建 ZIP。
 
 - B-A03 RED→FIX 设计回归：8 个 SQLite SQL witness 初轮 7 OK/1 FAIL，证实 BRV 应强制需求—版本 source_verified_requirement_version FK；已在 d0a38886048bd2183ef364295e6204eb6a742257 修复设计测试，待新同 HEAD CI 结果。**不是 W1 数据库执行。** B01–B08 仍待 W0 冻结依赖。
+
+### B 组同 SHA 契约 CI 结果（仅设计）
+- B PR #89；source commit 7b916e295d8f8461a8134ed2da9583ecb897022a；[GitHub Actions job 129171616901](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42620657398/job/129171616901)：SQLite B 设计 witness **8/8 OK**，合并 W0/B 契约回归 **66/66 OK**。仅设计/CI_PASS，禁止记 W1 IMPLEMENTATION_QA_PASS；下一 ready 仍是 A/F 冻结 W0 后 B01+B02。

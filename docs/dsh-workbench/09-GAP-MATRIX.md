@@ -59,3 +59,5 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 - WB-BG04：DEPENDENCY_BLOCKED，D/E 签署及 A/F W0 冻结尚缺，FG16 由 A/F 独立核销，B 无权自行关闭。
 
 - WB-BG05 / P0 / DESIGN_RED_FIXED_CI_PENDING：首次 B CI job 129170552735 = 7/8，发现 BRV 无权威需求—版本连边 FK 时可插入 R2/VB；新增 source_verified_requirement_version 复合 FK 并扩展 T1 三版本/五 SST。源提交 d0a38886048bd2183ef364295e6204eb6a742257，新 HEAD CI 结果待核实。此为 B 设计缺口，不能代替真 PostgreSQL/HTTP 验收。
+
+- WB-BG05 DESIGN_CI_PASS：红测 8a7a116 初轮 7/8 → 修复 source_verified_requirement_version FK 后 7b916e2 同 HEAD run 42620657398 job 129171616901 **8/8 B witness + 66/66 shared contracts OK**。仅 DESIGN_SPEC 修复，真实 PostgreSQL/HTTP/F QA 依然 OPEN/NOT_RUN。F 独立接受仍待办理。
