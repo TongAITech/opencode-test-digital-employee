@@ -256,5 +256,48 @@ class EReadOnlyScopeTests(unittest.TestCase):
         self.assertEqual([], admin.projection.calls)
 
 
+    def test_real_rc7_admin_r1_mission_source_is_not_b06_batch_identity(self):
+        """Real old R1 code fixture: release_id cannot be guessed to be batch."""
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from rc7_admin.server import AdminApplication
+        from rc7_runtime.models import Mission
+        from rc7_runtime.truth_overlay import append_entity
+
+        with TemporaryDirectory() as td:
+            path = Path(td) / "fixture-r1.jsonl"
+            app = AdminApplication(str(path))
+            append_entity(app.truth, Mission(
+                mission_id="M1", release_id="B1", goal="fixture only"),
+                release_id="B1")
+            before = path.read_bytes()
+            # B06 is a fixture too; test does NOT grant production authorization.
+            self.reject("R1_MISSION_SCOPE_UNRESOLVED",
+                        lambda: r1_preview_from_legacy_admin(
+                            lambda *_: verified_scope(), app,
+                            trusted_principal_id="fixture-principal",
+                            project_id="P1", batch_id="B1", mission_id="M1"))
+            self.assertEqual(before, path.read_bytes(),
+                             "Read-only preview must not append any R1 event")
+
+    def test_real_rc7_admin_has_no_workbench_control_or_graph_api(self):
+        """Pinned old API rejects the proposed routes; not production HTTP QA."""
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from rc7_admin.server import AdminApplication
+        from rc7_admin.projection import AdminProjectionError
+
+        with TemporaryDirectory() as td:
+            app = AdminApplication(str(Path(td) / "fixture-r1.jsonl"))
+            with self.assertRaises(AdminProjectionError) as missing_get:
+                app.dispatch_get("/api/workbench/v1/missions/M1/graph", {})
+            self.assertEqual("UNKNOWN_RESOURCE", str(missing_get.exception))
+            with self.assertRaises(AdminProjectionError) as missing_post:
+                app.dispatch_post("/api/workbench/v1/missions/M1/commands", {})
+            self.assertEqual("UNKNOWN_COMMAND", str(missing_post.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
