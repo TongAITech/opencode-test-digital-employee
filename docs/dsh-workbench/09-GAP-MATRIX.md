@@ -51,3 +51,12 @@
 F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能力回归、F03 真实自主闭环及 D04 Windows 离线资格：虽有 F04+LICENSE，实际缺全部所需先驱。原 F 回归测试见 `work/dsh-wb-qa` 分支 `tests/test_dsh_workbench_release_dependencies_f.py`。
 **A 代码整改已提交待新 HEAD CI/F 复核**：完善 W2/W3/W4 全量必需 Gate DAG，F04 严格依赖 F03+D04，最终 BANK_RELEASE 强制 F02 + F04 + A04 + A02 LICENSE；validator 计算传递依赖集合并校验（非仅看直接字段），新增移除/绕过任一前置的负向测试。
 状态 = CODE_FIX_SUBMITTED / CI_PENDING / F_RECHECK_PENDING。真实 DB/R1/Host/Windows/授权继续 NOT_RUN/BLOCKED，不得写 RELEASE_QA_PASS。
+
+## C 组 W0 未关闭缺口（2026-11-09，增量候选）
+| GAP | 级别 | 可复核现状 | 关闭证据与责任 |
+|---|---|---|---|
+| WB-CG01 | P0 | 六页面/十分区和按钮/表单/导航/错误、原版 47 项已形成原创设计对账，**真实正式 UI 未实现** | WB-C01/C03/C04/C05 实际实现，F02 原子 UI+API+截图回归，C/F |
+| WB-CG02 | P0 | 演示 Scope 9/9 单测通过，但真实 B06 复合关系/ACL/分页、事件续传未接 | B06 真实服务与 C02 宿主/跨分区负向联调，B/C/F |
+| WB-CG03 | P1 | 本地 Chromium 访问演示 HTTP 返回 `ERR_BLOCKED_BY_ADMINISTRATOR`；截图**未产生** | C 独立 CI/可访问浏览器真实截图 SHA/job + F 复核，C/F |
+| WB-CG04 | BLOCKER | W0 尚未由 A/F 接受，许可 `BLOCKED_LICENSE`，跨组设计签收 PENDING | 不启动 C01/C02 正式任务，A/F/法务 |
+C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA；原版受限源码不得进入银行交付。
