@@ -50,3 +50,16 @@ jobs:
         env:
           WB_B_CHECKOUT: ${{ github.workspace }}/b-domain
         run: python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+
+  f-abcde-synthetic-merge:
+    name: f-abcde-exact-sha-premerge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge A+B+C+D+E reviewed SHAs into disposable local branch
+        run: bash .github/scripts/dsh-wb-f-merge-probe.sh
+      - name: Integration scope disclaimer
+        run: echo 'SYNTHETIC GIT MERGE CHECK ONLY; NO AUTHORIZED W0 DESIGN FREEZE, DATABASE, R1 OR HOST EXECUTION'
