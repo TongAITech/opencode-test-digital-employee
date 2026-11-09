@@ -132,7 +132,7 @@ class EContractFixture(unittest.TestCase):
 
     def test_evidence_sha256_requires_actual_bytes(self):
         raw = b"observed-real-content"
-        digest = hashlib.sha256(raw).hexdigest()
+        digest = "sha256:" + hashlib.sha256(raw).hexdigest()
         self.assertTrue(verified_sha256(raw, digest))
         self.assertFalse(verified_sha256(None, digest))
         self.assertFalse(verified_sha256(raw, None))
