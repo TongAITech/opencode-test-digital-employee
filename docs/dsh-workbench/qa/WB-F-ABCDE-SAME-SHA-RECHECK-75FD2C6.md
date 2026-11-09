@@ -94,3 +94,22 @@ A 必须在 08/09/10 记录本次 source SHA、F PR #94、FG17 Python3.8 独立�
 A/RC7.2 责任方修复 FG17 时必须保留 HTTP POST 200、DOM 业务 Oracle、CDP 已记录 response、R1/PNG 等断言及失败 Evidence；F 再针对 Python3.8 + Python3.11 真 Chromium、历史负例和同 SHA 的 L1/L2 重跑。A 整体工作台功能仍仅设计，F 不签实际产品 QA_PASS。
 
 **known limitations：** 本轮 F 的 GitHub CI 在 GitHub Ubuntu runner 上运行，非行内 Windows、非生产 DB/Host/R1；虽然 GH CI 上传了 artifact，但未逐项人工开包分析 PNG 与 R1 真原始字节，故对 CDP 数据包完整性的结论仅来自此测试在断言处失败，不能推断测试后续编译/回放成功。
+
+
+## 6. F 五轮真实浏览器稳定性复验（增量结果）
+
+**源版本：** A 产品 `75fd2c64159db863cfd1319d41a887785b556d40`，F test workflow `76128293eb9eea3c7a420af121235c9a89ade502`（仅 F workflow/文档，没有任何 ABCDE 产品源码或原 C09 断言改变）。  
+**命令：** Ubuntu 22.04 / Python 3.8 / Playwright1.48.0 / 真 Chromium，在同一 provision 下 **连续 5 次**各运行未删减的 `tests/test_rc72_c09_real_chromium_cdp_smoke.py` 三个测试，用独立 JUnit XML 归档；任何尝试失败即整 job FAIL。  
+**证据：** [F run #42656920332 / job #129297760533](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42656920332/job/129297760533)；同源合同 [job #129297760873](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42656920332/job/129297760873) success。
+
+| 实际尝试 | 结果 | 耗时 |
+|---|---|---|
+| 1 | 3/3 PASS | 6.10s |
+| 2 | 3/3 PASS | 7.94s |
+| 3 | 3/3 PASS | 4.24s |
+| 4 | 3/3 PASS | 4.18s |
+| 5 | 3/3 PASS | 4.22s |
+
+输出：`FG17_FIVE_TRIAL_FAILURES=0`，此次重复验证通过。注意**此前同一 A 产品源码的独立 CI 1 FAIL（真实 toast Before save）不可因这五次成功而删除或改写**；准确状态仍为 `FLAKY_OBSERVED / SHORT_REPEAT_PASS / ROOT_CAUSE_PENDING`，并非稳定性已根因解决或行内正式 Q1/FIELD_QA_PASS。下一步由 A/RC7.2 排查 SPA toast DOM 收敛和旧 Playwright 时序，保留原 HTTP/DOM/CDP/R1/PNG 强断言；F 在新修复 SHA 与 Q1 跨平台独立重验。
+
+**本轮最后裁决：** `FG18_DESIGN_RECHECK_PASS`、`FG20_REGISTER_RECHECK_PASS`、`ABCDE_W0_CONTRACT_CI_PASS`、`FG17_FLAKY_OBSERVED`、`FG21_MAINLINE_MERGE_DIRTY`。W0_NOT_FROZEN、A02_BLOCKED_LICENSE、W1–W4 产品/行内 QA_PASS=0。
