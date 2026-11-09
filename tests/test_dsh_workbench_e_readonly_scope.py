@@ -224,7 +224,7 @@ class EReadOnlyScopeTests(unittest.TestCase):
         def deny_b06(*_args):
             raise ContractRejection("FORBIDDEN")
         self.reject("FORBIDDEN", lambda: r1_preview_from_legacy_admin(
-            deny_b06, admin, trusted_principal_id="alice", project_id="P1",
+            deny_b06, admin, project_id="P1",
             batch_id="B1", mission_id="M1"))
         self.assertEqual([], admin.projection.calls)
         self.assertEqual([], admin.writes)
@@ -235,31 +235,43 @@ class EReadOnlyScopeTests(unittest.TestCase):
         row["source_verified_link"] = None
         self.reject("SOURCE_VERIFIED_LINK_REQUIRED", lambda: r1_preview_from_legacy_admin(
             lambda *_: verified_scope([row]), admin,
-            trusted_principal_id="alice", project_id="P1",
-            batch_id="B1", mission_id="M1"))
+            project_id="P1", batch_id="B1", mission_id="M1"))
         self.assertEqual([], admin.projection.calls)
 
     def test_valid_seam_calls_read_only_projection(self):
         admin = LegacyAdminFixture()
         observed = []
-        def b06(principal, project, batch):
-            observed.append((principal, project, batch))
+        def b06(project, batch):
+            observed.append((project, batch))
             return verified_scope()
         p = r1_preview_from_legacy_admin(
-            b06, admin, trusted_principal_id="alice", project_id="P1",
-            batch_id="B1", mission_id="M1")
-        self.assertEqual([("alice", "P1", "B1")], observed)
+            b06, admin, project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertEqual([("P1", "B1")], observed)
         self.assertEqual([("read", "M1")], admin.projection.calls)
         self.assertEqual([], admin.writes)
         self.assertEqual("PROTOTYPE_UNQUALIFIED", p["data_quality"])
         self.assertEqual("HOLD", p["release_decision"])
 
-    def test_principal_must_be_server_derived_before_seam(self):
+    def test_seam_does_not_accept_a_client_supplied_principal(self):
         admin = LegacyAdminFixture()
+        observed = []
+        def b06(project, batch):
+            observed.append((project, batch))
+            return verified_scope()
+        with self.assertRaises(TypeError):
+            r1_preview_from_legacy_admin(
+                b06, admin, trusted_principal_id="attacker-admin",
+                project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertEqual([], observed)
+        self.assertEqual([], admin.projection.calls)
+
+    def test_host_bound_b06_authorization_failure_precedes_r1(self):
+        admin = LegacyAdminFixture()
+        def host_bound_b06(project, batch):
+            raise ContractRejection("UNAUTHENTICATED")
         self.reject("UNAUTHENTICATED", lambda: r1_preview_from_legacy_admin(
-            lambda *_: verified_scope(), admin,
-            trusted_principal_id="", project_id="P1",
-            batch_id="B1", mission_id="M1"))
+            host_bound_b06, admin, project_id="P1", batch_id="B1",
+            mission_id="M1"))
         self.assertEqual([], admin.projection.calls)
 
 

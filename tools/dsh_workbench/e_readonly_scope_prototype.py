@@ -219,22 +219,23 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
 
 
 def r1_preview_from_legacy_admin(
-    authorized_b06_fetch: Callable[[str, str, str], Mapping[str, Any]],
+    authorized_b06_fetch: Callable[[str, str], Mapping[str, Any]],
     legacy_admin: Any, *,
-    trusted_principal_id: str, project_id: str, batch_id: str, mission_id: str,
+    project_id: str, batch_id: str, mission_id: str,
 ) -> Dict[str, Any]:
     """Integration seam only; requires real B06/Host before ever exposing.
 
-    The first call MUST be an independently trusted B06 project+batch authorization
-    and source-verified join. B06 is not passed mission_id: after that call, the
-    explicit R1 Mission project_id+batch_id binding is checked. The next call reads
-    old AdminProjection; no dispatch_post or R1 append. A fixture cannot authenticate
-    production users or prove that trusted_principal_id came from DSH Host.
+    The injected B06 port MUST be bound by server-side DSH Host middleware to the
+    authenticated request context; it accepts project+batch only, never a principal
+    from a browser/body argument. B06 is not passed mission_id: after authorization
+    and source-verified join, the explicit R1 Mission project_id+batch_id binding is
+    checked. The next call reads old AdminProjection; no dispatch_post or R1 append.
+    A fixture cannot authenticate production users or prove Host middleware wiring.
     """
-    _expect(_nonempty(trusted_principal_id), "UNAUTHENTICATED")
+    _expect(callable(authorized_b06_fetch), "SCOPE_SOURCE_UNAVAILABLE")
     _expect(_nonempty(project_id) and _nonempty(batch_id)
             and _nonempty(mission_id), "INVALID_SCOPE")
-    b06 = authorized_b06_fetch(trusted_principal_id, project_id, batch_id)
+    b06 = authorized_b06_fetch(project_id, batch_id)
     normalize_b06_scope(b06, project_id=project_id, batch_id=batch_id)
     # Do not invoke /api/missions/{id} over an unprotected network endpoint:
     # direct in-process R1-derived read only, after B06 confirms authorization.

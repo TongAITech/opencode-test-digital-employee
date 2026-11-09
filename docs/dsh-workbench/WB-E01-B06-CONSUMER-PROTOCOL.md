@@ -13,10 +13,10 @@ It does not implement B06, authorize a principal, add an HTTP endpoint, or quali
 
 ## 1. Ownership boundary
 
-- DSH Host/D supplies the authenticated server-side principal. Browser JSON, prompt text, UI state, and request-body `principal`/`authorization` fields are never identity sources.
+- DSH Host/D supplies the authenticated server-side principal. Browser JSON, prompt text, UI state, and request-body `principal`/`authorization` fields are never identity sources. E invokes a B06 port bound to that server-side request context; the E adapter accepts project+batch only and does not accept/pass a raw principal argument.
 - B06 owns the project + stable batch + verified Requirement/SystemVersion/SST relation query. Its request is scoped by project/batch (or project/business date) plus explicit ID filters and pagination. It is **not** a Mission authorization endpoint and must not be asked to infer Mission membership.
 - E owns the R1 read-only projection and must verify the selected Mission against explicit R1 `project_id` and `batch_id` bindings after B06 has authorized the project/batch. Missing legacy bindings remain `R1_MISSION_SCOPE_UNRESOLVED`; `release_id`, names, or labels must never be treated as a batch ID.
-- E calls B06 first. On 403/404/409/422/503 or malformed/unverified scope, E must not query R1. The adapter never calls `dispatch_post`, `append_atomic`, or any R1 write API.
+- E calls the host-bound B06 port first. On 401/403/404/409/422/503 or malformed/unverified scope, E must not query R1. The adapter never calls `dispatch_post`, `append_atomic`, or any R1 write API.
 
 ## 2. B06 response fields consumed by E
 
