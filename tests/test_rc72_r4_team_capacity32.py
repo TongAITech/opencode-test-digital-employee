@@ -180,3 +180,60 @@ def test_two_slot_batch_admits_two_signed_r1_worker_sessions(tmp_path):
     assert len({a.session_id for a in batch.admitted}) == 2
     assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 2
     assert not truth.query("execution_attempt", mission_id="M-1")
+
+
+def test_roster_32_never_caps_release_batch_with_33_real_r1_ready_workitems(tmp_path):
+    """A mission can own >32 cases while <=4 workers have real R1 leases.
+
+    This tests canonical task scheduling, not observed DSH plugin membership.
+    """
+    from rc7_runtime.models import Task, TaskStatus
+    from rc7_runtime.truth_overlay import append_entity
+    from test_rc72_phase5_worker_lifecycle_contract import _refs
+
+    truth, captain, bridge = _bounded(tmp_path, 4)
+    for idx in range(3, 34):
+        task_id = "WI-%d" % idx
+        append_entity(truth, Task(
+            task_id=task_id, mission_id="M-1",
+            node="N7_EXECUTION", task_type="ETU_EXECUTION",
+            objective="scheduled ETU workload %d" % idx,
+            required_capabilities=["api"], input_artifact_refs=[],
+            acceptance_criteria=["signed evidence required"]),
+            release_id="RC7.2")
+        row = truth.query("rc7_task", task_id=task_id)[0]
+        task = bridge.scheduler._task_from_row(row)
+        task.state = TaskStatus.READY
+        bridge.scheduler._persist_task(task, row["artifact_version"] + 1)
+
+    assert len(bridge.scheduler.ready_tasks("M-1")) == 33
+    items = [
+        dict(workitem_id="WI-%d" % idx,
+             etu_id="ETU-%d" % (idx if idx <= 2 else 1),
+             role="test-executor",
+             canonical_refs=_refs("ETU-%d" % (idx if idx <= 2 else 1)))
+        for idx in range(1, 34)
+    ]
+    auth = dict(
+        mission_id="M-1", team_id="TEAM-1",
+        captain_session_id=captain["captain_session_id"],
+        captain_lease_id=captain["lease_id"])
+    admitted = bridge.dispatch_ready_batch(workitems=items, **auth)
+    assert len(admitted.admitted) == 4
+    assert len(admitted.queued_workitem_ids) == 29
+    assert len(set(admitted.queued_workitem_ids)) == 29
+    active = truth.query("rc72_worker_session", mission_id="M-1")
+    assert len(active) == 4
+    assert len({s["worker_id"] for s in active}) == 4
+    assert len({s["session_id"] for s in active}) == 4
+    assert all(truth.query("rc7_task", task_id=task_id)[0]["state"] == "READY"
+               for task_id in admitted.queued_workitem_ids)
+    assert not truth.query("execution_attempt", mission_id="M-1")
+    before = truth.store.path.read_bytes()
+    queued = [item for item in items
+              if item["workitem_id"] in admitted.queued_workitem_ids]
+    replay = bridge.dispatch_ready_batch(workitems=queued, **auth)
+    assert replay.admitted == ()
+    assert replay.queued_workitem_ids == admitted.queued_workitem_ids
+    assert truth.store.path.read_bytes() == before
+

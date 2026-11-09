@@ -140,8 +140,12 @@ class CaptainFencedWorkItemScheduler:
         READY tasks not admitted remain durable and can be picked up again on
         the next Mission tick after a WorkerSession is safely closed.
         """
-        if (not isinstance(workitems, (list, tuple)) or not workitems
-                or len(workitems) > self.capacity_policy.team_member_capacity):
+        # The 32-member roster bounds actual DSH member identities, NOT the
+        # count of READY WorkItems in a ReleaseBatch. A real batch may have
+        # hundreds of ETUs while only four signed WorkerSessions execute at
+        # once. Reject empty/foreign types, then validate every WorkItem
+        # against canonical READY truth before admitting the first task.
+        if not isinstance(workitems, (list, tuple)) or not workitems:
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_SIZE_INVALID")
         indexed = {}
         expected = {"workitem_id", "etu_id", "role", "canonical_refs"}

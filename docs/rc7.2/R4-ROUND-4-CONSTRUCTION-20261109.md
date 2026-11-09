@@ -62,3 +62,8 @@
 - SHA `70115c8a0c68` 共 46 项 Check，30 失败/14 成功/2 skipped，5 类独立 CI 日志抽查指向共同回归 `CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN`（N7 pipeline 重建时非必要拒绝新 reviewer 对象，连带 C07/C09/C04/ABCD 等）。
 - 修复：`CaptainFencedWorkItemScheduler.bind_n7_cleanup_review` 只允许同一 R1、同一原生签名 authority、同一 source commit、同一工具白名单的第二个 N7 Pipeline 进行只读重入；始终保留最初绑定的审核服务，不允许真正替换审核权威。新 Pipeline 的 Captain/TaskLease 权限依旧由 `_prepare_governed_item` 验证，过期/外来 Captain 不被放行。
 - 回归：新增同源重复构造无 R1 写入、不同签名 authority/变更 source 严拒、原有外来 Captain 禁止执行测试。**本修复须新的同 SHA CI 验证成功才能算工程修复完成。**
+
+## R4-07 修复：ReleaseBatch WorkItem 数量与 32 名成员池彻底解耦
+
+- 移除 `dispatch_ready_batch` 对入参 WorkItem 数量的 `len > team_member_capacity` 错误拒绝：一个投产批次可以拥有超过 32 个有效 ETU/WorkItem；32 是插件成员数，初始 4 是活跃任务并发数，**都不是批次待执行案例数量**。
+- 对 33 个真实入账 R1 READY WorkItem 增加调度回归：只允许 4 个 signed admission / WorkerSession，剩余 29 条保持 READY；重复调用不得二次派工或改变 R1；测试不声称 33 名真实 DSH Agent 已创建。
