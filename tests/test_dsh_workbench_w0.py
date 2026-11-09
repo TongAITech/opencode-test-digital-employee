@@ -304,11 +304,15 @@ class TestPageContract(unittest.TestCase):
     def test_a01_a02_a03_acceptance_artifacts_not_a_fake_qa_pass(self):
         docs = ROOT / "docs" / "dsh-workbench"
         atoms = (docs / "WB-A01-ATOMIC-FEATURE-REGISTER.md").read_text(encoding="utf-8")
-        for item in ("feature_id", "P01-01", "P02-01", "P03-01", "P04-01",
+        for item in ("original_source_ref", "feature_id", "P01-01", "P02-01", "P03-01", "P04-01",
                      "P05-01", "P06-01", "D01-01", "D02-01", "D03-01",
                      "D04-01", "D05-01", "D06-01", "D07-01", "D08-01",
-                     "D09-01", "D10-01", "NOT_RUN"):
+                     "D09-01", "D10-01", "X01-01", "X02-01", "X03-01", "NOT_RUN"):
             self.assertIn(item, atoms)
+        self.assertIn("fc5a054a48973d004580a3cc1de60da3f701150b", atoms)
+        self.assertIn("public/app.js#L", atoms)
+        self.assertIn("public/index.html#L", atoms)
+        self.assertIn("N/A（新增能力，无上游入口）", atoms)
         self.assertIn("BLOCKED_LICENSE", (docs / "WB-A02-LICENSE-BOUNDARY.md").read_text(encoding="utf-8"))
         self.assertIn("B_PENDING", (docs / "WB-A03-CROSS-GROUP-SIGNOFF.md").read_text(encoding="utf-8"))
         self.assertIn("F_INITIAL_REVIEWED_WITH_BLOCKERS", (docs / "08-CONSTRUCTION-PLAN.md").read_text(encoding="utf-8"))

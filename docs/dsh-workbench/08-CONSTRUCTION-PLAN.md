@@ -113,6 +113,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - `w0_dependency_gate.py` 校验 release **所有跨阶段必需祖先闭包**、缺节点、缺直连关键依赖与 W0/W1 设计循环；`test_dsh_workbench_gate_dag.py` 新增移除或绕过 F02/F03/D04 的对抗测试。可选 E07 QA Replay 非最终商业发布前置。
 - 本轮仅静态代码整改，不是 F02/F03/D04/F04 实际证据；**FG16=CODE_FIX_SUBMITTED / F_RECHECK_PENDING**，A02 继续 BLOCKED_LICENSE，B/D/E DESIGN_SIGNOFF 继续 PENDING，W0 NOT_FROZEN，未合并不打 ZIP。
 
+## 2026-11-09 W0 A 组续工：FG16 及 A01 上游源码锚点
+- F PR #85 最新对 A HEAD `4349ee63015c390e4b6c092e1ba048560be2e292` 复验，**FG15 DESIGN_FIX_ACCEPTED**，新增 **FG16 P0** 指机器发布依赖图缺 F02/F03/D04；证据 https://github.com/TongAITech/opencode-test-digital-employee/pull/84#issuecomment-6739906960。
+- A 已提交 `16740b71b08728bfa3a7952408cbc7085e3481d4`（38 个 Gate 节点、W2/W3/W4 发布闭包校验、负向反例）、`80efa1bfa585fe29a5939c889d5b5a08e4f742ed`（区分 F02 冗余直接边和真正绕过路径）；`515f6a367bd16d3b83197fa2c89e15d63a83c4fe` 将原版源码 SHA fc5a054a48973d004580a3cc1de60da3f701150b 的逐函数/DOM 参考行号纳入 A01 原子登记。上述 HEAD 的 W0 专项一次 CI 原始日志已核实 **58/58 OK**，最终新 HEAD 全矩阵需另外查询。
+- 本次继续补齐 X01/X02/X03 交互与失联/无证据等场景；设计登记更新为 **50 个原子项，35 个上游源码入口候选，15 个新增目标（无原版入口）**。上游代码存在性锚点不等于目标实现、按钮级动态核验或版权许可。
+- **FG16 状态 CODE_FIX_SUBMITTED / F_RECHECK_PENDING**；B/D/E DESIGN_SIGNOFF PENDING；A02 BLOCKED_LICENSE；W0 NOT_FROZEN，不能进入未批准的 W1 实施和银行 ZIP 打包。
+
 ## B 组 WB-A03 正式 DESIGN_SIGNOFF 提交（2026-11-09）
 - source_sha=80efa1bfa585fe29a5939c889d5b5a08e4f742ed；独立分支 work/dsh-wb-domain；签署内容：WB-B-A03-DESIGN-SIGNOFF.md、02/06 增量及 SQLite 设计约束反例 tests/test_dsh_workbench_b_a03_design.py。B_DESIGN_SIGNOFF_SUBMITTED，W1_IMPLEMENTATION_QA_NOT_RUN，F QA 未执行。
 - 需 A 合并 B PR、D/E 分别签 W0、F 独立接受并明示 W0_DESIGN_FROZEN 后，B01/B02 才成为 READY；B03 依赖 B01+B02，B04→B05→B06 后提供 C/E Scope API；B07→B08 仍待 W2 依赖。禁止在 W0 不满足时自报 W1 验收或构建 ZIP。
