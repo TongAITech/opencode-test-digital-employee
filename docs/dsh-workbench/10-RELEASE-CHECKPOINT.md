@@ -53,3 +53,5 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 ## B 组 F 审查后提交检查点：WB-FG18（2026-11-09）
 - F 独立审核显示 704c86a 设计 10/10、共同 68/68 成功但新增 SST 上游 ID 跨版本重复场景真实失败：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677。B 已修复设计 DDL 的 source ID 唯一域及相应来源审计，补四个专门反例；核验必须使用修复后同 HEAD CI 和 F 独立重跑。
 - 当前 W0 NOT_FROZEN、A #84 Draft、B #89 Draft、F #85 REVIEWED_WITH_BLOCKERS，FG17/FG19/FG20 等跨组阻断未关闭。B01/B02 真库未开始，PCC 现场、R1/Host/API/Windows ZIP 均未验；商业授权 BLOCKED_LICENSE。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。

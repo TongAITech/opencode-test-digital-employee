@@ -132,3 +132,5 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - task=WB-A03-B-FG18；状态=CODE_SUBMITTED / NEW_HEAD_CI_PENDING / F_INDEPENDENT_RECHECK_REQUIRED。F 原始 FAIL：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677；旧 B 704c86a SQLite 10/10、合同 68/68 绿不覆盖该反例。
 - 修改 tests/test_dsh_workbench_b_a03_design.py 的 SST 唯一身份域，增加 source_trace 和四组负向/正向证据；修订 WB-B-A03-DESIGN-SIGNOFF、02、06 合同；完整源码以 B PR #89 最新 HEAD 为准。
 - B01/B02 仍依赖 A03_CONTRACT_SIGNED + W0_DESIGN_FROZEN；F 最新 ABCDE 审查为 REVIEWED_WITH_BLOCKERS，FG17/19/20 仍 OPEN，A02 BLOCKED_LICENSE。不能提前解锁 W1、不能打 ZIP。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。

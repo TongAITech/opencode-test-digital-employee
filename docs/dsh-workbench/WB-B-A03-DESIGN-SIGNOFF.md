@@ -118,3 +118,9 @@ SQL 在真实实现时必须绑定参数、检查 Array/NULL 语义和固定排�
 - SQLite 五列设计见证对应 UNIQUE(project_id,sst_id) + UNIQUE(project_id,version_id,source_system,source_key)。新增 sst_source_trace 以三元复合 FK 记录 source_namespace、source_revision、source_ref，并添加跨版本同 raw ID、正确 JOIN、跨批次/错需求/错版本拒绝、同版本重复拒绝、跨项目正常隔离共四组测试。
 - **实施边界：**简化 witness 中 trace 表可单独加载，正式 PostgreSQL 迁移必须在 SST 实例创建事务中强制存储完整原始来源身份与 revision/ref，验证可信源而不是相信 UI 入参；B01–B05 真库测试待 W0 正式冻结后执行。
 - 此轮 B 修订和 CI 不代表 F 接受 FG18，需 F 从新 B HEAD 独立重跑其 test_dsh_workbench_b_sst_identity_f.py。A 仍需解决 FG17/FG19，C 需解决 FG20；W0 NOT_FROZEN，A02 BLOCKED_LICENSE，未开始 W1、无银行包。
+
+## WB-FG18 本轮 CI 红绿原始证据（2026-11-09）
+- 历史红：F 原始 B HEAD 704c86a 下，F 独立案例 test_same_raw_sst_id_different_system_versions_are_distinct 在 job 129218336677 因旧 UNIQUE(project_id,source_system,source_key) 抛错。红灯不删除。
+- 绿色修订来源：B HEAD eb48d161bd5c7caa29733fccfabc44654a376dd6；同 SHA run 42637588144 / job 129229772001，14/14 B SQL 正反例通过、72/72 W0+B 合同通过。
+- 更关键的是：此 CI 以固定 F 独立 HEAD 5111044d87a97120d57cddc1b6d3c8e177502c2f checkout 原始 tests/test_dsh_workbench_b_sst_identity_f.py，并设置 WB_B_CHECKOUT=. 指向 B 当次源码；F 旧红反例在修订 DDL 上真实执行 1/1 OK，非改写 F 测试。
+- 源日志 https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42637588144/job/129229772001 。此结果证明 W0 SQLite 约束设计纠偏，不替代 F 再审签署、PostgreSQL/HTTP/R1/现场 QA。F 的 FG18 独立关闭结论仍 PENDING，W0 NOT_FROZEN、FG17/FG19/FG20 OPEN、A02 BLOCKED_LICENSE。

@@ -70,3 +70,5 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 - F 独立复现：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677，跨版本复用同一上游 SST-100 原始来源 ID 触发 B 旧 DDL 项目级唯一冲突，违反 B 设计声明。
 - B 修复：UNIQUE(project_id,version_id,source_system,source_key) + UNIQUE(project_id,sst_id)，新增来源 trace 表及四组多版本关联/非法错配/重复拒绝/跨项目反例。当前=CODE_SUBMITTED / CI_PENDING / F_RECHECK_PENDING；同 SHA 真验收后才可评估关闭。
 - W0 未冻结、W1 真 PostgreSQL 与 API NOT_RUN。FG17（A 全矩阵）、FG19（ABCDE 预合并）、FG20（C 清单）不属于 B 自行核销范围，保持 F 阻断。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。
