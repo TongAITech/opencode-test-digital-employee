@@ -339,7 +339,6 @@ class EReadOnlyScopeTests(unittest.TestCase):
             self.reject("R1_MISSION_SCOPE_UNRESOLVED",
                         lambda: r1_preview_from_legacy_admin(
                             lambda *_: verified_scope(), app,
-                            trusted_principal_id="fixture-principal",
                             project_id="P1", batch_id="B1", mission_id="M1"))
             self.assertEqual(before, path.read_bytes(),
                              "Read-only preview must not append any R1 event")
