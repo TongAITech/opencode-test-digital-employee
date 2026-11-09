@@ -55,15 +55,3 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 ## A01 源码入口来源整改 / FG16 后续门禁
 - A01：原子清单 50 项，35 项基于 naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b 的 app.js 具名函数和 index.html DOM 固定行号建立**候选来源锚点**，另外 15 项明确为新增目标、无原版入口。仍缺 C/F 对每个 UI 按钮和行为的逐行与实际操作验证；状态 SOURCE_ANCHOR_CANDIDATE / F_REVIEW_PENDING，不可写 UI PASS。
 - FG16：F 在 A 4349ee6 发现 W4 Gate 路径可绕过 F02/F03/D04；A 提交 16740b7 + 80efa1b 的发布依赖闭包与负向测试。新 HEAD W0 契约测试已有 58/58 success 历史日志，**F 独立验收和完整 CI 按最新 SHA 复核**；不能因为静态门禁完善就宣称真实自主测试/离线验收。
-
-## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
-| E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
-|---|---|---|---|---|
-| E-HOLD-01 | P0 | RC7.2 ReleaseBatch 尚无项目+业务日+多版本 SST 稳定关联 | B06 真复合 join、来源迁移与端到端权限校验 | B/E：BLOCKED_DEPENDENCY_B06 |
-| E-HOLD-02 | P0 | `rc7_admin/server.py` 默认旧 GET/POST 没有宿主可信 principal/项目 ACL | D 宿主绑定 + E 控制 API 401/403/404/422 反例 | D/E：NOT_IMPLEMENTED |
-| E-HOLD-03 | P0 | 旧 POST 仅 test-cases，未实现命令幂等持久落库/控制面租约 | E03 正式命令、冲突无副作用、冷重启 | E：NOT_IMPLEMENTED |
-| E-HOLD-04 | P0 | Evidence content_hash 可选，旧检验只覆盖特定 artifact，不验证所有 Attempt/Defect | E06/B07 真实 hash/trace/reviewer/修复回归 | B/E：NOT_IMPLEMENTED |
-| E-HOLD-05 | P0 | R1 seq 不等于每批次受权 SSE 水位，缺原子快照+补放 | E04 真实项目批次隔离、断线/撤权/gap 实测 | E：NOT_IMPLEMENTED |
-| E-HOLD-06 | P0 | NodeGate reviewer worker/session 不等于银行发布人审批 | E06 正式人审事件+N10 Gate 双门槛 | E/D：NOT_IMPLEMENTED |
-
-E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HEAD `5dc514c...`），可运行的 W0 Python 反例见 `tests/test_dsh_workbench_e_contract.py`。仅设计层 ACCEPTED_WITH_IMPLEMENTATION_HOLDS；FG04/05/10/13 与 B/D/F 签收状态未据此关闭；W0 NOT_FROZEN / LICENSE BLOCKED。
