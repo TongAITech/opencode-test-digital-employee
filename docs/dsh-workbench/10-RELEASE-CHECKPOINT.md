@@ -88,3 +88,12 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 最新施工检查点（F PR #94 独立复验后）
+
+- A W0 审查基线：`75fd2c64159db863cfd1319d41a887785b556d40`；F 独立复验 PR #94 已完成该精确源 SHA 审查。F 结论仍 `REVIEWED_WITH_BLOCKERS / W0_NOT_FROZEN`。
+- FG18：`DESIGN_CI_RECHECK_PASS`；FG20：`DESIGN_REGISTER_RECONCILED`。均为设计期证据，不是 PostgreSQL 或正式工作台功能 QA。
+- FG17：A 已修复 Journey DOM Oracle 的异步等待问题。Q1 Python3.8/Playwright1.48/真实 Chromium 修复源 `f41e8ca882d674150349f9a1b4f0aab44e30d197` 五轮 3/3 PASS，run `42661016254`，artifact `13694826014`。Python3.11/Playwright1.62 五轮在源 `5de7cad44608847d4cc735f2a1dfb862247d0274` 验证中；待 CI 结束与 F 新 SHA 复核。FG17 暂不标 CLOSED。
+- FG21：已复现仅一个主线冲突文件 `.github/workflows/rc7.2-abcd-v4-qualification.yml`；正在进行无损解决，PR #84 目前仍不得标记 mergeable/merged。
+- A02 `BLOCKED_LICENSE`；W0 `NOT_FROZEN`；B06 真实 PostgreSQL/API、C01 正式六页面、D 行内 DSH1.18.26、E 真实 R1/Command/SSE、人审、Teams32、Windows 离线与 W1–W4 FIELD_QA 均 NOT_RUN。
+- 下一准入：Python3.11 同源回归 → FG17 新 SHA F 独立复核 → FG21 主线 merge clean + 同 SHA 完整资格 → B/D/E 对最终 A03 SHA 复签。商业授权独立阻断未解除前不制作银行 ZIP、不发布。
