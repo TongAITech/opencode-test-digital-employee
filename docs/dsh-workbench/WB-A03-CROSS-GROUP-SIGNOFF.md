@@ -1,12 +1,12 @@
 # WB-A03 W0 业务/API/事件跨组签收候选
-状态：A_CONTRACT_DRAFT / B_PENDING / D_PENDING / E_PENDING / F_RECHECK_REQUIRED。仅讨论 W0 DESIGN_SIGNOFF；未获得任何组签署，也未取得任何真实功能 QA_PASS。
+状态：A_CONTRACT_DRAFT / B_PENDING / D_PENDING / E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS / F_RECHECK_REQUIRED。仅讨论 W0 DESIGN_SIGNOFF；E 已对 W0 设计协议签署（附实现 HOLD），B/D/F 仍未签署或复核，未取得任何真实功能 QA_PASS。
 参照 F 组 PR #85 的 FG02–05、FG10、FG13；W0 Python 合同测试只验证内存 oracle。
 
 | 组 | 签署范围 | 必须带回的可复核证据 | 结论 |
 |---|---|---|---|
 | B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：字段/约束/事务/回滚设计评审，T1–T8 反例预期与接口可实现性签署；W1：真实存储、422 rollback、重启保持另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
 | D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：宿主身份/权限/Session 复用/恢复接口边界、不可复用密钥与反例签署；W1+：现场宿主日志、项目隔离和重启恢复另验 | DESIGN_SIGNOFF_PENDING / FIELD_QA_NOT_RUN |
-| E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：R1 数据字段/状态机/SSE 协议/ACL 与 T9–T14 反例设计签署；W1+：真实 API/R1 Evidence/签名 Attempt/SSE 恢复日志另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
+| E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | E 审核 W0 源码与反例并签 [正式设计签署](WB-E-A03-DESIGN-SIGNOFF.md)；旧 rc7_admin 无新 API/ACL/SSE。W1+ 真 API/R1 Evidence/签名 Attempt/SSE 恢复另验 | E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS / IMPLEMENTATION_QA_NOT_RUN |
 | F | 独立检查合同遗漏、版权安全与设计退出门槛 | W0：审查设计合同、反例、来源锚点与分层 Gate；W1+：仅按真实证据签 IMPLEMENTATION/INTEGRATION/FIELD_QA_PASS | DESIGN_RECHECK_REQUIRED |
 | A | 依赖、合同分歧、CI/GAP/PR/主线集成 | W0：持有同 SHA 契约 CI、角色书面 DESIGN_SIGNOFF 和 F 设计审查；W1+：各组真代码 + F QA 另行门禁 | IN_PROGRESS |
 
@@ -50,3 +50,6 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 - `INTEGRATION_QA_PASS` = F 验证真实项目→批次日期→需求→系统版本→SST→Case/RC7.2 R1 Evidence 贯通且权限无串扰。
 - `FIELD_QA_PASS` 与 `LICENSE_RELEASE_APPROVED` 在最终离线发布前独立核销；法务权利与 SBOM 保持 BLOCKED_LICENSE，未经许可不得复制 PolyForm 受限源码。
 - 机器可检 DAG 位于 W0-W1-GATE-MANIFEST.json，由 tools/dsh_workbench/w0_dependency_gate.py 验证，拒绝 W0→W1 反向依赖、依赖环、缺失许可或现场发布门禁。该工具只静态校验依赖图，不会自动签署或解锁未获 F 批准的任务。
+
+## 2026-11-09 E 组独立 W0 设计签署（待 A 合并与 F 复核）
+E 已核对 W0 PR #84 固定 HEAD `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`、rc7_admin 与 rc6/rc7 R1 原始源码 blob SHA，形成 [WB-E-A03-DESIGN-SIGNOFF.md](WB-E-A03-DESIGN-SIGNOFF.md)，以及原创 W0 E 契约 oracle/测试 `tools/dsh_workbench/e_contract_oracle.py`、`tests/test_dsh_workbench_e_contract.py`。结论仅 `E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；B06 未完成，E01 仍 BLOCKED_DEPENDENCY_B06；未实施新的 HTTP、真实 SSE、持久幂等、Agent Teams 执行、证据核验或 R1 mutation。A/F 不得把 E 设计签署冒称 W0 已冻结或 W1 真实 QA_PASS。
