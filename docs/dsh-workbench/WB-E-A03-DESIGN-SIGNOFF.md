@@ -82,3 +82,11 @@ E 设计签署不覆盖 B/D 的独立 DESIGN_SIGNOFF、F 的独立复验，也�
 **FG19 消除 E 侧并发文件冲突**：E 已创建 `WB-E-A03-LEDGER-MERGE-HANDOFF.md` 完整保存原 E 行/08–10 增量，并将本 E 分支内的四份共享 `WB-A03-CROSS-GROUP-SIGNOFF.md`、`08`、`09`、`10` 恢复 A W0 原始 blob SHA；E PR #91 的变更保持自身原创新文件。A 在合并 B/C/D/E 后必须按交接原文更新统一 08–10/签署表、提交同 HEAD 的综合 CI；F 重新运行 ABCDE premerge 才能正式核销 FG19。不能删账本信息，也不能覆盖 B 的 `source_verified_requirement_version`/`source_verified_link` 或 D 可信主体协议。
 
 **当前 E 任务门槛**：WB-A03/E = DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS；WB-E01 = PRE_B06_READONLY_PROTOTYPE_ONLY / IMPLEMENTATION_QA_BLOCKED_B06；E02–E06 NOT_STARTED；E07 OPTIONAL_NOT_ADMITTED；F 独立 PRODUCT_QA 未通过，A02 BLOCKED_LICENSE，W0 NOT_FROZEN，不打包。
+
+## 7. A 组已完成第一轮 ABCDE W0 单源候选集成后的 E 增量边界
+
+重新核对 A `work/dsh-wb-w0@1956b549206002a5566f076ca41d76b1dc9208fa`：第一轮 E 签署/Oracle、B/C/D 合同和 `08/09/10` 已进入 A 的候选树；本 E 分支只保留**第二轮**只读映射预适配代码、测试、CI 更新和本文件增量，不再倒退/覆盖 A 的综合账本。A 对 F 的 FG18 来源键、FG19 单源集成及 FG17 CDP 的修正仍须独立 F 对**新同 HEAD**重新审核，不能借本 E 的预适配宣称 W0 FROZEN。
+
+第二轮的可复核历史独立证据：E `8401ab85cefb2876ce4451252d3d9a6e7d14704c` 的 [GitHub job #129231742936](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42638157232/job/129231742936) 实际 `Ran 40 tests ... OK`，含真实旧 RC7 Admin/R1 synthetic fixture 2 例；这只是 W0 E 局部合同 CI。重建在 A 新 HEAD 上的 E 分支**必须重新取同源 CI**，旧成功只作历史来源证据。正式 E01 的真实 B06/HTTP/Host/R1 映射依然受 W0 设计和 B06 实施门禁阻断。
+
+E 第二轮成果应由 A 在集成时把 `PRE_B06_READONLY_PROTOTYPE_ONLY`、合同用例数量、新 source_sha、F 独立审查情况累积更新到共享 `08/09/10`；本 E 组不重写 A 的已集成总账，防 FG19 再次发生。
