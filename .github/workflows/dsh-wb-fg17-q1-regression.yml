@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -36,20 +36,20 @@ jobs:
           failures=0
           for attempt in 1 2 3 4 5; do
             echo "::group::FG17 Q1 PY38 REAL CHROMIUM attempt=$attempt"
-            export RC72_C09_EVIDENCE_EXPORT_ROOT="\${EVIDENCE_ROOT}/attempt-\${attempt}"
+            export RC72_C09_EVIDENCE_EXPORT_ROOT="${EVIDENCE_ROOT}/attempt-${attempt}"
             python -m pytest -q -ra tests/test_rc72_c09_real_chromium_cdp_smoke.py \
-              --junitxml="fg17-q1-\${attempt}.xml"
+              --junitxml="fg17-q1-${attempt}.xml"
             status=$?
-            echo "FG17_ATTEMPT=\${attempt} EXIT=\${status}"
+            echo "FG17_ATTEMPT=${attempt} EXIT=${status}"
             if [ "$status" -ne 0 ]; then failures=$((failures + 1)); fi
             echo "::endgroup::"
           done
-          echo "FG17_FIVE_TRIAL_FAILURES=\${failures}"
+          echo "FG17_FIVE_TRIAL_FAILURES=${failures}"
           test "$failures" -eq 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fg17-q1-py38-real-chromium-\${{ github.sha }}
+          name: fg17-q1-py38-real-chromium-${{ github.sha }}
           path: |
             fg17-q1-*.xml
             fg17-q1-evidence/
