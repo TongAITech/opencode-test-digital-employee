@@ -67,3 +67,11 @@
 
 - 移除 `dispatch_ready_batch` 对入参 WorkItem 数量的 `len > team_member_capacity` 错误拒绝：一个投产批次可以拥有超过 32 个有效 ETU/WorkItem；32 是插件成员数，初始 4 是活跃任务并发数，**都不是批次待执行案例数量**。
 - 对 33 个真实入账 R1 READY WorkItem 增加调度回归：只允许 4 个 signed admission / WorkerSession，剩余 29 条保持 READY；重复调用不得二次派工或改变 R1；测试不声称 33 名真实 DSH Agent 已创建。
+
+## R4-05 批次化施工：SCRIPT_READY 原子签发与 CI 去重（2026-11-09）
+
+- 源码审查发现：原 `NativeScriptReadyGateProducer.issue` 先核验 Captain，再在无 R1 账本锁的区间完成签名与 `append_atomic`。真实 Captain 换届可在两者之间发生，使旧代 Captain 仍写入一份刚签发的历史 SCRIPT_READY。下游 inspect 会拒绝旧代，但 R1 写入本身违反原子资格边界。
+- 修复：将最后一次当前 Captain owner/generation 核验、完整 N6/Case/Contract 事实再次核验、签名及唯一 R1 append 保持在同一 OS ledger lock。拒绝变更的冻结事实和过期 Captain；旧签名历史、独立 Reviewer、N7 Case 分母均不放宽；冷重入已有测试保持无重复写入。
+- 新增定向拒绝证据：两次 N6 读取不一致时不产生 SCRIPT_READY/Attempt/R1 变更；真实签发的 R1 append 期间，其他 Captain 相关 ledger 操作无法重入；同状态重复 issue 不再次写入。
+- 新增无 ZIP 的 Windows/Linux Python3.8/3.11 `r4-script-ready-lock` 定向工作流。保留 ABCD v3/v4 同 SHA **完整**产品回归，不删减任何 Case；仅将两条大工作流的 PR 并发组改为 PR 标识并在新 HEAD 到来时自动取消同 PR 的旧 SHA，避免将已过期回归当作交付资格。正式候选 SHA 仍需完整独立 QA；branch/manual 运行不自动取消。
+- 本批次为 **R4_05_SOURCE_SUBMITTED / SAME_HEAD_CI_PENDING**，不是银行 Field 证明，未核销 429/502/cold takeover 所有现场路径；R4-01～04、R4-06/07 继续按其真实 DoD 保持 OPEN，`BANK_FINAL=NO`。
