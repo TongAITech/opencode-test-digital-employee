@@ -179,3 +179,57 @@ A 的同 SHA FG17 专项 CI：
 
 **B 对领域合同的差量结论不变；但 F PR #94 的独立审查源仍固定在 75fd2c6。** F 必须对 7067d19 的新 RC7.2 adapter/test/workflow 和完整工作台同源树进行差量复验后，才能更新 FG17 状态。另 FG21 的 PR #84→work/rc7.2 mergeable=false/dirty 与 A02 BLOCKED_LICENSE 仍未解除；W0 继续 NOT_FROZEN，B01/B02 不得启动 W1。
 
+
+
+### 9.6 B06 response contract — B 组对 E PR #96 的正式确认
+
+B 组确认 E 的 consumer protocol 所提字段形状，作为 B06 设计契约增量：
+
+**请求（B06 服务端调用边界）：**
+- principal 由 DSH Host/服务端认证上下文提供，不接受客户端 body 自报。
+- 必须提供 project_id 与稳定 batch_id；或 project_id + release_date 由 B06 解析稳定 batch_id。
+- 可选筛选 requirement_ids[]、system_version_ids[]、sst_ids[]，以及 page_size、page_cursor。
+- B06 不接受 mission_id，不维护 authorized_mission_ids，不推断或授权 Mission。
+
+**响应（顶层字段，无外层 pagination envelope）：**
+~~~json
+{
+  "project_id": "P1",
+  "batch_id": "B1",
+  "release_date": "2026-11-12",
+  "relation_revision": 2,
+  "access_scope_revision": 3,
+  "source_refs": ["req-version-link:rv-1", "sst-link:sst-1"],
+  "records": [
+    {
+      "requirement_id": "R1",
+      "system_version_id": "V1",
+      "split_state": "SPLIT",
+      "sst_id": "SST-1",
+      "source_verified_requirement_version": {
+        "source_link_ref": "req-version-link:rv-1",
+        "source_revision": "8"
+      },
+      "source_verified_link": {
+        "source_link_ref": "sst-link:sst-1",
+        "verified_source_revision": "9"
+      }
+    }
+  ],
+  "warnings": [],
+  "gap_indicators": [],
+  "next_page_cursor": null
+}
+~~~
+
+字段约束：
+1. source_refs 是去重后的非空字符串数组，覆盖本页每一条 BRV 的 source_verified_requirement_version.source_link_ref，以及每一条 SPLIT SST 的 source_verified_link.source_link_ref。UNSPLIT 行仅需需求—版本 link，不伪造 SST link。该数组只表示 B 领域来源；E 读取 R1 后可另加 R1 source ref，不能把 R1 引用冒充 B06 来源。
+2. records 是真实 BRV LEFT JOIN BRVS 结果。每行必须带需求—版本权威来源对象；SPLIT 行另带 SST 来源对象；UNSPLIT 行 sst_id=null、source_verified_link=null。不能以两个合法 ID 集合生成笛卡尔组合。
+3. 分页请求字段为 page_size、page_cursor；响应固定顶层 next_page_cursor。必须存在该字段：null 表示本 Scope 最后一页；非 null 表示仍有后续页。B06 不再包一层 pagination envelope，也不同时输出两套游标字段。cursor 绑定 principal/project/batch/filters/relation_revision/access_scope_revision/truth_revision(若查询确实依赖 R1) 与稳定排序位置；任何版本变化返回 409 STALE_CURSOR。
+4. warnings、gap_indicators 固定为数组，无内容时为空数组。relation_revision、access_scope_revision 必须为正整数。B06 领域响应不负责产生 R1 的 truth_revision 或 as_of；E 的 R1 只读投影负责补充这些字段。
+5. 明确 Mission 边界：B06 仅授权 project+batch+关系查询，不接收/维护 Mission allow-list。E 在 B06 成功后读取 R1，并要求 Mission 的显式 project_id、batch_id 与已授权 Scope 完全相同；缺失或不匹配即 HOLD，不用 release_id、名称或版本标签猜测。
+
+**与既有文件的消歧：** B 组原签署 §4 已规定 next_page_cursor；06-API-AND-EVENT-CONTRACT.md 的通用 Scope 描述曾使用泛化的 pagination。本次明确：B06 专属响应采用上述顶层 next_page_cursor，没有外层 envelope。请 A 在共享 06 合同的 B06 附录同步这一规范，不要同时保留两个互相矛盾的分页 shape。
+
+**B 组签署结论：** 接受 E PR #96 的 consumer ownership split 和上述 payload shape。此签署仍为 W0 设计合同；B06 PostgreSQL、HTTP、ACL、稳定游标、跨页快照一致性尚未实现，E01 继续 BLOCKED_B06。
+
