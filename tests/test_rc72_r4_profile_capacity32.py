@@ -77,10 +77,10 @@ def test_plugin_row_without_config_gets_a_new_config_block(tmp_path, monkeypatch
 @pytest.mark.parametrize("src,error", [
     ("- id: other\n", "ROW_NOT_UNIQUE"),
     ("- id: agent-teams\n- id: agent-teams\n", "ROW_NOT_UNIQUE"),
-    ("- id: agent-teams\n  config: {maxMembers: 8}\n", "INLINE_OR_DYNAMIC"),
-    ("- id: agent-teams\n  config:\n    maxMembers: !!js 8\n", "NOT_PLAIN_INTEGER"),
-    ("- id: agent-teams\n  config:\n    maxMembers: 8\n    maxMembers: 9\n", "DUPLICATED"),
-    ("- id: agent-teams\n  config:\n    maxMembers: 0\n", "CAP_INVALID"),
+    ("- id: agent-teams\n  name: '@nanmicoder/dsh-agent-teams'\n  config: {maxMembers: 8}\n", "INLINE_OR_DYNAMIC"),
+    ("- id: agent-teams\n  name: '@nanmicoder/dsh-agent-teams'\n  config:\n    maxMembers: !!js 8\n", "NOT_PLAIN_INTEGER"),
+    ("- id: agent-teams\n  name: '@nanmicoder/dsh-agent-teams'\n  config:\n    maxMembers: 8\n    maxMembers: 9\n", "DUPLICATED"),
+    ("- id: agent-teams\n  name: '@nanmicoder/dsh-agent-teams'\n  config:\n    maxMembers: 0\n", "CAP_INVALID"),
 ])
 def test_unsafe_or_ambiguous_source_denied(src, error):
     with pytest.raises(TeamProfileCapacityError, match=error):
@@ -112,3 +112,15 @@ def test_clone_with_wrong_package_identity_denied(tmp_path, monkeypatch):
     package.write_text('{"name":"impostor","version":"1.0.0"}', encoding="utf-8")
     with pytest.raises(TeamProfileCapacityError, match="IDENTITY_INVALID"):
         apply_cloned_profile_capacity()
+
+def test_wrong_plugin_name_rejected_without_clone_mutation(tmp_path, monkeypatch):
+    _, clone, base_digest = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\\n"
+        "  name: '@other/unsafe-plugin'\\n"
+        "  config:\\n    maxMembers: 8\\n")
+    before = (clone / "cordis.patch.yml").read_bytes()
+    with pytest.raises(TeamProfileCapacityError, match="NAME_NOT_APPROVED"):
+        apply_cloned_profile_capacity()
+    assert (clone / "cordis.patch.yml").read_bytes() == before
+    assert dsh_runtime_profile.profile_snapshot("web")["digest"] == base_digest

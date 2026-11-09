@@ -25,6 +25,7 @@ class TeamProfileCapacityError(RuntimeError):
 
 _ROW = re.compile(r"^( *)(?:- )id: ['\"]?agent-teams['\"]?(?:[ \t]*#.*)?$")
 _FIELD = re.compile(r"^( *)config:[ \t]*(?:#.*)?$")
+_NAME = re.compile(r"^( *)name:[ \t]*['\"]@nanmicoder/dsh-agent-teams['\"](?:[ \t]*#.*)?$")
 _MEMBER = re.compile(r"^( *)(maxMembers):[ \t]*([0-9]+)([ \t]*(?:#.*)?)$")
 
 
@@ -54,6 +55,12 @@ def _rewrite_exact_agentteams_row(source: str, members: int) -> str:
         if spaces <= indent:
             end = n
             break
+    # Bind the ID to the exact installed plugin rather than a same-ID impostor.
+    names = [j for j in range(i + 1, end)
+             if lines[j].lstrip().startswith('name:')
+             and len(lines[j]) - len(lines[j].lstrip(' ')) == indent + 2]
+    if len(names) != 1 or not _NAME.fullmatch(lines[names[0]].rstrip("\n")):
+        raise TeamProfileCapacityError("R4_PROFILE_AGENTTEAMS_NAME_NOT_APPROVED")
     config = [j for j in range(i + 1, end)
               if lines[j].lstrip().startswith("config:")
               and len(lines[j]) - len(lines[j].lstrip(" ")) == indent + 2]

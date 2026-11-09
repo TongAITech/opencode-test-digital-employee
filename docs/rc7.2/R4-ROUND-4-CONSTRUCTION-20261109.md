@@ -44,3 +44,6 @@
 - CaptainFencedWorkItemScheduler 新增 `dispatch_ready_batch`，只接受冻结 N7 WorkItem/ETU/role/canonical_refs 显式清单；沿 canonical `TaskScheduler.ready_tasks` 排序逐个调用原有 `dispatch_etu`，没有任何弱化的临时 Worker 快捷通道。
 - 同一 R1 ledger 锁保护每个真实 TaskLease，活跃容量满时返回仍为 READY 的排队 WorkItem，下一次 Mission tick 可重新挑选；不释放未知副作用 Worker、不伪造模型工具调用；非容量错误绝不转换为排队成功。
 - 新增顺序、容量 1/2、重复提交、畸形数据、剩余 READY 与 R1 不变的反例测试；实际 DSH 模型自动唤醒/32 实体 Session 仍需行内证明。
+
+## R4-07 安全审计补充
+插件 ID 不能单独证明插件身份。32 成员容量应用前严格核验 YAML 同行组内的 `name: '@nanmicoder/dsh-agent-teams'` 与 clone package.json；同 ID 冒名插件拒绝，保留原配置与银行受保护 profile。
