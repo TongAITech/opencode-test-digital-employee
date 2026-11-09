@@ -1,0 +1,34 @@
+name: DSH Workbench F Independent Premerge Review
+
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tests/test_dsh_workbench*_f.py'
+      - '.github/workflows/dsh-wb-f-independent.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  f-release-gate-independent:
+    name: f-w0-dag-adversarial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require A contract on PR merge tree, not isolated F branch
+        run: |
+          test -f docs/dsh-workbench/W0-W1-GATE-MANIFEST.json
+          test -f tools/dsh_workbench/w0_dependency_gate.py
+      - name: Independent F adversarial release dependency tests
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_gate_dag.py' -v
+      - name: Evidence boundary
+        run: echo 'F STATIC DAG REVIEW ONLY; NO BANK COMMERCIAL LICENSE, UI/DB/R1 OR FIELD QA APPROVAL'
