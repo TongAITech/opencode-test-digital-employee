@@ -1,0 +1,45 @@
+name: Workbench FG17 Targeted Real Chromium Network Capture
+on:
+  push:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
+      - 'rc7_runtime/rc72_journey_cdp_capture.py'
+      - '.github/workflows/dsh-wb-fg17-cdp-targeted.yml'
+  workflow_dispatch:
+jobs:
+  fg17-real-chromium:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install matched RC7.2 Python and real Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
+          python -m playwright install --with-deps chromium
+      - name: Confirm actual SUT POST and recorded sanitized CDP response
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ github.workspace }}/fg17-evidence
+        run: >-
+          python -m pytest -v -s
+          tests/test_rc72_c09_real_chromium_cdp_smoke.py::test_real_chromium_cdp_teaching_captures_dom_event_network_and_png
+          --junitxml=fg17-real-chromium.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fg17-real-chromium-evidence-${{ github.sha }}
+          path: |
+            fg17-real-chromium.xml
+            fg17-evidence/
+          retention-days: 7
+          if-no-files-found: warn

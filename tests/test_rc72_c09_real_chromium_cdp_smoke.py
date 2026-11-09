@@ -307,8 +307,26 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
             auth_asset_ref="auth://4a/session-asset",
         )
         assert recorder.page is not None
-        recorder.page.locator("#save").click(timeout=10000)
+        # FG17: a successful click is NOT proof that CDP delivered the SPA
+        # fetch response. Fence on the actual POST response BEFORE taking the
+        # teaching action's network snapshot; still verify recorder evidence.
+        # This does not skip an HTTP Oracle or fabricate recorded responses.
+        with recorder.page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0] == origin + "/api/save"
+            ),
+            timeout=15000,
+        ) as save_response:
+            recorder.page.locator("#save").click(timeout=10000)
+        observed_response = save_response.value
+        assert observed_response.status == 200, (
+            "FG17_SUT_POST_RESPONSE_NOT_200: " + str(observed_response.status)
+        )
         recorder.page.wait_for_load_state("networkidle", timeout=15000)
+        assert recorder.page.locator("#toast").inner_text(timeout=10000) == "Saved on server", (
+            "FG17_SUT_TOAST_ORACLE_NOT_MET"
+        )
         observed_events = []
         for _ in range(30):
             observed_events = recorder.poll(page_role="CONFIGURATION")
@@ -341,7 +359,10 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
         responses = json.loads(response_path.read_text())["responses"]
         assert any(item["method"] == "POST" and
                    item["url"] == origin + "/api/save" and
-                   item["status"] == 200 for item in responses)
+                   item["status"] == 200 for item in responses), (
+                       "FG17_RECORDER_NETWORK_RESPONSE_NOT_ATTACHED_TO_CLICK: "
+                       + repr(responses)
+                   )
         assert "never-leak" not in response_path.read_text()
 
         compiled = JourneyCompiler(truth, release_id="RC7.2").compile(

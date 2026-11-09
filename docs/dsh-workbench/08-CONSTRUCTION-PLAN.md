@@ -3,18 +3,6 @@
 首次基线 RC7.2 work/rc7.2 @ 3de74c2bf3a0f3a555ccd979edd2832f26c9963a
 本次分支 work/dsh-wb-w0（文档施工独立分支，等待 PR 评审）
 
-
-## C 组 W0 原创探针进度（2026-11-09，待 A/F 审核合并）
-- 施工分支 `work/dsh-wb-ui` 由 `work/dsh-wb-w0@515f6a367bd1` 创建，C 的 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 已形成六主页面/十区、表单/动作/错误态/搜索/主题/导航/原创组件/API 接口的候选对账；演示代码 `tools/dsh_workbench/ui_w0_prototype/` 与 `tests/test_dsh_workbench_ui_w0.mjs` 隔离于正式产品。
-- 本地 Node 单测 9/9 PASS，语法检查 PASS；浏览器导航被 `ERR_BLOCKED_BY_ADMINISTRATOR` 阻断，**无真实截图，浏览器 QA NOT_RUN**，详见 `WB-C-W0-TEST-EVIDENCE.md`。独立 CI 工作流配置为同 HEAD Node/Playwright 浏览器探针、截图上传；是否真正通过以该 SHA job 为准。
-- **WB-C01=TODO、WB-C02=TODO、C03/C04/C05/C06=TODO**；本轮是 W0 可行性探针，不满足 A01/F W0 设计冻结，不进入 W1，也不将纯函数 Demo 等同真实 B06 复合关系/ACL API。
-- 源码采取独立创作路径；原版 `naodeng/dsh-qa` PolyForm Noncommercial 受限文件零复制，A02 `BLOCKED_LICENSE` 不变。请 A/F 以该分支真实 PR/同 SHA CI 审核后在正式总账记录，不由 C 代签 W0。
-
-## C 组 W0 独立 CI 真实探针结果（后续增量）
-- 源 SHA `465d1006e1b0f8d9ce537436d46912e527d9d096` 同 SHA GitHub job [129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107)：9 项 Node 单测 PASS、真实 Chromium 原创页面交互 PASS，3 个带 SHA256 的截图实际上传至 artifact 13675694071。旧本地浏览器策略阻断和 Ubuntu26.04 不兼容历史保留；改用 Ubuntu24.04 实际通过。
-- **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
-
-
 ## C 组 F 复审后独立整改窗口（2026-11-09，FG19/FG20）
 - F 独立 PR #85 审查源 C `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f`，同源 9/9 Node、Chromium demo PASS、3 PNG artifacts [13676629059](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622464425/artifacts/13676629059)。F 仅接受 **W0_DEMO_BROWSER_CI_PASS**，其余产品功能、正式 C01/C02、B06 API、DSH Host/R1 NOT_RUN。
 - **FG20** 设计原子基线统一为 **50 个（35 O/A + 15 N）**；新增 [C 50 项差异矩阵](WB-C-W0-50-FEATURE-DELTA.md) 和 six negative/sync contract tests `tests/test_dsh_workbench_c_feature_reconciliation.mjs`，实际正式产品测试为 50/50 NOT_RUN。需同 HEAD CI 与 F 再审，不能冒称正式功能通过。
@@ -136,3 +124,39 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A 已提交 `16740b71b08728bfa3a7952408cbc7085e3481d4`（38 个 Gate 节点、W2/W3/W4 发布闭包校验、负向反例）、`80efa1bfa585fe29a5939c889d5b5a08e4f742ed`（区分 F02 冗余直接边和真正绕过路径）；`515f6a367bd16d3b83197fa2c89e15d63a83c4fe` 将原版源码 SHA fc5a054a48973d004580a3cc1de60da3f701150b 的逐函数/DOM 参考行号纳入 A01 原子登记。上述 HEAD 的 W0 专项一次 CI 原始日志已核实 **58/58 OK**，最终新 HEAD 全矩阵需另外查询。
 - 本次继续补齐 X01/X02/X03 交互与失联/无证据等场景；设计登记更新为 **50 个原子项，35 个上游源码入口候选，15 个新增目标（无原版入口）**。上游代码存在性锚点不等于目标实现、按钮级动态核验或版权许可。
 - **FG16 状态 CODE_FIX_SUBMITTED / F_RECHECK_PENDING**；B/D/E DESIGN_SIGNOFF PENDING；A02 BLOCKED_LICENSE；W0 NOT_FROZEN，不能进入未批准的 W1 实施和银行 ZIP 打包。
+
+
+## B 组 WB-A03 正式 DESIGN_SIGNOFF 提交（2026-11-09）
+- source_sha=80efa1bfa585fe29a5939c889d5b5a08e4f742ed；独立分支 work/dsh-wb-domain；签署内容：WB-B-A03-DESIGN-SIGNOFF.md、02/06 增量及 SQLite 设计约束反例 tests/test_dsh_workbench_b_a03_design.py。B_DESIGN_SIGNOFF_SUBMITTED，W1_IMPLEMENTATION_QA_NOT_RUN，F QA 未执行。
+- 需 A 合并 B PR、D/E 分别签 W0、F 独立接受并明示 W0_DESIGN_FROZEN 后，B01/B02 才成为 READY；B03 依赖 B01+B02，B04→B05→B06 后提供 C/E Scope API；B07→B08 仍待 W2 依赖。禁止在 W0 不满足时自报 W1 验收或构建 ZIP。
+
+- B-A03 RED→FIX 设计回归：8 个 SQLite SQL witness 初轮 7 OK/1 FAIL，证实 BRV 应强制需求—版本 source_verified_requirement_version FK；已在 d0a38886048bd2183ef364295e6204eb6a742257 修复设计测试，待新同 HEAD CI 结果。**不是 W1 数据库执行。** B01–B08 仍待 W0 冻结依赖。
+
+### B 组同 SHA 契约 CI 结果（仅设计）
+- B PR #89；source commit 7b916e295d8f8461a8134ed2da9583ecb897022a；[GitHub Actions job 129171616901](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42620657398/job/129171616901)：SQLite B 设计 witness **8/8 OK**，合并 W0/B 契约回归 **66/66 OK**。仅设计/CI_PASS，禁止记 W1 IMPLEMENTATION_QA_PASS；下一 ready 仍是 A/F 冻结 W0 后 B01+B02。
+
+
+## C 组 W0 原创探针进度（2026-11-09，待 A/F 审核合并）
+- 施工分支 `work/dsh-wb-ui` 由 `work/dsh-wb-w0@515f6a367bd1` 创建，C 的 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 已形成六主页面/十区、表单/动作/错误态/搜索/主题/导航/原创组件/API 接口的候选对账；演示代码 `tools/dsh_workbench/ui_w0_prototype/` 与 `tests/test_dsh_workbench_ui_w0.mjs` 隔离于正式产品。
+- 本地 Node 单测 9/9 PASS，语法检查 PASS；浏览器导航被 `ERR_BLOCKED_BY_ADMINISTRATOR` 阻断，**无真实截图，浏览器 QA NOT_RUN**，详见 `WB-C-W0-TEST-EVIDENCE.md`。独立 CI 工作流配置为同 HEAD Node/Playwright 浏览器探针、截图上传；是否真正通过以该 SHA job 为准。
+- **WB-C01=TODO、WB-C02=TODO、C03/C04/C05/C06=TODO**；本轮是 W0 可行性探针，不满足 A01/F W0 设计冻结，不进入 W1，也不将纯函数 Demo 等同真实 B06 复合关系/ACL API。
+- 源码采取独立创作路径；原版 `naodeng/dsh-qa` PolyForm Noncommercial 受限文件零复制，A02 `BLOCKED_LICENSE` 不变。请 A/F 以该分支真实 PR/同 SHA CI 审核后在正式总账记录，不由 C 代签 W0。
+
+## C 组 W0 独立 CI 真实探针结果（后续增量）
+- 源 SHA `465d1006e1b0f8d9ce537436d46912e527d9d096` 同 SHA GitHub job [129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107)：9 项 Node 单测 PASS、真实 Chromium 原创页面交互 PASS，3 个带 SHA256 的截图实际上传至 artifact 13675694071。旧本地浏览器策略阻断和 Ubuntu26.04 不兼容历史保留；改用 Ubuntu24.04 实际通过。
+- **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
+
+
+## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
+- 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
+- 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。
+- 代码/用例：`tools/dsh_workbench/e_contract_oracle.py` + `tests/test_dsh_workbench_e_contract.py`，运行 `python -m unittest discover -s tests -p 'test_dsh_workbench_e_contract.py' -v`；它们只验证内存设计 oracle，不是 HTTP/DB/R1/SSE/执行证明。E 分支最新 SHA/同 HEAD CI 由 GitHub 检查后记入 PR，绝不预填绿灯。
+- R1/NodeGate/缺陷完整性、人审、真实签名租约、证据哈希、断线补放由 E01–E06/独立 F 继续实测；A02 BLOCKED_LICENSE / W0 NOT_FROZEN / 不构建银行 ZIP。
+
+## A 组 2026-11-09 ABCDE 联合候选构建（需同 HEAD F 独立复核）
+- 固定来源：A `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`、B PR #89 `704c86aaf9b2c5a9b9b4088648ccd0c50204f2f8`、C PR #92 `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f`、D PR #90 `f0b7faeb22f9bf03d2487061a8f81a2776a5213d`、E PR #91 `bee612b2dd94a6040404db4b9a4a5fd816e136dd`。本次使用多父 Git merge commit，逐字节保留各组**独立新增文件**，02/06 取 B 合同追加段，08/09/10 合并 B/C/E 非冲突追加段，A03 融合 B/D/E 正式 W0 设计签收行；F PR #85 原反例另纳入候选回归，不可冒用 F 正式签署。
+- FG17 P0：A 全矩阵源 `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc` Chromium/CDP smoke 2907 PASS/1 FAIL/4 SKIP；失败为未在 recorder response artifact 找到 POST /api/save status=200，暂不判定 W0 代码根因。失败日志 https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42620015620/job/129169423859，须修复/验证后方可称最终全 CI PASS。
+- FG18 P0：B 设计 witness 原 sst UNIQUE(project_id,source_system,source_key) 禁止同 raw SST key 在不同版本复用；A 候选改为 UNIQUE(project_id,version_id,source_system,source_key)，加同版本冲突、跨版本真实可共存反例，F 原 `test_dsh_workbench_b_sst_identity_f.py` 随候选树运行，B 需正式确认变更语义。
+- FG19 P0：F 的原 pinned B→C→D→E 合并由于 08/09/10、A03 冲突而失败，见 job #129218849736。现在 A 提供单个五父提交 SHA，F 需验证父 SHA 与最终合同文本、所有历史证据/失效前置仍存在、同 HEAD 合同+浏览器测试通过。
+- FG20 P1：C 原版原子候选数由旧 47 统一为 A 最新 50（35 个 O/A 上游源码入口候选、15 个 N 新增），保留尚未実际执行的 50 个原子用户动作状态 NOT_RUN。
+- 仍有 W0 门槛：A01 原版按钮与 C demo 差异逐项独立审核、B FG18 复签、D/E 当前合同签收范围差异确认、F 对集成 SHA 接受、A02 BLOCKED_LICENSE。**W0_DESIGN_FROZEN=NO；W1 B01/C01/E01 实际产品代码无验收，RC7.2 主线不合并、不构建银行 ZIP。**

@@ -1,0 +1,70 @@
+# WB-A03 — E 组运行内核与控制面 W0 DESIGN_SIGNOFF
+
+签署日期：2026-11-09；角色：E（RC7.2 runtime / R1 / Agent Teams / Evidence / NodeGate）；结论：**E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS**。
+**仅签署 W0 设计语义和拒绝规则，不签署 W1–W4 实现、真实运行或 F 独立 QA。** 反对任何将下面的纯内存 oracle 标记为 API、R1、SSE、真实回放或缺陷 QA_PASS 的做法。
+
+## 1. 可复核源锚点（不能借用旧 HEAD 作为当前版本）
+
+- 待签 W0 文件基线：`work/dsh-wb-w0@5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`，PR [#84](https://github.com/TongAITech/opencode-test-digital-employee/pull/84) OPEN/DRAFT；签署范围为 `02`、`04`、`05`、`06`、`07`、`WB-A03-CROSS-GROUP-SIGNOFF`、`08/09/10`，以及 `docs/rc7.2/01–05`、`10-DESIGN-IMPLEMENTATION-CLOSURE-CONTRACT`、`NATIVE-N10-CONTROL-CONTRACT`。
+- F 独立缺口：PR [#85](https://github.com/TongAITech/opencode-test-digital-employee/pull/85)，包括 FG04/05/06/10/13/16，F 仍为 REVIEWED_WITH_BLOCKERS。E 组不代签 F。
+- E 审核的实际文件 blob SHA：`rc7_admin/server.py@4cd89462a43fa55fab7c19880d53006f555f7887`、`product_server.py@8e8fc4c90ced920b49026ffe37c5981f75eee990`、`projection.py@db456fc1eb653bb7cf2642a54e028ecbd23f9d5c`；`rc6_runtime/truth.py@4c7ba52bbc4c61f53b379934215d0fdc6b6162a4`、`rc7_runtime/truth_overlay.py@a039db505b64fcb37d420023cc7e9f20fc35ac35`、`rc7_runtime/rc72_domain.py@6e7b0d1e00aeaf6ccc65a645e199344948974d2a`、`rc7_runtime/rc72_linkage.py@27c1ef1f19ff6ec3312397791dd310b0e7c9f12b`、`rc7_runtime/models.py@fef66a5f2696f02c49801aa8490c26e39e8cdbf2`、`rc7_admin/derived.py@eecd5b070e6f3f63e8703c9003f277d1316a66cd`。
+- 上述 blob SHA 为该次源码审计身份，不代表实际生产环境/行内部署版本。**E 施工分支的最终 HEAD、PR 及同 HEAD CI 必须以提交完成后的 GitHub API 查询为准**，不能预填。
+
+## 2. 旧 rc7_admin 的真实端点与缺口
+
+| 类别 | 真实路径/源码 | E 结论 |
+|---|---|---|
+| GET 基础 | `/api/health`、`/api/meta`，server.py:36–59 | 存在，但不能作为宿主 SSO/项目权限证明 |
+| GET Mission | `/api/missions/{id}/overview`、`/api/missions/{id}/detail` | 存在，R1 投影，不是跨日期的 B06 关联图 |
+| GET 资源 | `/api/{missions,tasks,gaps,evidence,defects,evaluations,artifacts,requirements,code-impacts,test-cases,executions,reports}` 及单 ID；`/api/test-obligations`、`/api/scripts`、`/api/defects/{id}/detail` | 存在，旧版 `_contains` 模糊检索和 page/page_size；没有项目+批次真实复合 join/ACL |
+| GET 产品扩展 | `/api/requirement-hierarchy`，product_server.py:22–37 | 存在，不等于批次→需求→系统版本→SST |
+| POST | `/api/test-cases`，`/api/test-cases/{id}/revisions`，`/api/test-cases/{id}/quarantine` | 存在且会写 R1；**不能成为 UI 任意写 R1 的控制命令代理** |
+| 新工作台 GET | `/api/workbench/v1/projects/*`、`/missions/*/graph`、`/workitems`、`/attempts/*/evidence`、`/capabilities` | **未发现实现**；待 B06/E01–E06 |
+| 新工作台 POST | `/api/workbench/v1/missions/{id}/commands` | **未发现实现**；待 E03 正式控制面 |
+| SSE | `/api/workbench/v1/events` | **未发现实现**；待持久批次水位、回放、鉴权与断线补放 |
+| 鉴权 | 现有 `server.py` 和 `product_server.py` 的 `do_GET/do_POST` | 没有可复用的可信宿主 principal/项目角色 ACL。旧端口 127.0.0.1 默认绑定不是安全隔离依据 |
+
+`TruthRuntime` 通过 `append_atomic` 写原子事件、从 JSONL 重建投影。**现有 R1 事件序号不直接等于按 project+batch 授权的 SSE 流 revision**，也无跨进程幂等命令日志。旧后管读 API 只能用作来源追溯，不能带着旧权限模型直接开放为正式工作台控制接口。
+
+## 3. E 正式签署的目标设计协议（仅字段/失败语义/可实现性）
+
+| 合同面 | E 设计签署 | 必须延迟到实现期核验 |
+|---|---|---|
+| 身份/Scope | Host/D 服务端提供不可由 body 覆盖的 principal；先鉴权 project，然后用真实 mission→batch→project 关系确定拥有者。未授权优先 403、不泄露对象存在；有权但 ID 不存在 404；非法关联 422 | D01/D03 获取可信主体；B06 复合真实 join + 关联修订；E01 的 HTTP 403/404/422 实测 |
+| R1 只读 | E 只读映射稳定 `project_id,batch_id,release_date,mission_id,requirement_id,system_version_id,sst_id,etu_id,workitem_id,attempt_id,evidence_id`。返回 `truth_revision,as_of,source_refs,relation_revision,access_scope_revision,warnings,gap_indicators`；R1 不可用 503/UI UNKNOWN | B06 正式批次身份、RC7.2 历史兼容关联；E01 同 R1 快照/证据与分页复算，不写影子 truth |
+| N1–N10/NodeGate | 沿用 `MissionNodeState`（NOT_STARTED/READY/RUNNING/REVIEW_PENDING/PASS/NEEDS_REVISION/BLOCKED/HUMAN_GATE/STALE）与 `NodeGateDecision`（PASS/NEEDS_REVISION/BLOCKED/HUMAN_GATE）；NodeDelivery、独立 reviewer、fresh session、revision/back-edge 持续可追溯 | E02/E06 在真实 R1 验证 NodeGate/Delivery/version/stale/human；质量卡片 WARN 绝不等于 PASS |
+| 命令/幂等 | body 仅 `command_id,idempotency_key,expected_state_revision,scope_ref,action,reason`；动作暂限 pause/resume/retry_failed/request_human_gate；拒绝 principal/authorization 字段、publish/任意 NodeGate PASS。持久键 = (principal_id,project_id,mission_id,idempotency_key)；同 payload 重试返回原 command_ref，不同 payload 409。重复请求的身份/Scope 校验优先，幂等查询应在状态版本冲突前防止误重试 | E03 服务端持久原子事务、签名/合法状态机、Worker 和资源租约、Human Gate、冲突无副作用、冷重启正确返回 |
+| SSE 批次隔离 | 事件强制 `event_id,project_id,batch_id,type,revision,truth_revision,source_ref,timestamp`（带时区）及可选 mission_id；订阅/cursor 绑定 (principal,project,batch,access_scope_revision)，批次有序 stream revision 和 R1 truth revision 独立。快照原子水位 → 无缝补放 → 实时订阅；gap、同 ID 变内容、权限/批次变更 fail closed | E04 可恢复持久事件存储、订阅服务、断链期间数据不丢、反向串批拒绝、断线及权限降级验证；内存测试不能替代 |
+| ETU/WorkItem/Attempt | `WorkItemAttemptBinding` 以 task/attempt 正式 ID 连接 ETU，处于 RUNNING/EVIDENCE_READY/COMPLETED 必须有 worker/session/task_lease_ref；UNRESOLVED lineage 不可猜 node；重试新 Attempt 不覆盖历史失败，不确定副作用 HOLD | E04/E05 真实 signed lease 和执行 I/O 证据，Agent Teams 配置 32/宿主并行/模型配额分层验证 |
+| Evidence/缺陷/人审 | `Evidence.content_hash` 目前可选，**非空 hash 也不代表已验证**；回读 content_ref 内容后重新计算 `sha256:` hash，来源/Attempt/ETU/缺陷必须通过结构化 trace refs。缺失、失效、伪造、不可获取→UNKNOWN/HOLD。NodeGate PASS+N10 CONVERGED+独立 Evidence 验证+明确的人审批准，也只具有“可发起受控发布请求”资格 | E06/B07 真实 hash/checksum、可靠 Evidence 与 Defect/Regression 链，旧 Attempt 保留，人工签署防篡改；禁止伪 PASS/伪缺陷/回归 |
+| 浏览器互斥 | BSK 与可选 ZSeven Replay 必须同一个资源管理器的排他 BrowserLease；UNKNOWN side-effect 保持 HOLD，不能直接重试或双 owner 竞争。ZSeven MIT 仍保留 LICENSE；Node>=24.11、驱动/离线依赖另验 | E05 通过后考虑 E07，可选项不阻塞 W4 正式必需链路 |
+
+### E 组未解决的“实现约束”，不作为 W0 设计签署依赖
+
+- **E-HOLD-01/B06**：ReleaseBatch 旧类是 `release_batch_id,mission_id,name,planned_release_time,version_ids,requirement_ids`，未内建项目+业务日期+系统版本+SST 复合关系；不可默认业务时区。B 负责真实关系与迁移来源，E01 不得绕过 B06 采用 fuzzy 搜索凑 Scope。
+- **E-HOLD-02/D 身份**：旧 HTTP 无可靠会话主体；不能以客户端传来的主体验证权限，不能复用旧后管 HTTP handler 承诺安全。未完成可信 SSO/host adapter，所有新命令 fail closed。
+- **E-HOLD-03/R1 控制**：旧 `dispatch_post` 只写 test-cases，R1 append 不是命令权限/幂等控制器；E03 需新增正式控制面而非原 UI 直接调用 `append_atomic`。
+- **E-HOLD-04/Evidence**：`validate_rc7_evidence` 只要求 kind/source_ref/content_ref 和 subject_refs，没有强制 hash、原始字节校验与 attempt provenance；`AdminDerivedViews._verified_json` 已有严格 `file://` + `sha256:` 校验可参考，但只针对特定 JSON artifact，不等于全 Evidence 可信。
+- **E-HOLD-05/事件**：R1 append-only seq 是存储级序号，缺跨实例持久 SSE per-batch offset/重放协议；需要快照水位与 ACL 隔离实测。
+- **E-HOLD-06/人审**：现有 NodeGate 的 reviewer_worker_id/reviewer_session_id 不是正式银行发布人审批事件；必须独立关联 Human Gate 的批准主体、时间、修订、签署与投产权限。
+
+## 4. W0 可执行契约反例与明确分层
+
+- 原创参考 oracle：`tools/dsh_workbench/e_contract_oracle.py`，只在内存中模拟授权拒绝、命令幂等、SSE 批次水位、Evidence hash 与门禁投影；没有服务端 API、数据库、SSE 流、R1 持久写入、真实 Worker/browser 执行。
+- 测试：`tests/test_dsh_workbench_e_contract.py`。
+- 命令：`python -m unittest discover -s tests -p 'test_dsh_workbench_e_contract.py' -v`。
+- 正向：合法 project+mission+batch、相同负载幂等重放、连续事件补放、真实字节哈希匹配、完整 Gate+N10+人审+证据前提只显示 ELIGIBLE_TO_REQUEST_ONLY、具有 lease/trace 的只读关联演示。
+- 反例：跨项目在资源存在性查询前 403、跨批次 422、伪 principal/authorization、publish/NodeGate override、修订/同键不同内容冲突、SSE 跨批次/过期权限/水位缺口/同 ID 变内容/无时区、hash 空值/篡改、NodeGate BLOCKED/NEEDS_REVISION/HUMAN_GATE/STALE/UNKNOWN、缺陷缺 trace 或未验证证据。测试夹具没有真执行证明，不标 QA_PASS。
+- 对 F 提交的验收请求：复核本签署对旧端点与 R1 真相的锚点，检查测试在同 E HEAD 实际运行，保留 FG04/05/10/13 待 W1+ 真证据，并复验 FG16 W4 门禁传递依赖。W0 仍由 A/F 判断是否 DESIGN_FROZEN。
+
+## 5. E 组工单决策
+
+| WorkItem | 当前 E 决策 |
+|---|---|
+| WB-A03/E | **DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS**（以 PR #84 与本 E 分支源码/测试为凭） |
+| WB-E01 | **BLOCKED_DEPENDENCY_B06**；只允许只读映射和契约夹具，不允许 `IMPLEMENTATION_QA_PASS` |
+| WB-E02–E06 | **NOT_STARTED / 依赖未满足**，不得假造控制命令或 execution PASS |
+| WB-E07 | **OPTIONAL_NOT_ADMITTED**；E05、BSK/Replay BrowserLease、MIT 通知、Node>=24.11 与离线驱动门禁未通过 |
+| F 独立验收 | **PENDING**；不代签 F，不宣布 W0 冻结 |
+
+E 设计签署不覆盖 B/D 的独立 DESIGN_SIGNOFF、F 的独立复验，也不能解除 A02 的 PolyForm Noncommercial 商业许可阻断。未获适用商业授权时不复制 naodeng 原受限源码进入银行交付。

@@ -314,7 +314,14 @@ class TestPageContract(unittest.TestCase):
         self.assertIn("public/index.html#L", atoms)
         self.assertIn("N/A（新增能力，无上游入口）", atoms)
         self.assertIn("BLOCKED_LICENSE", (docs / "WB-A02-LICENSE-BOUNDARY.md").read_text(encoding="utf-8"))
-        self.assertIn("B_PENDING", (docs / "WB-A03-CROSS-GROUP-SIGNOFF.md").read_text(encoding="utf-8"))
+        signoff = (docs / "WB-A03-CROSS-GROUP-SIGNOFF.md").read_text(encoding="utf-8")
+        # A03 now records the *actual* B/D/E signed design scope, not the
+        # original placeholder B_PENDING. These are not W1 product QA.
+        for item in ("B_SIGNOFF_SUBMITTED", "FG18_B_RECONFIRM_REQUIRED",
+                     "D_SIGNOFF_ISSUED", "E_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS",
+                     "F_RECHECK_REQUIRED", "IMPLEMENTATION_QA_NOT_RUN"):
+            self.assertIn(item, signoff)
+        self.assertNotIn("W0_DESIGN_FROZEN=YES", signoff)
         self.assertIn("F_INITIAL_REVIEWED_WITH_BLOCKERS", (docs / "08-CONSTRUCTION-PLAN.md").read_text(encoding="utf-8"))
         self.assertIn("W0_NOT_FROZEN", (docs / "09-GAP-MATRIX.md").read_text(encoding="utf-8"))
 
