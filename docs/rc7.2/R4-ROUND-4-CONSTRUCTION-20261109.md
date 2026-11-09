@@ -39,3 +39,8 @@
 - 支持无 `config` / 已有 `config` / 已有数字键 / 幂等重启，拒绝缺失/重复插件行、非数值/脚本成员数、未核准插件来源、来源漂移、符号链接。
 - 返回 `SOURCE_CONFIG_APPLIED_NOT_RUNTIME_VERIFIED`，**不宣称 DSH 运行进程确实加载了该字段**。真实 DSH `--dump-config`、32 真实成员创建、33 人阻断、DSH 会话/团队身份绑定以及行内 429/502、真实 R1 在下一 Field Gate 中独立验收。
 - 本批次不修改固定冻结的 R1 Captain/TaskLease/Browser/Data/认证权限语义；不触发 GB ZIP。
+
+## R4-07 第三施工批次：Ready WorkItem 的有界队列派发
+- CaptainFencedWorkItemScheduler 新增 `dispatch_ready_batch`，只接受冻结 N7 WorkItem/ETU/role/canonical_refs 显式清单；沿 canonical `TaskScheduler.ready_tasks` 排序逐个调用原有 `dispatch_etu`，没有任何弱化的临时 Worker 快捷通道。
+- 同一 R1 ledger 锁保护每个真实 TaskLease，活跃容量满时返回仍为 READY 的排队 WorkItem，下一次 Mission tick 可重新挑选；不释放未知副作用 Worker、不伪造模型工具调用；非容量错误绝不转换为排队成功。
+- 新增顺序、容量 1/2、重复提交、畸形数据、剩余 READY 与 R1 不变的反例测试；实际 DSH 模型自动唤醒/32 实体 Session 仍需行内证明。

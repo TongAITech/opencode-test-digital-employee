@@ -74,6 +74,13 @@ class GovernedFreshDispatch:
     state: str
 
 
+@dataclass(frozen=True)
+class GovernedReadyBatch:
+    """R1 admitted workers and durable READY workitems left queued."""
+    admitted: tuple
+    queued_workitem_ids: tuple
+
+
 class CaptainFencedWorkItemScheduler:
     """Admission on a single canonical R1/OS ledger, with role-profile enforcement.
 
@@ -118,6 +125,56 @@ class CaptainFencedWorkItemScheduler:
         if capacity_policy is not None and type(capacity_policy) is not TeamCapacityPolicy:
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPACITY_POLICY_INVALID")
         self.capacity_policy = capacity_policy if capacity_policy is not None else TeamCapacityPolicy()
+
+    def dispatch_ready_batch(self, *, mission_id: str, team_id: str,
+                             captain_session_id: str, captain_lease_id: str,
+                             workitems: Sequence[Mapping]) -> GovernedReadyBatch:
+        """Fair bounded admission in the canonical TaskScheduler READY order.
+
+        This is a *real* task admission method, not a simulated Agent spawn.
+        Each admission rechecks Captain fencing, source/ETU planning, TaskLease
+        and active slot atomically inside dispatch_etu's ledger lock. Requests
+        must be frozen and approved by the N7 planner; the Captain cannot pass
+        inferred role, ETU or mutable tool permissions from model prose.
+        READY tasks not admitted remain durable and can be picked up again on
+        the next Mission tick after a WorkerSession is safely closed.
+        """
+        if (not isinstance(workitems, (list, tuple)) or not workitems
+                or len(workitems) > self.capacity_policy.team_member_capacity):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_SIZE_INVALID")
+        indexed = {}
+        expected = {"workitem_id", "etu_id", "role", "canonical_refs"}
+        for item in workitems:
+            if (not isinstance(item, Mapping) or set(item) != expected
+                    or any(not isinstance(item[key], str) or not item[key].strip()
+                           for key in ("workitem_id", "etu_id", "role"))
+                    or not isinstance(item["canonical_refs"], Mapping)):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_ITEM_INVALID")
+            name = item["workitem_id"]
+            if name in indexed:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_DUPLICATE_WORKITEM")
+            indexed[name] = item
+        ready = self.scheduler.ready_tasks(mission_id)
+        order = [item.task_id for item in ready if item.task_id in indexed]
+        if len(order) != len(indexed):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_WORKITEM_NOT_READY")
+        admitted = []
+        for index, workitem_id in enumerate(order):
+            item = indexed[workitem_id]
+            try:
+                result = self.dispatch_etu(
+                    mission_id=mission_id, team_id=team_id,
+                    captain_session_id=captain_session_id,
+                    captain_lease_id=captain_lease_id,
+                    role=item["role"], etu_id=item["etu_id"],
+                    workitem_id=workitem_id,
+                    canonical_refs=item["canonical_refs"])
+            except CaptainSchedulingError as exc:
+                if str(exc) == "CAPTAIN_SCHEDULER_ACTIVE_CAPACITY_REACHED":
+                    return GovernedReadyBatch(tuple(admitted), tuple(order[index:]))
+                raise
+            admitted.append(result)
+        return GovernedReadyBatch(tuple(admitted), ())
 
     def _assert_active_team_capacity(self, team_id):
         """Capacity is reserved for ACTIVE R1 WorkerSessions, not roster size.

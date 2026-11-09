@@ -118,3 +118,65 @@ def test_two_active_slots_allow_two_distinct_workers(tmp_path):
     second = _admit(bridge, captain, "WI-2")
     assert first.worker_id != second.worker_id
     assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 2
+
+
+def _r4_batch_inputs():
+    from test_rc72_phase5_worker_lifecycle_contract import _refs
+    return [
+        {"workitem_id": "WI-1", "etu_id": "ETU-1",
+         "role": "test-executor", "canonical_refs": _refs("ETU-1")},
+        {"workitem_id": "WI-2", "etu_id": "ETU-2",
+         "role": "test-executor", "canonical_refs": _refs("ETU-2")},
+    ]
+
+
+def test_batch_fills_active_capacity_in_priority_order_and_preserves_ready_queue(tmp_path):
+    truth, captain, bridge = _bounded(tmp_path, 1)
+    arguments = dict(mission_id="M-1", team_id="TEAM-1",
+                     captain_session_id=captain["captain_session_id"],
+                     captain_lease_id=captain["lease_id"],
+                     workitems=_r4_batch_inputs())
+    original_ready = [item.task_id for item in bridge.scheduler.ready_tasks("M-1")]
+    assert set(original_ready) == {"WI-1", "WI-2"}
+    first = bridge.dispatch_ready_batch(**arguments)
+    assert [a.workitem_id for a in first.admitted] == original_ready[:1]
+    assert first.queued_workitem_ids == tuple(original_ready[1:])
+    assert truth.query("rc7_task", task_id=original_ready[1])[0]["state"] == "READY"
+    before = list(truth.store.iter_raw())
+    # Cold/warm repeated planning cannot write a second Worker or duplicate I/O.
+    only_queued = dict(arguments, workitems=[
+        item for item in arguments["workitems"]
+        if item["workitem_id"] in first.queued_workitem_ids])
+    second = bridge.dispatch_ready_batch(**only_queued)
+    assert second.admitted == () and second.queued_workitem_ids == tuple(original_ready[1:])
+    assert list(truth.store.iter_raw()) == before
+
+
+def test_invalid_batch_rejected_before_first_r1_write(tmp_path):
+    truth, captain, bridge = _bounded(tmp_path, 2)
+    before = list(truth.store.iter_raw())
+    inputs = _r4_batch_inputs()
+    base = dict(mission_id="M-1", team_id="TEAM-1",
+                captain_session_id=captain["captain_session_id"],
+                captain_lease_id=captain["lease_id"])
+    for items, reason in (([inputs[0], inputs[0]], "DUPLICATE"),
+                          ([dict(inputs[0], extra="untrusted")], "ITEM_INVALID"),
+                          ([], "SIZE_INVALID"),
+                          ([dict(inputs[0], workitem_id="NOT-READY")],
+                           "WORKITEM_NOT_READY")):
+        with pytest.raises(CaptainSchedulingError, match=reason):
+            bridge.dispatch_ready_batch(workitems=items, **base)
+    assert list(truth.store.iter_raw()) == before
+
+
+def test_two_slot_batch_admits_two_signed_r1_worker_sessions(tmp_path):
+    truth, captain, bridge = _bounded(tmp_path, 2)
+    batch = bridge.dispatch_ready_batch(
+        mission_id="M-1", team_id="TEAM-1",
+        captain_session_id=captain["captain_session_id"],
+        captain_lease_id=captain["lease_id"],
+        workitems=_r4_batch_inputs())
+    assert len(batch.admitted) == 2 and batch.queued_workitem_ids == ()
+    assert len({a.session_id for a in batch.admitted}) == 2
+    assert len(truth.query("rc72_worker_session", mission_id="M-1")) == 2
+    assert not truth.query("execution_attempt", mission_id="M-1")
