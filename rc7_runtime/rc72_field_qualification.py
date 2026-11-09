@@ -11,7 +11,9 @@ Gate approval (human:// + CASE_HUMAN_GATE_APPROVAL) with the same binding.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import re
 import time
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
@@ -21,6 +23,7 @@ from rc6_runtime.truth import TruthRuntime
 
 from .case_runtime import HUMAN_GATE_APPROVAL_KIND
 from .models import ContractError
+from .rc72_authority import RC72AuthorityRuntime
 from .rc72_truth import install_rc72_truth_overlay
 from .truth_overlay import install_rc7_truth_overlay
 
@@ -32,6 +35,8 @@ _BUCKET = "rc72_field_qualification_receipts"
 _REQUIRED_GATES = ("Q3", "Q4", "Q5", "Q6")
 _ALLOWED_STATUS = {"PASS", "FAIL", "HOLD", "NOT_RUN"}
 QUALIFICATION_PROOF_KIND = "RC72_FIELD_QUALIFICATION_PROOF"
+_ATTESTATION_PURPOSE = "RC72_TRUSTED_FIELD_ATTESTATION_V1"
+_SIGNATURE = re.compile(r"[0-9a-f]{64}\Z")
 
 REASON_PASS = "FIELD_EVIDENCE_VERIFIED"
 REASON_EVIDENCE_INVALID = "FIELD_EVIDENCE_INVALID_OR_UNBOUND"
@@ -50,6 +55,28 @@ def _canonical(value: object) -> bytes:
 
 def _sha(value: object) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
+
+
+def field_attestation_fields(evidence: Mapping[str, Any], *, gate: str,
+                             release_batch_id: str, source_commit: str,
+                             platform_family: str, platform_release: str,
+                             architecture: str, python_version: str) -> Dict[str, Any]:
+    """Exact Host-signed input. Provider/Human authentication is external."""
+    return dict(
+        purpose=_ATTESTATION_PURPOSE, gate=gate,
+        release_batch_id=release_batch_id, source_commit=source_commit,
+        platform_family=platform_family, platform_release=platform_release,
+        architecture=architecture, python_version=python_version,
+        evidence_id=evidence.get("evidence_id"),
+        release_id=evidence.get("release_id"),
+        mission_id=evidence.get("mission_id"),
+        evidence_kind=evidence.get("kind"),
+        source_ref=evidence.get("source_ref"),
+        content_ref=evidence.get("content_ref"),
+        content_hash=evidence.get("content_hash"),
+        subject_refs=list(evidence.get("subject_refs") or []),
+        artifact_version=evidence.get("artifact_version"),
+    )
 
 
 def _required(value: Any, name: str) -> str:
@@ -132,11 +159,19 @@ def _ensure_bucket(truth: TruthRuntime) -> None:
 class FieldQualificationService:
     """Persist fail-closed Q3-Q6 qualification receipts from canonical evidence."""
 
-    def __init__(self, truth: TruthRuntime, *, release_id: str) -> None:
+    def __init__(self, truth: TruthRuntime, *, release_id: str,
+                 trusted_gate_authorities: Mapping[str, RC72AuthorityRuntime] = None) -> None:
         install_rc72_field_qualification_overlay()
         _ensure_bucket(truth)
         self.truth = truth
         self.release_id = _required(release_id, "release_id")
+        # Inject only a bank Host-controlled signing trust root; no key means HOLD.
+        anchors = {} if trusted_gate_authorities is None else trusted_gate_authorities
+        if (not isinstance(anchors, Mapping)
+                or any(gate not in _REQUIRED_GATES or type(authority) is not RC72AuthorityRuntime
+                       for gate, authority in anchors.items())):
+            raise ContractError("FIELD_QUALIFICATION_TRUSTED_GATE_AUTHORITIES_REQUIRED")
+        self._trusted_gate_authorities = dict(anchors)
 
     @staticmethod
     def _receipt_id(mission_id: str, release_batch_id: str, gate: str, source_commit: str) -> str:
@@ -158,13 +193,32 @@ class FieldQualificationService:
             raise ContractError("FIELD_QUALIFICATION_EVIDENCE_NOT_UNIQUE:%s:%d" % (evidence_id, len(rows)))
         return rows[0]
 
-    @staticmethod
-    def _is_trusted_for_gate(evidence: Mapping[str, Any], gate: str) -> bool:
-        source_ref = str(evidence.get("source_ref") or "")
-        kind = str(evidence.get("kind") or "")
+    def _is_trusted_for_gate(
+        self, evidence: Mapping[str, Any], gate: str, *,
+        release_batch_id: str, source_commit: str,
+        platform_family: str, platform_release: str,
+        architecture: str, python_version: str,
+    ) -> bool:
+        source_ref = evidence.get("source_ref")
+        kind = evidence.get("kind")
         if gate == "Q6":
-            return kind == HUMAN_GATE_APPROVAL_KIND and source_ref.startswith("human://")
-        return kind == QUALIFICATION_PROOF_KIND and source_ref.startswith("provider://")
+            kind_ok = (kind == HUMAN_GATE_APPROVAL_KIND
+                       and isinstance(source_ref, str) and source_ref.startswith("human://"))
+        else:
+            kind_ok = (kind == QUALIFICATION_PROOF_KIND
+                       and isinstance(source_ref, str) and source_ref.startswith("provider://"))
+        authority = self._trusted_gate_authorities.get(gate)
+        signature = evidence.get("field_attestation_signature")
+        if (not kind_ok or type(authority) is not RC72AuthorityRuntime
+                or not isinstance(signature, str)
+                or _SIGNATURE.fullmatch(signature) is None):
+            return False
+        signed = field_attestation_fields(
+            evidence, gate=gate, release_batch_id=release_batch_id,
+            source_commit=source_commit, platform_family=platform_family,
+            platform_release=platform_release, architecture=architecture,
+            python_version=python_version)
+        return hmac.compare_digest(signature, authority._sign(signed))
 
     def _classify_evidence(
         self,
@@ -174,6 +228,10 @@ class FieldQualificationService:
         release_batch_id: str,
         gate: str,
         source_commit: str,
+        platform_family: str,
+        platform_release: str,
+        architecture: str,
+        python_version: str,
     ) -> Tuple[List[str], List[str]]:
         accepted: List[str] = []
         rejected: List[str] = []
@@ -185,7 +243,11 @@ class FieldQualificationService:
                 evidence.get("mission_id") == mission_id
                 and evidence.get("release_id") == self.release_id
                 and required_subjects.issubset(subjects)
-                and self._is_trusted_for_gate(evidence, gate)
+                and self._is_trusted_for_gate(
+                    evidence, gate, release_batch_id=release_batch_id,
+                    source_commit=source_commit, platform_family=platform_family,
+                    platform_release=platform_release, architecture=architecture,
+                    python_version=python_version)
             )
             (accepted if valid else rejected).append(evidence_id)
         return accepted, rejected
@@ -235,13 +297,14 @@ class FieldQualificationService:
             raise ContractError("FIELD_QUALIFICATION_EVIDENCE_REF_DUPLICATE")
         note_list = [_required(note, "note") for note in notes]
 
+        platform = dict(
+            platform_family=_required(platform_family, "platform_family"),
+            platform_release=_required(platform_release, "platform_release"),
+            architecture=_required(architecture, "architecture"),
+            python_version=_required(python_version, "python_version"))
         accepted, rejected = self._classify_evidence(
-            refs,
-            mission_id=mission_id,
-            release_batch_id=release_batch_id,
-            gate=gate,
-            source_commit=source_commit,
-        )
+            refs, mission_id=mission_id, release_batch_id=release_batch_id,
+            gate=gate, source_commit=source_commit, **platform)
         if requested == "PASS":
             if accepted and not rejected and len(accepted) == len(refs):
                 status = "PASS"
@@ -288,10 +351,10 @@ class FieldQualificationService:
             "release_batch_id": release_batch_id,
             "gate": gate,
             "source_commit": source_commit,
-            "platform_family": _required(platform_family, "platform_family"),
-            "platform_release": _required(platform_release, "platform_release"),
-            "architecture": _required(architecture, "architecture"),
-            "python_version": _required(python_version, "python_version"),
+            "platform_family": platform["platform_family"],
+            "platform_release": platform["platform_release"],
+            "architecture": platform["architecture"],
+            "python_version": platform["python_version"],
             "status": status,
             "reason": reason,
             "field_verified": field_verified,
