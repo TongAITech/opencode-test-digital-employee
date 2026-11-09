@@ -1,0 +1,34 @@
+name: DSH Workbench E W0 Design Contract Counterexamples
+
+on:
+  push:
+    branches: [work/dsh-wb-runtime]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tools/dsh_workbench/e_contract_oracle.py'
+      - 'tests/test_dsh_workbench_e_contract.py'
+      - '.github/workflows/dsh-wb-e-contract.yml'
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tools/dsh_workbench/e_contract_oracle.py'
+      - 'tests/test_dsh_workbench_e_contract.py'
+      - '.github/workflows/dsh-wb-e-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  e-w0-contract-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: E A03 W0 positive/negative protocol oracle
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_contract.py' -v
+      - name: No product acceptance or license implied
+        run: echo 'W0 DESIGN ONLY; E01 BLOCKED by B06; not HTTP/R1/SSE/Bank/F QA'
