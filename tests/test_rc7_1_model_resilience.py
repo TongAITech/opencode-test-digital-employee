@@ -34,6 +34,12 @@ class _ScriptedRunner:
         outcome = self.outcomes.pop(0) if self.outcomes else "success"
         self.session_no += 1
         session_id = "session-model-%d" % self.session_no
+        if outcome == "429-no-tool":
+            stdout = "\n".join([
+                json.dumps({"type": "session", "sessionId": session_id}),
+                json.dumps({"type": "error", "code": 429, "message": "LLMRequestError HTTP 429 rate limit"}),
+            ])
+            return subprocess.CompletedProcess(command, 1, stdout=stdout, stderr="")
         if outcome == "502-no-tool":
             stdout = "\n".join([
                 json.dumps({"type": "session", "sessionId": session_id}),
@@ -203,6 +209,31 @@ class ModelResilienceTests(unittest.TestCase):
                 if event["event_type"] == "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT"]
             self.assertEqual(blocked[0]["reason"], "R1_WORKER_STARTED_UNKNOWN_EFFECT")
             self.assertEqual(blocked[0]["recovery_action"], "MISSION_AUTOPILOT_R1_RESUME_REQUIRED")
+
+    def test_r4_429_after_worker_started_never_blindly_relaunches(self):
+        with tempfile.TemporaryDirectory() as root:
+            runner = _ScriptedRunner(["429-no-tool", "success"])
+            launcher, truth = self._launcher(root, runner)
+            launcher._rc71_sleep_fn = lambda _seconds: None
+            assignment = self._assignment(launcher, "r4-429-reentry")
+            with patch.dict(os.environ, {
+                "PFC_RC71_MODEL_RATE_MAX": "100",
+                "PFC_RC71_MODEL_TRANSIENT_RETRIES": "3",
+                "PFC_RC71_MODEL_RETRY_BACKOFF_SECONDS": "0",
+            }, clear=False):
+                with self.assertRaises(AgentRuntimeError):
+                    launcher.execute(assignment, "no repeated side effect")
+            self.assertEqual(runner.model_calls, 1)
+            records = [e["payload"] for e in truth.store.iter_raw()
+                       if e["event_type"] == "MODEL_RECOVERY_BLOCKED_SIDE_EFFECT"]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["failure_category"], "RATE_LIMIT")
+            self.assertEqual(records[0]["reason"], "R1_WORKER_STARTED_UNKNOWN_EFFECT")
+            self.assertEqual(records[0]["recovery_action"],
+                             "MISSION_AUTOPILOT_R1_RESUME_REQUIRED")
+            self.assertFalse(any(
+                e["event_type"] == "MODEL_RETRY_STARTED"
+                for e in truth.store.iter_raw()))
 
     def test_rate_window_waits_then_auto_resumes_without_manual_continue(self):
         with tempfile.TemporaryDirectory() as root:
