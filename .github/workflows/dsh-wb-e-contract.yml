@@ -6,14 +6,16 @@ on:
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/e_contract_oracle.py'
-      - 'tests/test_dsh_workbench_e_contract.py'
+      - 'tests/test_dsh_workbench_e_*.py'
+      - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
       - '.github/workflows/dsh-wb-e-contract.yml'
   pull_request:
     branches: [work/dsh-wb-w0]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/e_contract_oracle.py'
-      - 'tests/test_dsh_workbench_e_contract.py'
+      - 'tests/test_dsh_workbench_e_*.py'
+      - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
       - '.github/workflows/dsh-wb-e-contract.yml'
   workflow_dispatch:
 
@@ -29,6 +31,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: E A03 W0 positive/negative protocol oracle
-        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_contract.py' -v
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
       - name: No product acceptance or license implied
         run: echo 'W0 DESIGN ONLY; E01 BLOCKED by B06; not HTTP/R1/SSE/Bank/F QA'

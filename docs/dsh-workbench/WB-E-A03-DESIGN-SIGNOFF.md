@@ -68,3 +68,25 @@
 | F 独立验收 | **PENDING**；不代签 F，不宣布 W0 冻结 |
 
 E 设计签署不覆盖 B/D 的独立 DESIGN_SIGNOFF、F 的独立复验，也不能解除 A02 的 PolyForm Noncommercial 商业许可阻断。未获适用商业授权时不复制 naodeng 原受限源码进入银行交付。
+
+## 6. F 组独立审查后 E 组第二轮实际施工（2026-11-09）
+
+**F 原始意见**：`docs/dsh-workbench/qa/WB-F00-ABCDE-INDEPENDENT-REVIEW-20261109.md`（F PR #85）：E 设计源 `bee612b2dd94a6040404db4b9a4a5fd816e136dd` 的 19/19 合同 CI 已核实，状态仅 DESIGN_SIGNOFF_SUBMITTED_WITH_HOLDS；FG17 A 全量 CDP 失败、FG18 B 来源 SST 身份负例红、FG19 E 与 B 的共享合同/08–10 冲突，W0 NOT_FROZEN，E01 BLOCKED_B06。
+
+**新增只读协议适配原型**：`tools/dsh_workbench/e_readonly_scope_prototype.py`，源码/测试提交 `7cfa92b`、`0fa08a5`、`2eb94ee`、`c69b7cb`。无新增 /api/workbench/v1 route、服务端 ACL、持久 R1 命令、SSE 或浏览器执行。原型只在外部可信 B06 scope 已授权后读取既有 `AdminProjection.mission_overview`；不调用 `dispatch_post`、`append_atomic`。若 Mission 缺显式 `project_id`/`batch_id`，拒绝用旧 `release_id` 猜批次；缺已验证需求-版本/SST source link 拒绝；同原始 SST ID 跨系统版本保持不同复合身份；UNSPLIT 不能补假 SST。没有真实内容字节验证的 Evidence 一律 UNVERIFIED，任何 Attempt/NodeGate/发布一律 UNKNOWN/HOLD。
+
+**正反向测试与真正源码路径**：`tests/test_dsh_workbench_e_readonly_scope.py` 与 `test_dsh_workbench_e_contract.py`。增加真实 `rc7_admin.AdminApplication` 和实际 `TruthRuntime` 的临时文件测试：向**隔离临时测试 R1**创建 synthetic Mission，用旧 mission read projection 验证缺 batch/project 显式关系时拒绝并且 **R1 event-stream bytes 不变化**；真 `dispatch_get`/`dispatch_post` 对拟议 workbench route 返回 UNKNOWN_RESOURCE/UNKNOWN_COMMAND。测试里的 synthetic Mission 是合同 fixture，绝不作为真实银行 Evidence/Attempt/PASS。两类 E 单测统一 CI `dsh-wb-e-contract.yml`，命令 `python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v`。
+
+**已核查历史同源 CI**：E 施工历史 HEAD `1fe27e70a64b54a5c011e3627b52301438e72e90` 的 [job #129230844848](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42637900557/job/129230844848) 实际 `Ran 38 tests ... OK`（19 A03 + 19 pre-B06 夹具）。后追加 2 个真实旧 Admin/R1 拒绝测试，必须以**最终 E HEAD** 新 CI 重验，不能继承历史绿灯。
+
+**FG19 消除 E 侧并发文件冲突**：E 已创建 `WB-E-A03-LEDGER-MERGE-HANDOFF.md` 完整保存原 E 行/08–10 增量，并将本 E 分支内的四份共享 `WB-A03-CROSS-GROUP-SIGNOFF.md`、`08`、`09`、`10` 恢复 A W0 原始 blob SHA；E PR #91 的变更保持自身原创新文件。A 在合并 B/C/D/E 后必须按交接原文更新统一 08–10/签署表、提交同 HEAD 的综合 CI；F 重新运行 ABCDE premerge 才能正式核销 FG19。不能删账本信息，也不能覆盖 B 的 `source_verified_requirement_version`/`source_verified_link` 或 D 可信主体协议。
+
+**当前 E 任务门槛**：WB-A03/E = DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS；WB-E01 = PRE_B06_READONLY_PROTOTYPE_ONLY / IMPLEMENTATION_QA_BLOCKED_B06；E02–E06 NOT_STARTED；E07 OPTIONAL_NOT_ADMITTED；F 独立 PRODUCT_QA 未通过，A02 BLOCKED_LICENSE，W0 NOT_FROZEN，不打包。
+
+## 7. A 组已完成第一轮 ABCDE W0 单源候选集成后的 E 增量边界
+
+重新核对 A `work/dsh-wb-w0@1956b549206002a5566f076ca41d76b1dc9208fa`：第一轮 E 签署/Oracle、B/C/D 合同和 `08/09/10` 已进入 A 的候选树；本 E 分支只保留**第二轮**只读映射预适配代码、测试、CI 更新和本文件增量，不再倒退/覆盖 A 的综合账本。A 对 F 的 FG18 来源键、FG19 单源集成及 FG17 CDP 的修正仍须独立 F 对**新同 HEAD**重新审核，不能借本 E 的预适配宣称 W0 FROZEN。
+
+第二轮的可复核历史独立证据：E `8401ab85cefb2876ce4451252d3d9a6e7d14704c` 的 [GitHub job #129231742936](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42638157232/job/129231742936) 实际 `Ran 40 tests ... OK`，含真实旧 RC7 Admin/R1 synthetic fixture 2 例；这只是 W0 E 局部合同 CI。重建在 A 新 HEAD 上的 E 分支**必须重新取同源 CI**，旧成功只作历史来源证据。正式 E01 的真实 B06/HTTP/Host/R1 映射依然受 W0 设计和 B06 实施门禁阻断。
+
+E 第二轮成果应由 A 在集成时把 `PRE_B06_READONLY_PROTOTYPE_ONLY`、合同用例数量、新 source_sha、F 独立审查情况累积更新到共享 `08/09/10`；本 E 组不重写 A 的已集成总账，防 FG19 再次发生。
