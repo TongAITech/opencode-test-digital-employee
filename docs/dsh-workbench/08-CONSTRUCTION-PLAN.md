@@ -118,3 +118,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A 已提交 `16740b71b08728bfa3a7952408cbc7085e3481d4`（38 个 Gate 节点、W2/W3/W4 发布闭包校验、负向反例）、`80efa1bfa585fe29a5939c889d5b5a08e4f742ed`（区分 F02 冗余直接边和真正绕过路径）；`515f6a367bd16d3b83197fa2c89e15d63a83c4fe` 将原版源码 SHA fc5a054a48973d004580a3cc1de60da3f701150b 的逐函数/DOM 参考行号纳入 A01 原子登记。上述 HEAD 的 W0 专项一次 CI 原始日志已核实 **58/58 OK**，最终新 HEAD 全矩阵需另外查询。
 - 本次继续补齐 X01/X02/X03 交互与失联/无证据等场景；设计登记更新为 **50 个原子项，35 个上游源码入口候选，15 个新增目标（无原版入口）**。上游代码存在性锚点不等于目标实现、按钮级动态核验或版权许可。
 - **FG16 状态 CODE_FIX_SUBMITTED / F_RECHECK_PENDING**；B/D/E DESIGN_SIGNOFF PENDING；A02 BLOCKED_LICENSE；W0 NOT_FROZEN，不能进入未批准的 W1 实施和银行 ZIP 打包。
+
+## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
+- 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
+- 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。
+- 代码/用例：`tools/dsh_workbench/e_contract_oracle.py` + `tests/test_dsh_workbench_e_contract.py`，运行 `python -m unittest discover -s tests -p 'test_dsh_workbench_e_contract.py' -v`；它们只验证内存设计 oracle，不是 HTTP/DB/R1/SSE/执行证明。E 分支最新 SHA/同 HEAD CI 由 GitHub 检查后记入 PR，绝不预填绿灯。
+- R1/NodeGate/缺陷完整性、人审、真实签名租约、证据哈希、断线补放由 E01–E06/独立 F 继续实测；A02 BLOCKED_LICENSE / W0 NOT_FROZEN / 不构建银行 ZIP。
