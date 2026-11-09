@@ -66,7 +66,7 @@ sst.project_id, sst.source_system, sst.source_key
 **F 实际合并实验：** 使用确切 A/B/C/D/E 上表 SHAs，在 GitHub Actions 的隔离 Git 工作区以 A 为基线依次 `git merge` B/C/D/E；不执行任何远端 push。首次 [run 42634316547 / job #129218336094](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336094)：
 - B source SHA `704c86a...` 合并进 A HEAD 成功；
 - 随后 C source SHA `e9094bf...` 与已有 B/A 发生**真实文件内容冲突**，具体为 `docs/dsh-workbench/08-CONSTRUCTION-PLAN.md`、`09-GAP-MATRIX.md`、`10-RELEASE-CHECKPOINT.md`；
-- 原首次脚本 fail-fast，D/E **在这个旧 run 未尝试**，不得称其已冲突或已集成。F 随后修订脚本，使同一快照在 C 冲突 abort 后继续尝试 D/E 并累计冲突；只在修订 CI 真实运行后补充具体结果。
+- 初次脚本 fail-fast，D/E 在该旧 run 未尝试；F 已修改为冲突 abort 后继续其他组并在相同固定 SHAs 上重新实际运行 [run 42634466019 / job #129218849736](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634466019/job/129218849736)：**B merge OK；C 在 08/09/10 冲突；D merge OK；E 在 08/09/10 和 WB-A03-CROSS-GROUP-SIGNOFF.md 冲突。最终 2 个分支无法自动集成，退出码 2**。该实验采用 B→C→D→E 次序，C 冲突 abort，故 D/E 是在 B 已合入而 C 未合入的临时分支上进行；不同顺序需 A 集成时再核查。
 - B 与 E 还同时修改 `WB-A03-CROSS-GROUP-SIGNOFF.md` 及账本，跨组设计签署和来源约束不能靠最后写入者覆盖。当前 #89/#90/#91/#92 各自都是 Draft/Not Merged，A #84 也是 Draft；**没有可指认的 ABCDE 集成 SHA**，也没有同一合并树的 PostgreSQL/API/R1/UI/Host 合同回归。
 
 **关闭条件：** A 以最新主线为依据明确合并次序、逐文件解决冲突、保留 B 复合来源和 D/E 权限/真相签署、C UI 十区 Scope、F 负向测试与 FG17 等原始失败；提交正式**单一 integrated SHA**，在该 SHA 运行统一契约/集成/浏览器/字段质量门禁，F 再审。单 PR “mergeable=true”不等于五组一起 mergeable。
