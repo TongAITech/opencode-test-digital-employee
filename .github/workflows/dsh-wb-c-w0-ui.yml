@@ -1,11 +1,5 @@
 name: Workbench C W0 original UI probe
 on:
-  push:
-    branches: [work/dsh-wb-ui]
-    paths:
-      - 'tools/dsh_workbench/ui_w0_prototype/**'
-      - 'tests/test_dsh_workbench_ui_w0.mjs'
-      - '.github/workflows/dsh-wb-c-w0-ui.yml'
   pull_request:
     paths:
       - 'tools/dsh_workbench/ui_w0_prototype/**'

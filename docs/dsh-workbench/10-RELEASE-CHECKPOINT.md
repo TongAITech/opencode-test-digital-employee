@@ -45,3 +45,7 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 隔离的静态 W0 原型、9 个 Node 单测、专用浏览器/截图脚本与独立 CI 配置均位于 C 分支；本地 9/9 PASS，不代表产品 QA。具体命令/失败日志/截图状态见 `WB-C-W0-TEST-EVIDENCE.md`。
 - 本地浏览器访问受环境策略阻挡，`ERR_BLOCKED_BY_ADMINISTRATOR`；当前 **SCREENSHOT_NOT_CAPTURED、BROWSER_QA_NOT_RUN**。只能在真实 CI 出具 artifacts/job/SHA 后另行核销。
 - A01 设计审查与 B/D/E A03 签收未闭环，F W0 设计未接受；C01/C02 仍 TODO、B06 未完成、E02 未完成；不合入 RC7.2，不构建离线 ZIP、不发布；A02 许可证 `BLOCKED_LICENSE` 不变。
+
+## C 组 W0 Probe 同 SHA 成功检查点（非正式 F QA）
+- SOURCE `465d1006e1b0f8d9ce537436d46912e527d9d096`：[GitHub job 129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107) 9/9 单测、真实 Chromium demo 交互与 3 张截图上传均 PASS；artifact ID 13675694071，3 个 SHA256 见 `WB-C-W0-TEST-EVIDENCE.md`。
+- 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。
