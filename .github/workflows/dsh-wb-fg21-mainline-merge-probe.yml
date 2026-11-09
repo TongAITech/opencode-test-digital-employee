@@ -1,0 +1,53 @@
+name: FG21 RC7.2 Mainline Merge Conflict Probe
+on:
+  push:
+    branches: [work/dsh-wb-w0-fg17-fg21]
+    paths:
+      - '.github/workflows/dsh-wb-fg21-mainline-merge-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  merge-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Merge the exact W0 candidate onto the current RC7.2 mainline without remote writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'FG21 Read-Only Merge Probe'
+          git config user.email 'fg21-probe@example.invalid'
+          git fetch --no-tags origin \
+            '+refs/heads/work/rc7.2:refs/remotes/origin/work/rc7.2' \
+            '+refs/heads/work/dsh-wb-w0-fg17-fg21:refs/remotes/origin/work/dsh-wb-w0-fg17-fg21'
+          base_sha="$(git rev-parse origin/work/rc7.2)"
+          head_sha="$(git rev-parse origin/work/dsh-wb-w0-fg17-fg21)"
+          echo "FG21_BASE_SHA=\${base_sha}"
+          echo "FG21_HEAD_SHA=\${head_sha}"
+          git checkout -B fg21-readonly-probe origin/work/rc7.2
+          if git merge --no-edit --no-ff --no-commit origin/work/dsh-wb-w0-fg17-fg21; then
+            echo "FG21_MERGE_PROBE_CLEAN"
+            git diff --cached --check
+            git status --short
+            git merge --abort || true
+          else
+            git diff --name-only --diff-filter=U | tee fg21-conflicts.txt
+            echo "FG21_MERGE_CONFLICTS_FOUND"
+            git status --short
+            git merge --abort || true
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fg21-merge-probe-\${{ github.sha }}
+          path: fg21-conflicts.txt
+          retention-days: 14
+          if-no-files-found: warn
