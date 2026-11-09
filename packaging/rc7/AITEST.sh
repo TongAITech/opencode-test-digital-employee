@@ -74,6 +74,22 @@ fi
   --output "$ROOT/state/rc7-dsh-runtime-profile.json" \
   --require-pass
 
+# RC7.2 only: apply the 32-member limit to the isolated profile's actual
+# AgentTeams row. The protected bank profile is never edited or overwritten.
+# On missing/ambiguous plugin config, fail closed rather than claim expansion.
+if [[ "${PFC_RC72_TEAM_CAPACITY32:-0}" == "1" ]]; then
+  if ! "$PY" -m rc7_release.rc72_team_profile_capacity \
+    --runtime-profile "$PFC_RC7_DSH_PROFILE" \
+    --base-profile "$PFC_RC7_DSH_BASE_PROFILE" \
+    --output "$ROOT/state/rc72-team-capacity.json"; then
+    # Degraded startup is NOT a 32-member qualified Mission. Preserve the
+    # bank profile and boot the DSH UI for diagnosis/recovery; protected
+    # plugin install must remain post-start, never block the DSH process.
+    echo "[RC7.2] AgentTeams 32-member capacity HOLD: see state/rc72-team-capacity.json" >&2
+    echo "[RC7.2] DSH UI startup continues; no 32-member or Field PASS is claimed" >&2
+  fi
+fi
+
 "$PY" -m rc7_release.dsh \
   --output "$ROOT/state/rc7-dsh.patch.yml" \
   --home "$ROOT" \
