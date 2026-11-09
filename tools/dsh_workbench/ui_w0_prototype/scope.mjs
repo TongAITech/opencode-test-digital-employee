@@ -21,7 +21,10 @@ export const DEMO = Object.freeze({
     { project_id: 'P02', batch_id: 'B2', requirement_id: 'R9', requirement_name: '提款审批', system_version_id: 'V9', system_name: '信贷服务', version_label: 'PF1.2.1', sst_id: 'S9' }
   ]
 });
-const one = value => value ? [value] : [];
+const normalizeSelection = value => {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(values.filter(v => typeof v === 'string' && v.length > 0))];
+};
 const unique = (entries, key, label) => [...new Map(entries.map(x => [x[key], { id: x[key], label: label(x) }])).values()];
 const keyFor = Object.freeze({ requirement_ids: 'requirement_id', system_version_ids: 'system_version_id', sst_ids: 'sst_id' });
 
@@ -42,15 +45,15 @@ export class ScopeController {
   options(field) {
     const s = this.state;
     const rows = this.data.relations.filter(r => r.project_id === s.project_id && r.batch_id === s.batch_id);
-    if (field === 'requirement_ids') return unique(rows, 'requirement_id', r => `${r.requirement_name} (${r.requirement_id})`);
+    if (field === 'requirement_ids') return unique(rows, 'requirement_id', r => r.requirement_name + ' (' + r.requirement_id + ')');
     if (field === 'system_version_ids') {
       const subset = rows.filter(r => !s.requirement_ids.length || s.requirement_ids.includes(r.requirement_id));
-      return unique(subset, 'system_version_id', r => `${r.system_name} · ${r.version_label}`);
+      return unique(subset, 'system_version_id', r => r.system_name + ' · ' + r.version_label);
     }
     if (field === 'sst_ids') {
       const subset = rows.filter(r => (!s.requirement_ids.length || s.requirement_ids.includes(r.requirement_id))
         && (!s.system_version_ids.length || s.system_version_ids.includes(r.system_version_id)) && r.sst_id);
-      return unique(subset, 'sst_id', r => `${r.sst_id} · ${r.system_name}`);
+      return unique(subset, 'sst_id', r => r.sst_id + ' · ' + r.system_name);
     }
     throw new Error('未知筛选字段');
   }
@@ -64,16 +67,23 @@ export class ScopeController {
     this.state = { ...this.state, batch_id: batch.id, release_date: batch.release_date,
       requirement_ids: [], system_version_ids: [], sst_ids: [] };
   }
-  setFilter(field, id) {
+  setFilter(field, values) {
     if (!Object.hasOwn(keyFor, field)) throw new Error('未知筛选字段');
     if (!this.state.batch_id) throw new Error('请先选择投产日期');
-    if (id && !this.options(field).some(o => o.id === id)) throw new Error('关联不存在或不属于当前投产日期');
-    this.state[field] = one(id);
-    // 保留上级仍合法的筛选；需求变更后若版本失效，级联清空；SST 也要二次验证。
+    const selected = normalizeSelection(values);
+    const allowed = this.options(field).map(option => option.id);
+    const invalid = selected.filter(id => !allowed.includes(id));
+    if (invalid.length) throw new Error('关联不存在或不属于当前投产日期：' + invalid.join(','));
+    // Validate first, then commit the new selection. Invalid multi-select is atomic and has no partial effect.
+    this.state[field] = selected;
     if (field === 'requirement_ids') {
-      if (this.state.system_version_ids.some(v => !this.options('system_version_ids').some(o => o.id === v))) this.state.system_version_ids = [];
+      const validVersions = new Set(this.options('system_version_ids').map(option => option.id));
+      this.state.system_version_ids = this.state.system_version_ids.filter(id => validVersions.has(id));
     }
-    if (field !== 'sst_ids' && this.state.sst_ids.some(v => !this.options('sst_ids').some(o => o.id === v))) this.state.sst_ids = [];
+    if (field !== 'sst_ids') {
+      const validSsts = new Set(this.options('sst_ids').map(option => option.id));
+      this.state.sst_ids = this.state.sst_ids.filter(id => validSsts.has(id));
+    }
   }
   assertLegalTuple(requirementId, versionId, sstId) {
     const rows = this.data.relations.filter(r => r.project_id === this.state.project_id && r.batch_id === this.state.batch_id);
@@ -87,8 +97,15 @@ export class ScopeController {
     const rows = this.getRows();
     if (!rows.length) return '当前筛选无合法关联';
     if (rows.every(r => r.sst_id === null)) return '待拆分 SST';
-    return `合法关联 ${rows.filter(r => r.sst_id).length} 条（仅演示，非真实执行结果）`;
+    return '合法关联 ' + rows.filter(r => r.sst_id).length + ' 条（仅演示，非真实执行结果）';
   }
   // UI 端只构建查询，不做授权决策。服务端必须重新校验主体、批次和复合关联。
-  query() { return { ...this.state, requirement_ids: [...this.state.requirement_ids], system_version_ids: [...this.state.system_version_ids], sst_ids: [...this.state.sst_ids] }; }
+  query() {
+    return Object.freeze({
+      ...this.state,
+      requirement_ids: Object.freeze([...this.state.requirement_ids]),
+      system_version_ids: Object.freeze([...this.state.system_version_ids]),
+      sst_ids: Object.freeze([...this.state.sst_ids])
+    });
+  }
 }

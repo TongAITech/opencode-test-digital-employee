@@ -9,6 +9,7 @@ from typing import Optional
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+SECTIONS = ["项目概览", "质量任务", "需求", "测试用例", "缺陷", "里程碑", "报告", "知识", "会议纪要", "门禁"]
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -35,21 +36,39 @@ def run(output: Path, browser_path: Optional[str] = None) -> None:
             assert page.locator("#detail-tabs button").count() == 10
 
             page.get_by_label("投产日期").select_option("B12")
-            page.get_by_label("需求", exact=True).select_option("R1")
-            page.get_by_label("系统版本").select_option("V2")
-            assert page.get_by_label("SST", exact=True).locator("option").all_text_contents() == ["全部 SST", "S3 · 审批系统"]
-            page.get_by_label("SST", exact=True).select_option("S3")
-            for title in ["项目概览", "质量任务", "需求", "测试用例", "缺陷", "里程碑", "报告", "知识", "会议纪要", "门禁"]:
+            requirements = page.get_by_label("需求", exact=True)
+            versions = page.get_by_label("系统版本", exact=True)
+            ssts = page.get_by_label("SST", exact=True)
+            requirements.select_option(["R1", "R2"])
+            assert versions.locator("option").evaluate_all("(items) => items.map(x => x.value).filter(Boolean)") == ["V1", "V2"]
+            versions.select_option(["V1", "V2"])
+            assert ssts.locator("option").evaluate_all("(items) => items.map(x => x.value).filter(Boolean)") == ["S1", "S2", "S3", "S4"]
+            ssts.select_option(["S1", "S3", "S4"])
+            for title in SECTIONS:
                 page.locator("#detail-tabs button").get_by_text(title, exact=True).click()
-                assert "S3" in page.locator("#scope-echo").inner_text(), title
-            page.locator("#detail-tabs button").get_by_text("需求", exact=True).click()
+                assert "S1,S3,S4" in page.locator("#scope-echo").inner_text(), title
+                assert page.locator("#section-demo-form").get_attribute("data-section") == title
+                form = page.locator("#section-demo-form")
+                assert form.locator("[required]").count() > 0, title
+                assert form.evaluate("(node) => node.checkValidity()") is False, title
+                for field in form.locator("input,textarea").all():
+                    kind = field.get_attribute("type")
+                    field.fill("2026-11-20" if kind == "date" else "演示填写")
+                form.locator("button[type=submit]").click()
+                error = page.locator("#section-form-error")
+                assert error.is_visible(), title
+                assert "没有创建、修改、执行或审批" in error.inner_text(), title
+            assert page.locator("#detail-tabs button").evaluate_all("(items) => new Set(items.map(x => x.dataset.scopeSnapshot)).size") == 1
             page.screenshot(path=str(output / "wb-c-w0-scope-ten-sections.png"), full_page=True)
 
-            page.get_by_label("需求", exact=True).select_option("R3")
+            requirements.select_option(["R3"])
+            versions = page.get_by_label("系统版本", exact=True)
+            assert versions.locator("option").evaluate_all("(items) => items.map(x => x.value).filter(Boolean)") == ["V3"]
+            versions.select_option(["V3"])
             assert "待拆分 SST" in page.locator("#scope-status").inner_text()
             page.get_by_label("投产日期").select_option("B19")
-            assert page.get_by_label("需求", exact=True).input_value() == ""
-            assert page.get_by_label("SST", exact=True).input_value() == ""
+            assert page.get_by_label("需求", exact=True).locator("option:checked").count() == 0
+            assert page.get_by_label("SST", exact=True).locator("option:checked").count() == 0
             page.get_by_role("button", name="查看当前分区能力").click()
             assert "尚未接入正式业务 API" in page.locator("#detail-error").inner_text()
 
@@ -73,6 +92,8 @@ def run(output: Path, browser_path: Optional[str] = None) -> None:
             page.get_by_role("button", name="测试首页").click()
             page.locator("#search").fill("登录策略")
             assert "关联匹配" in page.locator("#global-message").inner_text()
+            page.locator("#search").fill("不存在的业务对象")
+            assert "0 条匹配" in page.locator("#global-message").inner_text()
             page.get_by_role("button", name="收起侧栏").click()
             assert page.locator(".shell").get_attribute("class") == "shell collapsed"
             page.set_viewport_size({"width": 390, "height": 844})
@@ -83,7 +104,7 @@ def run(output: Path, browser_path: Optional[str] = None) -> None:
         server.shutdown()
     for file in sorted(output.glob("wb-c-w0-*.png")):
         print("{} SHA256={} bytes={}".format(file.name, hashlib.sha256(file.read_bytes()).hexdigest(), file.stat().st_size))
-    print("W0_BROWSER_PROBE_PASS: six-page identity, ten sections, Scope, errors, dark theme and mobile")
+    print("W0_BROWSER_PROBE_PASS: six pages, ten section forms, shared multi-select Scope, deny-by-default actions, theme and mobile")
 
 
 if __name__ == "__main__":
