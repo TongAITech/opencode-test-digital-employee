@@ -163,7 +163,8 @@ def test_cli_never_overwrites_native_team_json_or_its_state_directory(tmp_path, 
                      "--output", str(forbidden)])
         assert code == 2
         assert file.read_bytes() == state_before
-        if forbidden != file:\n            assert not forbidden.exists()
+        if forbidden != file:
+            assert not forbidden.exists()
     assert json.loads(file.read_text()) == original
     # A summary outside the native state root remains a valid JSON file.
     out = tmp_path / "audit" / "report.json"
