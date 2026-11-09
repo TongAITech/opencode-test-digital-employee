@@ -365,3 +365,30 @@ def test_independent_python_process_cannot_take_over_captain_during_live_n7_io(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_r4_one_execution_slot_handles_multiple_cases_without_whole_plan_deadlock(
+        tmp_path, monkeypatch):
+    """Actual HTTP/cleanup and whole-plan independent Oracle, no fake PASS."""
+    from rc7_runtime.rc72_agentteams_capacity import TeamCapacityPolicy
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        assert len(plan["items"]) > 1
+        pipeline, _, _, _ = _governed_pipeline(truth, plan, prep, url, tmp_path)
+        pipeline.captain_scheduler.capacity_policy = TeamCapacityPolicy(32, 1)
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result["state"] == "N7_PASS"
+        assert len(server.calls) == len(plan["items"])
+        assert len(truth.query("rc72_captain_etu_admission",
+                               mission_id=plan["mission_id"])) == len(plan["items"])
+        sessions = truth.query("rc72_worker_session", mission_id=plan["mission_id"])
+        assert len([row for row in sessions if row["purpose"] == "EXECUTION"]) == len(plan["items"])
+        assert all(row["state"] == "CLOSED" for row in sessions)
+        assert all(row["state"] == "RELEASED" for row in truth.query("rc72_data_lease"))
+        before = truth.store.path.read_bytes()
+        assert pipeline.complete(release_batch_id=BATCH) == result
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == len(plan["items"])
+    finally:
+        server.shutdown()
+        server.server_close()

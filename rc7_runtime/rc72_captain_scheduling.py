@@ -125,6 +125,7 @@ class CaptainFencedWorkItemScheduler:
         if capacity_policy is not None and type(capacity_policy) is not TeamCapacityPolicy:
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPACITY_POLICY_INVALID")
         self.capacity_policy = capacity_policy if capacity_policy is not None else TeamCapacityPolicy()
+        self._n7_cleanup_review = None  # Never supplied by model/config text.
 
     def dispatch_ready_batch(self, *, mission_id: str, team_id: str,
                              captain_session_id: str, captain_lease_id: str,
@@ -176,6 +177,77 @@ class CaptainFencedWorkItemScheduler:
             admitted.append(result)
         return GovernedReadyBatch(tuple(admitted), ())
 
+    def bind_n7_cleanup_review(self, review):
+        """Bind the real N7 evidence service and its scoped HMAC authority.
+
+        This is installed by the concrete N7Pipeline constructor; not a
+        model-supplied callback and not a synthetic cleanup declaration.
+        Its proof verifier is read-only against the existing canonical R1.
+        """
+        from .rc72_n7_evidence_review import ExecutionEvidenceReviewService
+        if (type(review) is not ExecutionEvidenceReviewService
+                or review.truth is not self.truth
+                or review.preparation.truth is not self.truth
+                or review.preparation.release_id != self.release_id):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_SCOPE_INVALID")
+        if self._n7_cleanup_review is not None and self._n7_cleanup_review is not review:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN")
+        self._n7_cleanup_review = review
+
+    def _n7_execution_settled(self, session):
+        """Only *verified* completed external work frees an execution slot.
+
+        A session remains ACTIVE (and all original attempt/reviewer lineage
+        remains immutable) until whole-denominator N7 finalization. Do not
+        mistake ACTIVE historical sessions for concurrent external I/O. A
+        missing/failed/UNKNOWN cleanup or lease is always counted in flight.
+        """
+        review = self._n7_cleanup_review
+        if review is None or session.get("purpose") != "EXECUTION":
+            return False
+        preps = self.truth.query("rc72_n7_execution_preparation",
+                                 session_id=session.get("session_id"))
+        if len(preps) != 1:
+            return False
+        p = preps[0]
+        if (p.get("worker_id") != session.get("worker_id")
+                or p.get("workitem_id") != session.get("workitem_id")
+                or p.get("etu_id") != session.get("etu_id")
+                or p.get("mission_id") != session.get("mission_id")
+                or p.get("status") != "PREPARED"):
+            return False
+        task = self.truth.query("rc7_task", task_id=p["workitem_id"])
+        if (len(task) != 1 or task[0].get("state") != "RUNNING"
+                or task[0].get("lease_owner") != p["worker_id"]):
+            return False
+        dispatch = self.truth.query("rc72_n7_tool_dispatch",
+                                    preparation_id=p["preparation_id"])
+        if (len(dispatch) != 1 or dispatch[0].get("state") != "RETURNED"
+                or dispatch[0].get("worker_id") != p["worker_id"]
+                or dispatch[0].get("attempt_id") != p["attempt_id"]):
+            return False
+        # The independent N7 read-only verifier recomputes the frozen cleanup
+        # oracle, signed receipts, provenance, resource releases and evidence
+        # denominator. A completed tool call alone must never free capacity.
+        try:
+            contracts = self.truth.query(
+                "rc72_n6_executable_contract", contract_id=p["contract_id"])
+            if len(contracts) != 1:
+                return False
+            calls = self.truth.query("rc72_n7_cleanup_call",
+                                     preparation_id=p["preparation_id"])
+            if (len(calls) != 2 or {c.get("phase") for c in calls}
+                    != {"CLEANUP", "VERIFY"}
+                    or any(not isinstance(c.get("runtime_signature"), str)
+                           or not c["runtime_signature"] for c in calls)):
+                return False
+            review._cleanup_proof(p, contracts[0])
+            return True
+        except (ContractError, ValueError, KeyError, TypeError):
+            # Disputed or incomplete evidence reserves the slot for
+            # independent investigation. Do not perform repair/replay here.
+            return False
+
     def _assert_active_team_capacity(self, team_id):
         """Capacity is reserved for ACTIVE R1 WorkerSessions, not roster size.
 
@@ -188,7 +260,8 @@ class CaptainFencedWorkItemScheduler:
                   if s.get("team_id") == team_id and s.get("state") == "ACTIVE"]
         if len({s.get("session_id") for s in active}) != len(active):
             raise CaptainSchedulingError("CAPTAIN_SCHEDULER_TEAM_SESSION_DUPLICATE")
-        if len(active) >= self.capacity_policy.max_active_workers:
+        in_flight = [s for s in active if not self._n7_execution_settled(s)]
+        if len(in_flight) >= self.capacity_policy.max_active_workers:
             raise CaptainSchedulingError(
                 "CAPTAIN_SCHEDULER_ACTIVE_CAPACITY_REACHED")
         # This gate does not prove observed DSH model concurrency or that

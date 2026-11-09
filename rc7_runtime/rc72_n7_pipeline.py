@@ -63,6 +63,12 @@ class N7PipelineService:
         self.dispatch = SignedToolDispatchService(preparation, adapters=adapters)
         self.cleanup = ExecutionCleanupService(preparation, adapters={t: runner.environment_adapter.cleanup for t in tools})
         self.review = ExecutionEvidenceReviewService(preparation, adapter_output_root=runner.root, capture_root=capture_root)
+        if self.captain_scheduler is not None:
+            # R4: entire N7 Case denominator is reviewed only at the end.
+            # HMAC-verified cleanup allows a historical ACTIVE WorkerSession
+            # to release its execution *slot* without closing that session or
+            # granting a weaker business replay path.
+            self.captain_scheduler.bind_n7_cleanup_review(self.review)
         self.finalization = ExecutionFinalizationService(self.review)
         from .rc72_conclusive_failure_evidence import ConclusiveAssertionFailureEvidence
         from .rc72_n8_execution_diagnosis import ExecutionDiagnosisService

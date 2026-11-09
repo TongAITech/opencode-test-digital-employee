@@ -42,7 +42,7 @@ jobs:
       - name: Compilation and R4 exact contract
         run: |
           python -m compileall -q rc7_runtime rc7_release tests
-          python -m pytest -q tests/test_rc72_r4_team_capacity32.py tests/test_rc72_r4_profile_capacity32.py tests/test_rc72_captain_scheduling.py tests/test_rc7_dsh_runtime_profile.py --junitxml=rc72-r4-capacity.xml
+          python -m pytest -q tests/test_rc72_r4_team_capacity32.py tests/test_rc72_r4_profile_capacity32.py tests/test_rc72_captain_scheduling.py tests/test_rc72_captain_n7_pipeline.py tests/test_rc7_dsh_runtime_profile.py --junitxml=rc72-r4-capacity.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:

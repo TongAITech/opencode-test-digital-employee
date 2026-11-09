@@ -47,3 +47,9 @@
 
 ## R4-07 安全审计补充
 插件 ID 不能单独证明插件身份。32 成员容量应用前严格核验 YAML 同行组内的 `name: '@nanmicoder/dsh-agent-teams'` 与 clone package.json；同 ID 冒名插件拒绝，保留原配置与银行受保护 profile。
+
+## R4-07 关键阻断修复：正式 N7 全分母在并发=1 时不可死锁
+- 原 `dispatch_etu` 将所有 ACTIVE WorkerSession 算作并发；正式 `N7Pipeline.complete` 要等所有 Case 执行、清理且独立审查后才关 Session。大于 4 Case 时会在第 5 个排队且永远无法执行最终 review，这是源码审计发现的 R4_P0_GATE。
+- 新增正式 `ExecutionEvidenceReviewService` 类型化只读受控绑定：必须拥有同 R1/release 的 N7 Review，由它对每个 N7 WorkItem 复核实际 ToolDispatch RETURNED、签名 CLEANUP 与 VERIFY 回执、冻结 Oracle、R1 Evidence 和所有资源实际 RELEASED 后，才把仍 ACTIVE 的历史执行 Session 视为**占用 roster、但不再占用执行并发槽**。不关闭 Session、不回收未知副作用、不生成 PASS。
+- 所有未开始、失败、UNKNOWN、证据缺失、不完整清理、审查签名不合格的 Session 继续占用执行容量。原始完整 N7 最终 review/NodeGate/Case 分母不变。
+- 新增正式本地 HTTP N7 端到端独立回归：多 Case + 并发 1，所有真实业务调用一次、资源清理、独立 Gate PASS、冷/热重复运行不会重复调用。**CI 与银行 Field 未过前不得核销。**
