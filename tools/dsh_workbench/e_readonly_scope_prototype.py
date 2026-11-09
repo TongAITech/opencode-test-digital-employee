@@ -12,7 +12,8 @@ be used as a substitute.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Callable, Dict, Iterable, Mapping, Sequence
+from datetime import date
+from typing import Any, Callable, Dict, Mapping
 
 from .e_contract_oracle import ContractRejection
 
@@ -55,6 +56,11 @@ def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
             len(scope["release_date"]) == 10 and
             scope["release_date"][4] == "-" and scope["release_date"][7] == "-",
             "INVALID_BUSINESS_DATE")
+    try:
+        _expect(date.fromisoformat(scope["release_date"]).isoformat()
+                == scope["release_date"], "INVALID_BUSINESS_DATE")
+    except ValueError as exc:
+        raise ContractRejection("INVALID_BUSINESS_DATE") from exc
     _expect(_positive_int(scope.get("relation_revision")) and
             _positive_int(scope.get("access_scope_revision")),
             "SCOPE_REVISION_UNAVAILABLE")
@@ -194,14 +200,13 @@ def r1_preview_from_legacy_admin(
     _expect(_nonempty(project_id) and _nonempty(batch_id)
             and _nonempty(mission_id), "INVALID_SCOPE")
     b06 = authorized_b06_fetch(trusted_principal_id, project_id, batch_id, mission_id)
-    norm = normalize_b06_scope(b06, project_id=project_id, batch_id=batch_id,
-                               mission_id=mission_id)
+    normalize_b06_scope(b06, project_id=project_id, batch_id=batch_id,
+                        mission_id=mission_id)
     # Do not invoke /api/missions/{id} over an unprotected network endpoint:
     # direct in-process R1-derived read only, after B06 confirms authorization.
     projection = getattr(legacy_admin, "projection", None)
     method = getattr(projection, "mission_overview", None)
     _expect(callable(method), "TRUTH_SOURCE_UNAVAILABLE")
     overview = method(mission_id)
-    return r1_preview(norm | {"authorized_mission_ids": [mission_id]},
-                      overview, project_id=project_id, batch_id=batch_id,
-                      mission_id=mission_id)
+    return r1_preview(b06, overview, project_id=project_id,
+                      batch_id=batch_id, mission_id=mission_id)
