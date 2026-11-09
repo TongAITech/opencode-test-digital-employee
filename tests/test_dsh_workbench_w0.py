@@ -307,7 +307,7 @@ class TestPageContract(unittest.TestCase):
         for item in ("original_source_ref", "feature_id", "P01-01", "P02-01", "P03-01", "P04-01",
                      "P05-01", "P06-01", "D01-01", "D02-01", "D03-01",
                      "D04-01", "D05-01", "D06-01", "D07-01", "D08-01",
-                     "D09-01", "D10-01", "NOT_RUN"):
+                     "D09-01", "D10-01", "X01-01", "X02-01", "X03-01", "NOT_RUN"):
             self.assertIn(item, atoms)
         self.assertIn("fc5a054a48973d004580a3cc1de60da3f701150b", atoms)
         self.assertIn("public/app.js#L", atoms)

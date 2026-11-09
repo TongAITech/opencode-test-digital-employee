@@ -35,6 +35,11 @@
 F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 设计修复，FG16 发布依赖遗漏 P0 OPEN。本轮 A 新增 W2/W3/W4 Gate 及必需的 F02/F03/D04/F04/A04/LICENSE 发布闭包校验，更新 08/09 及负向单元测试。
 **F 对最新 HEAD 尚需独立复验，B/D/E 的 W0 DESIGN_SIGNOFF 尚未获得，A01 源码入口锚点仍需补，A02 商业授权或原创来源审计仍 BLOCKED。W0_NOT_FROZEN / NOT_MERGED / NO_BANK_PACKAGE。**
 
+## 2026-11-09 当前 A01 / FG16 改进检查点
+- A 组当前 W0 基线演进：`16740b7` FG16 W2–W4 DAG 闭包；`80efa1b` FG16 全路绕过反例；`515f6a3` A01 原版源码行号锚点。功能原子登记共 50 项，其中 35 项参考原版固定源码入口，15 项为新增目标，不是目标 UI PASS。
+- 最近验证成功事实：`515f6a3` 的 W0 定向 job #129168577337 **58 tests OK**；提交后要检查新 HEAD 28 项 CI，不可拿旧 HEAD success 报全绿。
+- F 上次结论：FG15 DESIGN_FIX_ACCEPTED、FG16 P0 OPEN；待独立复验最新 A 代码。B/D/E W0 设计签署 PENDING，A02 LICENSE BLOCKED；**W0 NOT_FROZEN / PR #84 DRAFT / 不合入、不打银行 ZIP**。
+
 ## C 组独立 W0 验收检查点（2026-11-09，尚待 PR/CI 核验）
 - 原创产品能力对账文件：`WB-C-W0-ORIGINAL-UI-AUDIT.md`；原子候选覆盖六页面、十个项目分区、跨区 Scope、中文、主题/搜索、表单、对话、异常与组件/API；参照原版固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 只读行为。
 - 隔离的静态 W0 原型、9 个 Node 单测、专用浏览器/截图脚本与独立 CI 配置均位于 C 分支；本地 9/9 PASS，不代表产品 QA。具体命令/失败日志/截图状态见 `WB-C-W0-TEST-EVIDENCE.md`。
