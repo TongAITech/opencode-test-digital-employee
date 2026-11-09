@@ -36,7 +36,8 @@
 - A 修复源 SHA：`f41e8ca882d674150349f9a1b4f0aab44e30d197`。
 - [GitHub Actions run #42661016254](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42661016254) / job `129312276833`：五次连续执行，每次 3/3 PASS，`FG17_FIVE_TRIAL_FAILURES=0`。
 - Artifact：`13694826014`，包含各轮 JUnit XML、R1 与实际浏览器证据。
-- 后续 A 提交 `5de7cad44608847d4cc735f2a1dfb862247d0274` 增加 Python 3.11 / Playwright 1.62.0 同样五轮验证及 adapter 单测；结果待完成，不预填 PASS。
+- Python 3.11 / Playwright 1.62.0：同源 CI run `42662288273` / job `129316685245`，五轮均 3/3 PASS，`FG17_PY311_FIVE_TRIAL_FAILURES=0`；adapter 单测 27/27 PASS；artifact `13695571649`。A 修复源为 `e3d6d43bcbf891b65a80eaf6da1d66affff092a2`。
+- 同一源码树的 W0 合同与 Node 检查：run `42662543446` / job `129317574447`，Python 156/156、Node 15/15、CI admission policy PASS。该次提交 `46a9ea78` 仅增加合同工作流的分支触发与 Node 检查；FG17 两环境结果在其前一提交 `e3d6d43`，最终集成前仍需对同一最终 HEAD 统一重跑。
 
 ## 结论与边界
 
