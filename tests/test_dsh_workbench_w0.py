@@ -317,7 +317,7 @@ class TestPageContract(unittest.TestCase):
         signoff = (docs / "WB-A03-CROSS-GROUP-SIGNOFF.md").read_text(encoding="utf-8")
         # A03 now records the *actual* B/D/E signed design scope, not the
         # original placeholder B_PENDING. These are not W1 product QA.
-        for item in ("B_SIGNOFF_SUBMITTED", "FG18_B_RECONFIRM_REQUIRED",
+        for item in ("B_FG18_CORRECTION_SUBMITTED", "F_RECHECK_REQUIRED",
                      "D_SIGNOFF_ISSUED", "E_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS",
                      "F_RECHECK_REQUIRED", "IMPLEMENTATION_QA_NOT_RUN"):
             self.assertIn(item, signoff)
