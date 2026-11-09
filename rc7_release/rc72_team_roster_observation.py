@@ -192,7 +192,7 @@ def _write_observation_atomic(out, report):
                 mode="w", encoding="utf-8", prefix=".r4-roster-",
                 suffix=".tmp", dir=str(out.parent), delete=False) as fh:
             temp = Path(fh.name)
-            fh.write(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\\n")
+            fh.write(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(str(temp), str(out))
