@@ -89,9 +89,18 @@ class TestW0W1GateDAG(unittest.TestCase):
         d["gates"] = [g for g in d["gates"] if g["id"] != "WB-F02_FUNCTIONAL_QA_PASS"]
         self.assert_gate_error("UNKNOWN_DEPENDENCY", d)
 
-    def test_fg16_bypass_f02_regression_in_release(self):
+    def test_fg16_duplicated_release_f02_edge_is_not_required(self):
+        # F02 is still transitively required through A04.
         d = data()
         by_id(d, "WB-W4_BANK_RELEASE_APPROVED")["depends_on"].remove("WB-F02_FUNCTIONAL_QA_PASS")
+        self.assertEqual(len(validate_gate_graph(d)), len(d["gates"]))
+
+    def test_fg16_bypass_both_f02_release_paths(self):
+        # Keep F04 and LICENSE but disconnect F02 and A04 entirely.
+        d = data()
+        release = by_id(d, "WB-W4_BANK_RELEASE_APPROVED")
+        release["depends_on"].remove("WB-F02_FUNCTIONAL_QA_PASS")
+        release["depends_on"].remove("WB-A04_FINAL_INTEGRATION_ACCEPTED")
         self.assert_gate_error("RELEASE_PREDECESSOR_CLOSURE_INCOMPLETE", d)
 
     def test_fg16_drop_f03_from_field_qa(self):
