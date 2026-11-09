@@ -15,6 +15,7 @@ on:
   # PR runs only the two platform/browser admission probes, not two more
   # 60-minute complete RC7.2 suites. Full Q1 still runs on main push.
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2]
     paths:
       - '.github/workflows/rc7.2-platform-qualification.yml'
@@ -134,7 +135,7 @@ jobs:
   # Required PR proof: both C09 tests execute against an ACTUAL Chromium
   # on Windows/Linux under the exact Python 3.8 environment Q1 uses.
   q1-browser-py38-pr-admission:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     name: q1-browser-py38-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25

@@ -1,11 +1,11 @@
 name: DSH Workbench W0 Fast Contract Gates
 
 on:
-  # Single source of truth is the A integration branch push.
-  # A GitHub App direct ref update may not emit a PR synchronize run.
-  # No pull_request listener: a single SHA gets exactly one fast W0 run.
-  push:
-    branches: [work/dsh-wb-w0]
+  # The PR is the single L0 source of truth: no duplicate push + PR run.
+  # Keep the required w0-contracts status on the protected target branch.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [work/rc7.2]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'

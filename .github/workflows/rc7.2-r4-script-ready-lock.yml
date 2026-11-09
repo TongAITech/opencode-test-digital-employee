@@ -1,0 +1,49 @@
+name: RC7.2 R4 SCRIPT_READY Captain-Fenced R1 Admission (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_script_ready_gate.py'
+      - 'rc7_runtime/rc72_captain_dispatch_fencing.py'
+      - 'tests/test_rc72_script_ready_gate.py'
+      - '.github/workflows/rc7.2-r4-script-ready-lock.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-script-ready-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  script-ready-r1-lock:
+    name: r4-script-ready-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned test prerequisites
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Validate syntax and exact SCRIPT_READY / Captain takeover contract
+        run: |
+          python -m compileall -q rc7_runtime rc7_release tests
+          python -m pytest -q tests/test_rc72_script_ready_gate.py tests/test_rc72_captain_host_reentry.py --junitxml=rc72-r4-script-ready.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-r4-script-ready-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-r4-script-ready.xml
+          retention-days: 14
+          if-no-files-found: warn

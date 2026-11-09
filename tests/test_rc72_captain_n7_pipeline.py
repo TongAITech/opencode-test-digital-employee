@@ -365,3 +365,76 @@ def test_independent_python_process_cannot_take_over_captain_during_live_n7_io(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_r4_one_execution_slot_handles_multiple_cases_without_whole_plan_deadlock(
+        tmp_path, monkeypatch):
+    """Actual HTTP/cleanup and whole-plan independent Oracle, no fake PASS."""
+    from rc7_runtime.rc72_agentteams_capacity import TeamCapacityPolicy
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        assert len(plan["items"]) > 1
+        pipeline, _, _, _ = _governed_pipeline(truth, plan, prep, url, tmp_path)
+        pipeline.captain_scheduler.capacity_policy = TeamCapacityPolicy(32, 1)
+        result = pipeline.complete(release_batch_id=BATCH)
+        assert result["state"] == "N7_PASS"
+        assert len(server.calls) == len(plan["items"])
+        assert len(truth.query("rc72_captain_etu_admission",
+                               mission_id=plan["mission_id"])) == len(plan["items"])
+        sessions = truth.query("rc72_worker_session", mission_id=plan["mission_id"])
+        assert len([row for row in sessions if row["purpose"] == "EXECUTION"]) == len(plan["items"])
+        assert all(row["state"] == "CLOSED" for row in sessions)
+        assert all(row["state"] == "RELEASED" for row in truth.query("rc72_data_lease"))
+        before = truth.store.path.read_bytes()
+        assert pipeline.complete(release_batch_id=BATCH) == result
+        assert truth.store.path.read_bytes() == before
+        assert len(server.calls) == len(plan["items"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_r4_rebuilt_n7_pipeline_reuses_same_trusted_cleanup_verifier_without_writes(
+        tmp_path, monkeypatch):
+    from copy import copy
+    from rc7_runtime.rc72_authority import RC72AuthorityRuntime
+
+    truth, plan, prep, server, url = formal_setup(tmp_path, monkeypatch)
+    try:
+        pipeline, _, _, _ = _governed_pipeline(truth, plan, prep, url, tmp_path)
+        originally_bound = pipeline.captain_scheduler._n7_cleanup_review
+        before = truth.store.path.read_bytes()
+        replacement = N7PipelineService(
+            prep, runner=pipeline.runner, capture_root=tmp_path / "rebuilt-capture",
+            captain_scheduler=pipeline.captain_scheduler,
+            captain_session_id=pipeline.captain_session_id,
+            captain_lease_id=pipeline.captain_lease_id, team_id=pipeline.team_id)
+        assert replacement.review is not originally_bound
+        assert pipeline.captain_scheduler._n7_cleanup_review is originally_bound
+        assert truth.store.path.read_bytes() == before
+        assert server.calls == []
+
+        # A different caller's signing authority cannot switch the canonical
+        # cleanup verifier for already running or historical worker sessions.
+        untrusted_review = copy(replacement.review)
+        untrusted_preparation = copy(prep)
+        untrusted_preparation.authority = RC72AuthorityRuntime(
+            b"untrusted-different-n7-cleanup-review-authority")
+        untrusted_review.preparation = untrusted_preparation
+        with pytest.raises(ContractError, match="N7_REVIEW_REBIND_FORBIDDEN"):
+            pipeline.captain_scheduler.bind_n7_cleanup_review(untrusted_review)
+        assert pipeline.captain_scheduler._n7_cleanup_review is originally_bound
+
+        different_source = copy(replacement.review)
+        different_preparation = copy(prep)
+        different_preparation.source_commit = "f" * 40
+        different_source.preparation = different_preparation
+        with pytest.raises(ContractError, match="N7_REVIEW_REBIND_FORBIDDEN"):
+            pipeline.captain_scheduler.bind_n7_cleanup_review(different_source)
+        assert pipeline.captain_scheduler._n7_cleanup_review is originally_bound
+        assert truth.store.path.read_bytes() == before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+

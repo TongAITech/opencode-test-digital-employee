@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p fg17-evidence/py38-full
-          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py --junitxml=fg17-evidence/py38-full/full-module.xml
+          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py tests/test_rc72_journey_playwright_adapter.py --junitxml=fg17-evidence/py38-full/full-module.xml
       - name: Five independent teaching recorder trials; any failure blocks
         shell: bash
         env:
@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p fg17-evidence/py311
-          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py --junitxml=fg17-evidence/py311/full-module.xml
+          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py tests/test_rc72_journey_playwright_adapter.py --junitxml=fg17-evidence/py311/full-module.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:

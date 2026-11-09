@@ -23,10 +23,9 @@ class TestCIAdmission(unittest.TestCase):
     def test_repository_policy_is_consistent(self):
         self.assertEqual(problems(self.source), [])
 
-    def test_v3_cannot_reintroduce_duplicate_full_pr(self):
-        self.changed("v3", "  workflow_dispatch:",
-                     "  pull_request:\n    branches: [work/rc7.2]\n  workflow_dispatch:",
-                     "DUPLICATE_V3_FULL_PR")
+    def test_v3_preserves_required_status_but_skips_duplicate_full_pr(self):
+        self.changed("v3", "if: github.event_name != 'pull_request'",
+                     "if: always()", "V3_PR_STATUS_COMPATIBILITY_OR_FULL_RUN")
 
     def test_v4_draft_full_suite_cannot_be_activated(self):
         self.changed("v4", NON_DRAFT, "if: always()",
@@ -43,8 +42,8 @@ class TestCIAdmission(unittest.TestCase):
 
     def test_w0_double_push_and_pr_runs_are_rejected(self):
         self.changed("w0", "  workflow_dispatch:",
-                     "  pull_request:\n    branches: [work/rc7.2]\n  workflow_dispatch:",
-                     "W0_DUPLICATE_OR_MISSING_BRANCH_GATE")
+                     "  push:\n    branches: [work/dsh-wb-w0]\n  workflow_dispatch:",
+                     "W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
 
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",
@@ -66,6 +65,20 @@ class TestCIAdmission(unittest.TestCase):
     def test_q1_py38_fg17_negative_proof_is_preserved(self):
         self.changed("q1", "'tests/test_rc72_c09_real_chromium_cdp_smoke.py'",
                      "'docs/irrelevant.md'", "Q1_FG17_NEGATIVE_CHECK_REMOVED")
+
+    def test_q1_py38_browser_runs_only_on_non_draft_candidate(self):
+        self.changed("q1", "if: github.event_name == 'pull_request' && github.event.pull_request.draft == false",
+                     "if: github.event_name == 'pull_request'",
+                     "Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED")
+
+    def test_fg17_keeps_exact_python38_five_trial_gate(self):
+        self.changed("fg17", "for trial in 1 2 3 4 5",
+                     "for trial in 1 2 3 4",
+                     "FG17_EXACT_PY38_FIVE_TRIAL_OR_CROSS_VERSION_GATE_MISSING")
+
+    def test_field_hardening_does_not_run_full_source_matrix_on_draft(self):
+        self.changed("field", NON_DRAFT, "if: always()",
+                     "FIELD_HARDENING_DRAFT_RUN_NOT_GATED")
 
 
 if __name__ == "__main__":

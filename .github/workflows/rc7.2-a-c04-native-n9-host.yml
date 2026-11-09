@@ -8,6 +8,7 @@ on:
       - 'tests/test_rc72_configured_mission.py'
       - '.github/workflows/rc7.2-a-c04-native-n9-host.yml'
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2-abcd-v3-qualification, work/rc7.2]
     paths:
       - 'rc7_release/rc72_configured_mission.py'
