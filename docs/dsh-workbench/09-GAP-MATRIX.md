@@ -119,7 +119,7 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 
 | GAP | 当前状态 | 最新证据与下一步 |
 |---|---|---|
-| WB-FG17 / P0 | `ROOT_CAUSE_IDENTIFIED / PY38_5X_PASS / PY311_PENDING / F_RECHECK_PENDING` | 根因是 network-idle 后立即读取 SPA 文本，未等待 DOM 业务 Oracle。A 已在 JourneyPlaywrightAdapter 对 text/attribute Oracle 实现有界轮询；650ms 延迟 SUT 竞态下 Q1 Python3.8/Playwright1.48 真 Chromium 5 轮均 3/3 PASS。保留历史红灯；等待 Python3.11 同源五轮和 F 新 SHA 独立复验。 |
+| WB-FG17 / P0 | `ROOT_CAUSE_IDENTIFIED / PY38_5X_PASS / PY311_5X_PASS / F_RECHECK_PENDING` | 根因是 network-idle 后立即读取 SPA 文本，未等待 DOM 业务 Oracle。A 已在 JourneyPlaywrightAdapter 对 text/attribute Oracle 实现有界轮询；650ms 延迟 SUT 竞态下 Q1 Python3.8/Playwright1.48 与 Python3.11/Playwright1.62 真 Chromium 均连续 5 轮、每轮 3/3 PASS；adapter 单测各 27/27 PASS。保留历史红灯；最终集成 HEAD 同源重跑与 F 新 SHA 独立复验仍待。 |
 | WB-FG18 / P0 | `DESIGN_CI_RECHECK_PASS` | F PR #94 在 A+F 同源树复跑原始跨版本 SST source identity 反例通过；仅设计/SQLite 级，真实 PostgreSQL、迁移、回滚仍 NOT_RUN。 |
 | WB-FG20 / P1 | `DESIGN_REGISTER_RECONCILED` | F 已确认 50 条候选登记（35 O/A + 15 N）与 C 差异矩阵一致；50 个正式产品动作仍 NOT_RUN。 |
 | WB-FG21 / P0 | `ONE_FILE_MERGE_CONFLICT_IDENTIFIED / FIX_PENDING` | 只读 Git merge probe 仅发现 `.github/workflows/rc7.2-abcd-v4-qualification.yml` 冲突；须用 W0 的严格准入版本保留 base job 内容，形成合并提交后再验证 PR #84。 |
