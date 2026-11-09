@@ -116,9 +116,9 @@ def test_clone_with_wrong_package_identity_denied(tmp_path, monkeypatch):
 def test_wrong_plugin_name_rejected_without_clone_mutation(tmp_path, monkeypatch):
     _, clone, base_digest = _base(
         tmp_path, monkeypatch,
-        "- id: agent-teams\\n"
-        "  name: '@other/unsafe-plugin'\\n"
-        "  config:\\n    maxMembers: 8\\n")
+        "- id: agent-teams\n"
+        "  name: '@other/unsafe-plugin'\n"
+        "  config:\n    maxMembers: 8\n")
     before = (clone / "cordis.patch.yml").read_bytes()
     with pytest.raises(TeamProfileCapacityError, match="NAME_NOT_APPROVED"):
         apply_cloned_profile_capacity()
