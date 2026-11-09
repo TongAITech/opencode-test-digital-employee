@@ -45,6 +45,14 @@ class FakeLocator:
     def inner_text(self, **kwargs):
         return self.page.text
 
+    def wait_for_text(self, expected, *, timeout_ms):
+        self.page.actions.append(("wait_text", expected, timeout_ms))
+        for value in getattr(self.page, "text_sequence", [self.page.text]):
+            self.page.text = value
+            if self.page.text == expected:
+                return
+        raise TimeoutError("FAKE_TEXT_ORACLE_NOT_REACHED")
+
     def get_attribute(self, name, **kwargs):
         return self.page.attributes.get(name)
 
@@ -172,6 +180,16 @@ def test_real_replay_assertion_failure_has_failure_file_and_screenshot(tmp_path)
     failure = json.loads((tmp_path / "evidence" / "REAL-1" / "step-0002" / "actual.json").read_text())
     assert failure["failure_code"] == "JOURNEY_ASSERT_TEXT_MISMATCH"
     assert truth.query("rc72_journey_candidate", candidate_id="JC-1")[0]["executable"] is False
+
+def test_text_equals_oracle_waits_for_late_exact_dom_value(tmp_path):
+    truth, pool, lease, page, adapter, service = make_replay(
+        tmp_path, page=FakePage(text="Before save"))
+    page.text_sequence = ["Before save", "Saving", "Saved"]
+    result = run_replay(service, lease)
+    assert result.state.value == "PASSED"
+    assert ("wait_text", "Saved", 15000) in page.actions
+    assert truth.query("rc72_journey_replay")[0]["state"] == "PASSED"
+
 
 
 def test_released_browser_fails_closed_before_any_browser_action(tmp_path):
