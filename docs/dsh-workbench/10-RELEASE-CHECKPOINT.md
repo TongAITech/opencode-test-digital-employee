@@ -10,6 +10,24 @@
 下次会话入口：先核对最新 HEAD/PR/check-runs，读取 00–10，核销 W0，按工单依赖继续；不得凭本文件旧 SHA 直接施工。
 交付声明必须明确“设计完成”“代码完成”“CI 通过”“现场通过”四种不同状态。
 
+
+## C 组独立 W0 验收检查点（2026-11-09，尚待 PR/CI 核验）
+- 原创产品能力对账文件：`WB-C-W0-ORIGINAL-UI-AUDIT.md`；原子候选覆盖六页面、十个项目分区、跨区 Scope、中文、主题/搜索、表单、对话、异常与组件/API；参照原版固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 只读行为。
+- 隔离的静态 W0 原型、9 个 Node 单测、专用浏览器/截图脚本与独立 CI 配置均位于 C 分支；本地 9/9 PASS，不代表产品 QA。具体命令/失败日志/截图状态见 `WB-C-W0-TEST-EVIDENCE.md`。
+- 本地浏览器访问受环境策略阻挡，`ERR_BLOCKED_BY_ADMINISTRATOR`；当前 **SCREENSHOT_NOT_CAPTURED、BROWSER_QA_NOT_RUN**。只能在真实 CI 出具 artifacts/job/SHA 后另行核销。
+- A01 设计审查与 B/D/E A03 签收未闭环，F W0 设计未接受；C01/C02 仍 TODO、B06 未完成、E02 未完成；不合入 RC7.2，不构建离线 ZIP、不发布；A02 许可证 `BLOCKED_LICENSE` 不变。
+
+## C 组 W0 Probe 同 SHA 成功检查点（非正式 F QA）
+- SOURCE `465d1006e1b0f8d9ce537436d46912e527d9d096`：[GitHub job 129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107) 9/9 单测、真实 Chromium demo 交互与 3 张截图上传均 PASS；artifact ID 13675694071，3 个 SHA256 见 `WB-C-W0-TEST-EVIDENCE.md`。
+- 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。
+
+
+## C 组基于 F #85 复审的最新检查点（2026-11-09）
+- C 先前原型 HEAD `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f` 已获得 F 独立 **W0_DEMO_BROWSER_CI_PASS** 认可：Node 9/9、真实 Chromium 与截图 3 张，[CI](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622464425)；F 未独立解包截图进行视觉逐项审查，也不接受 50 功能 PASS。
+- F 新增 FG20 已指向 C 历史 47 项与 A01 当前 50 项不一致。本轮新 `WB-C-W0-50-FEATURE-DELTA.md` 对 50 项逐 ID/类别/动作/演示范围及 50/50 正式 `NOT_RUN` 核对，并增加契约反例。验证以新 HEAD workflow 为准，未完成前状态 CODE_SUBMITTED。
+- FG19 多组账本合并真实冲突：保留全部 C 历史 W0 账本内容，调整 C 独立记录插入位置，新增 B→C ephemeral Git merge CI。**仅 C 冲突预修，不代表 A/B/C/D/E 单一 SHA 或 F 接受**；B FG18、E 的签收文档与账本冲突、A FG17 仍须相关负责人修复。
+- F 最新结论 REVIEWED_WITH_BLOCKERS；A02 BLOCKED_LICENSE / W0_NOT_FROZEN / C01&C02 NOT_STARTED / NO_BANK_PACKAGE / NO_MERGE_TO_RC7.2。
+
 ## 2026-11-09 A 组持续检查点
 - work/rc7.2 @ 3de74c2bf3a0f3a555ccd979edd2832f26c9963a；草稿 PR #84 OPEN，Review=0，未合并。
 - W0 原始 HEAD=12a16a2a0e5726ffe275571ae59e6eacb4f4c4e8；首个实际代码提交=4046029591b0b324e6a33028629dc22034d511d0；修复通知路径提交=82c18fdd93867e7d27107f665e124c5edcae8b2c。
@@ -39,13 +57,3 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - A 组当前 W0 基线演进：`16740b7` FG16 W2–W4 DAG 闭包；`80efa1b` FG16 全路绕过反例；`515f6a3` A01 原版源码行号锚点。功能原子登记共 50 项，其中 35 项参考原版固定源码入口，15 项为新增目标，不是目标 UI PASS。
 - 最近验证成功事实：`515f6a3` 的 W0 定向 job #129168577337 **58 tests OK**；提交后要检查新 HEAD 28 项 CI，不可拿旧 HEAD success 报全绿。
 - F 上次结论：FG15 DESIGN_FIX_ACCEPTED、FG16 P0 OPEN；待独立复验最新 A 代码。B/D/E W0 设计签署 PENDING，A02 LICENSE BLOCKED；**W0 NOT_FROZEN / PR #84 DRAFT / 不合入、不打银行 ZIP**。
-
-## C 组独立 W0 验收检查点（2026-11-09，尚待 PR/CI 核验）
-- 原创产品能力对账文件：`WB-C-W0-ORIGINAL-UI-AUDIT.md`；原子候选覆盖六页面、十个项目分区、跨区 Scope、中文、主题/搜索、表单、对话、异常与组件/API；参照原版固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 只读行为。
-- 隔离的静态 W0 原型、9 个 Node 单测、专用浏览器/截图脚本与独立 CI 配置均位于 C 分支；本地 9/9 PASS，不代表产品 QA。具体命令/失败日志/截图状态见 `WB-C-W0-TEST-EVIDENCE.md`。
-- 本地浏览器访问受环境策略阻挡，`ERR_BLOCKED_BY_ADMINISTRATOR`；当前 **SCREENSHOT_NOT_CAPTURED、BROWSER_QA_NOT_RUN**。只能在真实 CI 出具 artifacts/job/SHA 后另行核销。
-- A01 设计审查与 B/D/E A03 签收未闭环，F W0 设计未接受；C01/C02 仍 TODO、B06 未完成、E02 未完成；不合入 RC7.2，不构建离线 ZIP、不发布；A02 许可证 `BLOCKED_LICENSE` 不变。
-
-## C 组 W0 Probe 同 SHA 成功检查点（非正式 F QA）
-- SOURCE `465d1006e1b0f8d9ce537436d46912e527d9d096`：[GitHub job 129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107) 9/9 单测、真实 Chromium demo 交互与 3 张截图上传均 PASS；artifact ID 13675694071，3 个 SHA256 见 `WB-C-W0-TEST-EVIDENCE.md`。
-- 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。

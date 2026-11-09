@@ -3,6 +3,24 @@
 首次基线 RC7.2 work/rc7.2 @ 3de74c2bf3a0f3a555ccd979edd2832f26c9963a
 本次分支 work/dsh-wb-w0（文档施工独立分支，等待 PR 评审）
 
+
+## C 组 W0 原创探针进度（2026-11-09，待 A/F 审核合并）
+- 施工分支 `work/dsh-wb-ui` 由 `work/dsh-wb-w0@515f6a367bd1` 创建，C 的 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 已形成六主页面/十区、表单/动作/错误态/搜索/主题/导航/原创组件/API 接口的候选对账；演示代码 `tools/dsh_workbench/ui_w0_prototype/` 与 `tests/test_dsh_workbench_ui_w0.mjs` 隔离于正式产品。
+- 本地 Node 单测 9/9 PASS，语法检查 PASS；浏览器导航被 `ERR_BLOCKED_BY_ADMINISTRATOR` 阻断，**无真实截图，浏览器 QA NOT_RUN**，详见 `WB-C-W0-TEST-EVIDENCE.md`。独立 CI 工作流配置为同 HEAD Node/Playwright 浏览器探针、截图上传；是否真正通过以该 SHA job 为准。
+- **WB-C01=TODO、WB-C02=TODO、C03/C04/C05/C06=TODO**；本轮是 W0 可行性探针，不满足 A01/F W0 设计冻结，不进入 W1，也不将纯函数 Demo 等同真实 B06 复合关系/ACL API。
+- 源码采取独立创作路径；原版 `naodeng/dsh-qa` PolyForm Noncommercial 受限文件零复制，A02 `BLOCKED_LICENSE` 不变。请 A/F 以该分支真实 PR/同 SHA CI 审核后在正式总账记录，不由 C 代签 W0。
+
+## C 组 W0 独立 CI 真实探针结果（后续增量）
+- 源 SHA `465d1006e1b0f8d9ce537436d46912e527d9d096` 同 SHA GitHub job [129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107)：9 项 Node 单测 PASS、真实 Chromium 原创页面交互 PASS，3 个带 SHA256 的截图实际上传至 artifact 13675694071。旧本地浏览器策略阻断和 Ubuntu26.04 不兼容历史保留；改用 Ubuntu24.04 实际通过。
+- **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
+
+
+## C 组 F 复审后独立整改窗口（2026-11-09，FG19/FG20）
+- F 独立 PR #85 审查源 C `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f`，同源 9/9 Node、Chromium demo PASS、3 PNG artifacts [13676629059](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622464425/artifacts/13676629059)。F 仅接受 **W0_DEMO_BROWSER_CI_PASS**，其余产品功能、正式 C01/C02、B06 API、DSH Host/R1 NOT_RUN。
+- **FG20** 设计原子基线统一为 **50 个（35 O/A + 15 N）**；新增 [C 50 项差异矩阵](WB-C-W0-50-FEATURE-DELTA.md) 和 six negative/sync contract tests `tests/test_dsh_workbench_c_feature_reconciliation.mjs`，实际正式产品测试为 50/50 NOT_RUN。需同 HEAD CI 与 F 再审，不能冒称正式功能通过。
+- **FG19 C 分支冲突整改：** 原 C 组追加于 08/09/10 文件末尾的完整施工事实移入本组靠前的固定独立 C 段，保持 A 原基线与 B 尾部账本扩展的不同三方合并上下文；C 不覆盖 B/D/E 数据或 A 集成签署。单独 B→C `git merge --no-ff` 只读本地验证加入轻量 CI；整合 A/B/C/D/E 的 FG19 完整关闭仍由 A/F 负责，E 冲突及 B FG18 必须分别解决。
+- W0 未获 F 的正式设计接受或 A 冻结，A02 `BLOCKED_LICENSE`，B06 尚未提供权威接口：C01/C02/C03–C06 **NOT_STARTED**，不合入 work/rc7.2，不打包 ZIP，不删除/复制 PolyForm Noncommercial 受限源码。
+
 ## 六组施工责任
 A 总集成 work/dsh-wb-integration：设计冻结、PR 集成、依赖与合同；不可包揽全组业务编码。
 B 业务模型 work/dsh-wb-domain：数据及关联、合法过滤、迁移。
@@ -118,13 +136,3 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A 已提交 `16740b71b08728bfa3a7952408cbc7085e3481d4`（38 个 Gate 节点、W2/W3/W4 发布闭包校验、负向反例）、`80efa1bfa585fe29a5939c889d5b5a08e4f742ed`（区分 F02 冗余直接边和真正绕过路径）；`515f6a367bd16d3b83197fa2c89e15d63a83c4fe` 将原版源码 SHA fc5a054a48973d004580a3cc1de60da3f701150b 的逐函数/DOM 参考行号纳入 A01 原子登记。上述 HEAD 的 W0 专项一次 CI 原始日志已核实 **58/58 OK**，最终新 HEAD 全矩阵需另外查询。
 - 本次继续补齐 X01/X02/X03 交互与失联/无证据等场景；设计登记更新为 **50 个原子项，35 个上游源码入口候选，15 个新增目标（无原版入口）**。上游代码存在性锚点不等于目标实现、按钮级动态核验或版权许可。
 - **FG16 状态 CODE_FIX_SUBMITTED / F_RECHECK_PENDING**；B/D/E DESIGN_SIGNOFF PENDING；A02 BLOCKED_LICENSE；W0 NOT_FROZEN，不能进入未批准的 W1 实施和银行 ZIP 打包。
-
-## C 组 W0 原创探针进度（2026-11-09，待 A/F 审核合并）
-- 施工分支 `work/dsh-wb-ui` 由 `work/dsh-wb-w0@515f6a367bd1` 创建，C 的 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 已形成六主页面/十区、表单/动作/错误态/搜索/主题/导航/原创组件/API 接口的候选对账；演示代码 `tools/dsh_workbench/ui_w0_prototype/` 与 `tests/test_dsh_workbench_ui_w0.mjs` 隔离于正式产品。
-- 本地 Node 单测 9/9 PASS，语法检查 PASS；浏览器导航被 `ERR_BLOCKED_BY_ADMINISTRATOR` 阻断，**无真实截图，浏览器 QA NOT_RUN**，详见 `WB-C-W0-TEST-EVIDENCE.md`。独立 CI 工作流配置为同 HEAD Node/Playwright 浏览器探针、截图上传；是否真正通过以该 SHA job 为准。
-- **WB-C01=TODO、WB-C02=TODO、C03/C04/C05/C06=TODO**；本轮是 W0 可行性探针，不满足 A01/F W0 设计冻结，不进入 W1，也不将纯函数 Demo 等同真实 B06 复合关系/ACL API。
-- 源码采取独立创作路径；原版 `naodeng/dsh-qa` PolyForm Noncommercial 受限文件零复制，A02 `BLOCKED_LICENSE` 不变。请 A/F 以该分支真实 PR/同 SHA CI 审核后在正式总账记录，不由 C 代签 W0。
-
-## C 组 W0 独立 CI 真实探针结果（后续增量）
-- 源 SHA `465d1006e1b0f8d9ce537436d46912e527d9d096` 同 SHA GitHub job [129176561107](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42622094284/job/129176561107)：9 项 Node 单测 PASS、真实 Chromium 原创页面交互 PASS，3 个带 SHA256 的截图实际上传至 artifact 13675694071。旧本地浏览器策略阻断和 Ubuntu26.04 不兼容历史保留；改用 Ubuntu24.04 实际通过。
-- **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
