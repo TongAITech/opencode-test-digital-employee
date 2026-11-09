@@ -142,5 +142,15 @@ class DHostContractTests(unittest.TestCase):
                 self.assertIn(token, doc)
 
 
+    def test_source_audit_keeps_host_client_and_bank_qualification_separate(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / "docs/dsh-workbench/WB-D01-OPEN-SOURCE-HOST-COMPATIBILITY-OBSERVATIONS.md").read_text(encoding="utf-8")
+        for required in ("369c2785c473e546124ab1709664058e6ea93948",
+                         "OSS_HOST_CLIENT_SEPARATION", "D-G05", "BANK_1_18_26_UNKNOWN",
+                         "FIELD_QA_NOT_RUN", "CAPABILITY_UNKNOWN", "NO_DUPLICATE_MODEL_KEYS"):
+            with self.subTest(required=required):
+                self.assertIn(required, text)
+
+
 if __name__ == "__main__":
     unittest.main()
