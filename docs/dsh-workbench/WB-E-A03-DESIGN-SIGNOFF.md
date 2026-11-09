@@ -90,3 +90,19 @@ E 设计签署不覆盖 B/D 的独立 DESIGN_SIGNOFF、F 的独立复验，也�
 第二轮的可复核历史独立证据：E `8401ab85cefb2876ce4451252d3d9a6e7d14704c` 的 [GitHub job #129231742936](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42638157232/job/129231742936) 实际 `Ran 40 tests ... OK`，含真实旧 RC7 Admin/R1 synthetic fixture 2 例；这只是 W0 E 局部合同 CI。重建在 A 新 HEAD 上的 E 分支**必须重新取同源 CI**，旧成功只作历史来源证据。正式 E01 的真实 B06/HTTP/Host/R1 映射依然受 W0 设计和 B06 实施门禁阻断。
 
 E 第二轮成果应由 A 在集成时把 `PRE_B06_READONLY_PROTOTYPE_ONLY`、合同用例数量、新 source_sha、F 独立审查情况累积更新到共享 `08/09/10`；本 E 组不重写 A 的已集成总账，防 FG19 再次发生。
+
+## 8. 2026-11-10 E01 consumer protocol alignment after F independent review
+
+F's completed independent recheck of A W0 source `75fd2c64159db863cfd1319d41a887785b556d40` is recorded in PR #94 and A PR #84 comments. Its outcome is `REVIEWED_WITH_BLOCKERS / W0_NOT_FROZEN`: FG17 was observed flaky (one real Chromium failure followed by passing repetitions; root cause unresolved), FG21 reported PR #84 dirty against `work/rc7.2`, and A02 remains `BLOCKED_LICENSE`. This is a completed review with blockers, not W0 acceptance or product QA.
+
+A subsequently advanced W0 to `7067d19742c1954bc5b940f11fe00aa6db24065a` with an exact SPA text wait and a Python 3.8 FG17 five-trial gate. That is an A follow-up source change; **F has not yet independently re-reviewed this new HEAD**. E does not inherit F acceptance from 75fd to 7067.
+
+**B06 source inspection at the reviewed 75fd HEAD:** `rc7_admin/server.py` blob `4cd89462a43fa55fab7c19880d53006f555f7887`, `rc7_admin/product_server.py` `8e8fc4c90ced920b49026ffe37c5981f75eee990`, `rc7_admin/projection.py` `db456fc1eb653bb7cf2642a54e028ecbd23f9d5c`, and `rc7_runtime/rc72_linkage.py` `27c1ef1f19ff6ec3312397791dd310b0e7c9f12b`. The reviewed tree contained no PostgreSQL B06 migration/service or `/api/workbench/v1` route. B06 remains a design contract, not an available E01 implementation dependency.
+
+**E consumer-side correction:** B06 is a project+batch/filters/pagination scope service, not a Mission allow-list. E calls the B06 port with server-derived principal, project and batch only. Mission membership is checked separately against explicit R1 Mission `project_id`+`batch_id`; missing legacy fields remain HOLD and `release_id` is never interpreted as batch_id. B06 source refs must cover each verified relation link. Empty relation sets are rejected; partial/missing pagination metadata cannot be represented as a complete Scope.
+
+New E-owned protocol note: `WB-E01-B06-CONSUMER-PROTOCOL.md`. E readonly-scope tests now contain 27 cases; with 19 E A03 design-oracle tests the exact E workflow ran 46 tests on HEAD `86d2516f02aa523021ac76c5c258c0e51f8c44cb` (two independent same-HEAD jobs #129311426006 and #129311468840). These remain pre-B06 protocol/fixture tests, not `IMPLEMENTATION_QA_PASS`.
+
+**B review requested:** confirm the unique `source_refs` list and exact `next_page_cursor` payload shape before freezing B06. This PR does not change B's signed SQL schema or shared 08/09/10 ledgers.
+
+**Status remains:** E A03 design accepted with implementation holds; E01 `BLOCKED_DEPENDENCY_B06`; E02–E06 `NOT_STARTED`; E07 `OPTIONAL_NOT_ADMITTED`; no HTTP/API/DB/SSE/command/NodeGate/Agent Teams production integration; no ZIP.
