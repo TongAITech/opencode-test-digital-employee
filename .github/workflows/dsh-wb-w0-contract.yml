@@ -11,6 +11,10 @@ on:
       - 'tools/dsh_workbench/**'
       - 'tests/test_dsh_workbench*.py'
       - '.github/workflows/dsh-wb-w0-contract.yml'
+      - '.github/workflows/dsh-wb-fg17-q1-regression.yml'
+      - 'rc7_runtime/rc72_journey_playwright.py'
+      - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
+      - 'tests/test_rc72_journey_playwright_adapter.py'
   workflow_dispatch:
 
 jobs:
