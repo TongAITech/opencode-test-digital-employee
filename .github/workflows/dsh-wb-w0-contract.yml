@@ -1,13 +1,8 @@
 name: DSH Workbench W0 Fast Contract Gates
 
 on:
-  push:
-    branches: [work/dsh-wb-w0]
-    paths:
-      - 'docs/dsh-workbench/**'
-      - 'tools/dsh_workbench/**'
-      - 'tests/test_dsh_workbench*.py'
-      - '.github/workflows/dsh-wb-w0-contract.yml'
+  # One per PR head, not the old duplicate push + pull_request pair.
+  # workflow_dispatch remains available for an explicit pinned recheck.
   pull_request:
     branches: [work/rc7.2]
     paths:

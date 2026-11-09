@@ -9,8 +9,10 @@ on:
       - 'tests/test_rc72_*.py'
       - 'tests/rc72_qa_c09_host.py'
       - '.github/workflows/rc7.2-abcd-v3-qualification.yml'
-  pull_request:
-    branches: [work/rc7.2]
+  # V3 is a historical duplicate of V4's RC7.2 inherited Chromium suite.
+  # Preserve manual qualification and the dedicated historical push branch,
+  # but NEVER re-run its 30-60 minute suite for every W0 PR commit.
+  # Release admission uses non-draft V4 (superset) plus RC7.2 main Q1.
   workflow_dispatch:
 
 permissions:
