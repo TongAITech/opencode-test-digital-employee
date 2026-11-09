@@ -169,3 +169,11 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 F 独立审核完成后的 A 组整改进展
+
+- F 最新独立复验 PR #94 已完成对 A 源 `75fd2c64159db863cfd1319d41a887785b556d40` 的审查：FG18 设计期反例复核通过，FG20 50 项登记对齐；FG17 仍为不稳定问题，FG21 为 RC7.2 主线合并阻断；A02 仍 BLOCKED_LICENSE。完整报告见 `docs/dsh-workbench/qa/WB-F-ABCDE-SAME-SHA-RECHECK-75FD2C6.md`。
+- A 已定位 FG17 根因：`networkidle` 不等于 SPA DOM 业务状态完成；旧 `text_equals` / `attribute_equals` 读取不是等待期望状态的断言。已实现有界 DOM 状态轮询，并将本地 SUT 更新延迟 650ms，构造真实异步竞态。修复报告：`docs/dsh-workbench/qa/WB-A-FG17-ASYNC-DOM-ORACLE-FIX-20261110.md`。
+- A 修复源 `f41e8ca` 在 Q1 Python3.8/Playwright1.48/真实 Chromium 连续 5 轮，每轮 3/3 PASS；run `42661016254` job `129312276833`，artifact `13694826014`。Python3.11/Playwright1.62 同源五轮已加到后续 CI，待结果；FG17 仍需 F 对新 SHA 复核。
+- FG21 只读真实 merge probe 已将冲突收敛到单个文件 `.github/workflows/rc7.2-abcd-v4-qualification.yml`。对比 RC7.2 当前源 `87f956f` 与 W0 版本后，W0 版本保留相同完整 job body，并额外提供非 Draft 准入、路径过滤和更明确的 PR 并发组；拟以 W0 版本解决该唯一冲突，再验证 PR #84 mergeable。
+- 不得将 FG18/FG20 设计期通过写成 PostgreSQL/正式 UI QA_PASS；A02 未解决前不做商业银行交付。
