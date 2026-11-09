@@ -64,7 +64,7 @@ Scope 的 BRV 不只是 BR 与 BV 均在批次内，**还必须有 authoritative
 
 本节仅约束 B 组 GET /api/workbench/v1/projects/{project_id}/release-dates/{yyyy-mm-dd}/scope；该接口的响应不采用上文泛化的外层 pagination envelope，也不返回 R1 truth 字段。
 
-**请求：** DSH Host/服务端注入可信 principal；project_id；batch_id 或 project_id+release_date；可选 requirement_ids[]、system_version_ids[]、sst_ids[]；page_size、page_cursor。B06 不接受 mission_id，也不维护 authorized_mission_ids。
+**请求：** DSH Host middleware 从已认证宿主会话派生 principal 并绑定到服务端 request context；principal 不是 query/body 字段，也不是 E adapter 可自报/传入的参数。业务查询参数为 project_id；batch_id 或 project_id+release_date；可选 requirement_ids[]、system_version_ids[]、sst_ids[]；page_size、page_cursor。B06 不接受 mission_id，也不维护 authorized_mission_ids。
 
 **响应固定字段：**
 - project_id、batch_id、release_date、relation_revision、access_scope_revision；

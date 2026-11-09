@@ -44,7 +44,7 @@ B 已核对 A 集成树保留以下关系和反例：
 
 ## 5. B06 Scope API 精确契约（答复 E PR #96）
 
-**请求：** 服务端注入可信 principal；project_id + batch_id，或 project_id + release_date；可选 requirement_ids[]、system_version_ids[]、sst_ids[]、page_size、page_cursor。B06 不接收 mission_id，不维护 authorized_mission_ids。
+**请求：** DSH Host middleware 从已认证宿主会话派生 principal 并绑定到服务端 request context；principal 不是 query/body 字段，也不是 E adapter 可自报/传入的参数。业务查询参数为 project_id + batch_id，或 project_id + release_date；可选 requirement_ids[]、system_version_ids[]、sst_ids[]、page_size、page_cursor。B06 不接收 mission_id，不维护 authorized_mission_ids。
 
 **响应固定字段：**
 - project_id、batch_id、release_date、relation_revision、access_scope_revision；
