@@ -4,7 +4,7 @@
 
 | 组 | 签署范围 | 必须带回的可复核证据 | 结论 |
 |---|---|---|---|
-| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：审查 [B DESIGN_SIGNOFF](WB-B-A03-DESIGN-SIGNOFF.md)、跨版本原始 SST ID 的版本限定 UNIQUE 及 T1–T8 反例；W1：真实 PostgreSQL/422 回滚/重启验收 | B_SIGNOFF_SUBMITTED / FG18_B_RECONFIRM_REQUIRED / IMPLEMENTATION_QA_NOT_RUN |
+| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：审查 [B DESIGN_SIGNOFF](WB-B-A03-DESIGN-SIGNOFF.md)、跨版本原始 SST ID 的版本限定 UNIQUE 及 T1–T8 反例；W1：真实 PostgreSQL/422 回滚/重启验收 | B_FG18_CORRECTION_SUBMITTED / F_RECHECK_REQUIRED / IMPLEMENTATION_QA_NOT_RUN |
 | D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：[D DESIGN_SIGNOFF](WB-D00-DESIGN-SIGNOFF-AND-D01-HOST-DELTA.md)，可信主体、PROJECT/BATCH_COMMAND/WORKER 三会话、host 失败语义；W1+：行内真实会话/并发/恢复另验 | D_SIGNOFF_ISSUED / FIELD_QA_NOT_RUN |
 | E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：[E DESIGN_SIGNOFF](WB-E-A03-DESIGN-SIGNOFF.md)，明确旧 /api/workbench/v1 不存在与六项实现 HOLD；W1+：真实 API/Evidence/持久幂等/SSE 另验 | E_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS / IMPLEMENTATION_QA_NOT_RUN |
 | F | 独立检查合同遗漏、版权安全与设计退出门槛 | W0：审查设计合同、反例、来源锚点与分层 Gate；W1+：仅按真实证据签 IMPLEMENTATION/INTEGRATION/FIELD_QA_PASS | DESIGN_RECHECK_REQUIRED |
@@ -55,3 +55,6 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 - 精确来源 B PR #89 HEAD `704c86aaf9b2c5a9b9b4088648ccd0c50204f2f8`、C PR #92 HEAD `e9094bf5267ebc840ffae6bf3e8a707380ecaf7f`、D PR #90 HEAD `f0b7faeb22f9bf03d2487061a8f81a2776a5213d`、E PR #91 HEAD `bee612b2dd94a6040404db4b9a4a5fd816e136dd`；F 独立审查见 PR #85。
 - B 原签署的 sst 源键 UNIQUE 用了全项目作用域，F FG18 已证明与同原始 source_key 在多系统版本合法复用冲突。A 本次仅修复 **设计见证 SQL** 为 UNIQUE(project_id,version_id,source_system,source_key) 并保留版本限定来源身份；必须由 B 对新合同重新确认且 F 独立负向复验。
 - B/D/E 旧分支签署覆盖本行声明的既有语义，但最新联合集成 SOURCE SHA 与 A03 变更，仍需各组验证不丢信息。F W0 设计 ACCEPTED 与商业法务签署均未获得；W0 NOT_FROZEN、A02 BLOCKED_LICENSE。
+
+## FG18 正式 B 组修订来源（待 F 核销）
+B 组最新 PR #89 HEAD `98bac426a35063a306f4eaa4b43c80cf0a0a1745` 已新增 sst stable internal ID、version-scoped source uniqueness 和 source_trace(源 namespace/revision/ref)。此段只接受 B 更新后的 W0 设计合同进入 A 集成，不能用 SQLite 内存 SQL 代替 W1 PostgreSQL/真实合法来源导入。E/D 的签署须以联合源 SHA 复核含义是否保持。

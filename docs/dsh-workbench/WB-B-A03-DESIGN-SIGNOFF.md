@@ -27,7 +27,7 @@ RC7.2 docs/rc7.2/00、02 的运行资产最低要求 ReleaseBatch/Requirement/SS
 | requirement_identity | PK(project_id,requirement_id), UNIQUE(project_id,source_system,source_namespace,source_object_id), source_revision | 跨环境/源租户同 external ID 不可互认 |
 | system_identity | PK(project_id,system_id), source_system/namespace/id | 系统稳定身份 |
 | system_version_identity | PK(project_id,system_version_id), FK(project_id,system_id), UNIQUE(project_id,source_system,source_namespace,source_object_id), version_label | 相同 version_label 在不同系统是不同对象 |
-| sst_identity | PK(project_id,system_version_id,sst_id), FK(project_id,system_version_id), UNIQUE(project_id,source_system,source_namespace,source_object_id), source_revision | SST 原始 ID 可同名；系统版本与来源身份必须校验。若源 ID 被不同版本复用，生成不同内部稳定 ID、保留原始 source_ref |
+| sst_identity | PK(project_id,system_version_id,sst_id), FK(project_id,system_version_id), UNIQUE(project_id,system_version_id,source_system,source_namespace,source_object_id), UNIQUE(project_id,sst_id), source_revision | 来源唯一性限定在系统版本内，内部 sst_id 项目内稳定唯一；同一上游 raw ID 跨版本复用要分配独立内部 ID，保留 raw source_ref/source_revision |
 | batch_requirement BR | PK(project_id,batch_id,requirement_id)；FK batch、requirement_identity | 不允许跨 project |
 | batch_version BV | PK(project_id,batch_id,system_version_id)；FK batch、system_version_identity | 不允许未参与批次的版本 |
 | source_verified_requirement_version | PK(project_id,batch_id,requirement_id,system_version_id), source_link_ref、source_revision；FK→BR/BV | **必须有源系统已确认的需求—版本关系**；仅 BR+BV 均存在不授权组合；未获源证明不可创建 BRV |
@@ -110,3 +110,17 @@ SQL 在真实实现时必须绑定参数、检查 Array/NULL 语义和固定排�
 
 ## 8. W0 反向测试发现的设计纠错
 首个 B 设计 CI（8 个 SQLite 测试，7 PASS / 1 FAIL）证实只让 BRV FK 到 BR/BV 仍允许 R2 与已参与 B1 的 VB 组成未经授权的关系。修正为先登记 source_verified_requirement_version（含来源 link_ref），BRV 加强制复合外键；再由 source_verified_link 授权 BRVS。三版本五 SST 的 R1 正向 fixture 与不存在的 R2/VB 反例一起验证。**这是真正的设计缺陷纠正，不得把旧红 CI 改写为 PASS；新的同 HEAD CI 以独立结果为准。**
+
+## WB-FG18 / 独立验收红测后的 B 组领域纠偏（2026-11-09）
+
+- F 原始失败来源：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677。F 在原始 B DDL 实测同一 Starlink SST-100 来源 ID 在两个系统版本独立出现，第二行被错误项目级唯一约束拒绝。这是确实存在的设计缺陷，历史 FAIL 保留。
+- **修复：**项目内内部 SST ID 必须稳定唯一；来源唯一键修改为 (project_id,system_version_id,source_system,source_namespace,source_object_id)，跨版本相同 raw 来源 ID 允许对应两个独立内部 ID。**关联键始终包含 version_id**，不能只看 raw ID 或 version_label。
+- SQLite 五列设计见证对应 UNIQUE(project_id,sst_id) + UNIQUE(project_id,version_id,source_system,source_key)。新增 sst_source_trace 以三元复合 FK 记录 source_namespace、source_revision、source_ref，并添加跨版本同 raw ID、正确 JOIN、跨批次/错需求/错版本拒绝、同版本重复拒绝、跨项目正常隔离共四组测试。
+- **实施边界：**简化 witness 中 trace 表可单独加载，正式 PostgreSQL 迁移必须在 SST 实例创建事务中强制存储完整原始来源身份与 revision/ref，验证可信源而不是相信 UI 入参；B01–B05 真库测试待 W0 正式冻结后执行。
+- 此轮 B 修订和 CI 不代表 F 接受 FG18，需 F 从新 B HEAD 独立重跑其 test_dsh_workbench_b_sst_identity_f.py。A 仍需解决 FG17/FG19，C 需解决 FG20；W0 NOT_FROZEN，A02 BLOCKED_LICENSE，未开始 W1、无银行包。
+
+## WB-FG18 本轮 CI 红绿原始证据（2026-11-09）
+- 历史红：F 原始 B HEAD 704c86a 下，F 独立案例 test_same_raw_sst_id_different_system_versions_are_distinct 在 job 129218336677 因旧 UNIQUE(project_id,source_system,source_key) 抛错。红灯不删除。
+- 绿色修订来源：B HEAD eb48d161bd5c7caa29733fccfabc44654a376dd6；同 SHA run 42637588144 / job 129229772001，14/14 B SQL 正反例通过、72/72 W0+B 合同通过。
+- 更关键的是：此 CI 以固定 F 独立 HEAD 5111044d87a97120d57cddc1b6d3c8e177502c2f checkout 原始 tests/test_dsh_workbench_b_sst_identity_f.py，并设置 WB_B_CHECKOUT=. 指向 B 当次源码；F 旧红反例在修订 DDL 上真实执行 1/1 OK，非改写 F 测试。
+- 源日志 https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42637588144/job/129229772001 。此结果证明 W0 SQLite 约束设计纠偏，不替代 F 再审签署、PostgreSQL/HTTP/R1/现场 QA。F 的 FG18 独立关闭结论仍 PENDING，W0 NOT_FROZEN、FG17/FG19/FG20 OPEN、A02 BLOCKED_LICENSE。

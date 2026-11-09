@@ -45,9 +45,18 @@ CREATE TABLE sst(
     sst_id TEXT NOT NULL, source_system TEXT NOT NULL,
     source_key TEXT NOT NULL,
     PRIMARY KEY(project_id,version_id,sst_id),
+    UNIQUE(project_id,sst_id),
     UNIQUE(project_id,version_id,source_system,source_key),
     FOREIGN KEY(project_id,version_id)
       REFERENCES system_version(project_id,version_id)
+);
+CREATE TABLE sst_source_trace(
+    project_id TEXT NOT NULL, version_id TEXT NOT NULL, sst_id TEXT NOT NULL,
+    source_namespace TEXT NOT NULL, source_revision TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    PRIMARY KEY(project_id,version_id,sst_id),
+    UNIQUE(project_id,version_id,source_ref),
+    FOREIGN KEY(project_id,version_id,sst_id) REFERENCES sst(project_id,version_id,sst_id)
 );
 CREATE TABLE br(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
@@ -347,29 +356,69 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM batch_date_history").fetchone()[0], 0)
 
-    def test_fg18_same_raw_sst_id_across_versions_stays_distinct(self):
-        # Same original source key is legal in different system-version scopes.
-        for v, sys_id, raw_version in (
-            ("VX","SYS-X","source-X"), ("VY","SYS-Y","source-Y")
-        ):
-            self.db.execute(
-                "INSERT INTO system_version VALUES (?,?,?,?,?,?)",
-                ("P1",v,sys_id,"PF1.2.1","Starlink",raw_version))
-        self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
-                        ("P1","VX","INTERNAL-X","Starlink","SST-100"))
-        self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
-                        ("P1","VY","INTERNAL-Y","Starlink","SST-100"))
+
+
+    def _fg18_reused_source_ids(self):
+        for v,s,revision in (("VA","SST-A-100","8"),("VB","SST-B-100","9")):
+            self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
+                            ("P1",v,s,"Starlink","SST-100"))
+            self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                            ("P1",v,s,"tenant-FAT1",revision,"Starlink/SST-100/"+v))
+
+    def test_fg18_same_raw_source_id_in_two_versions_distinct(self):
+        self._fg18_reused_source_ids()
         self.assertEqual(
-            self.db.execute("SELECT version_id,sst_id FROM sst WHERE source_key='SST-100' ORDER BY version_id").fetchall(),
-            [("VX","INTERNAL-X"),("VY","INTERNAL-Y")]
-        )
+            self.db.execute("SELECT version_id,sst_id FROM sst WHERE project_id=? AND source_key=? ORDER BY version_id",
+                            ("P1","SST-100")).fetchall(),
+            [("VA","SST-A-100"),("VB","SST-B-100")])
+        for v,s in (("VA","SST-A-100"),("VB","SST-B-100")):
+            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                            ("P1","B1","R1",v,s,"verified-B1-R1-"+v))
+            self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",("P1","B1","R1",v,s))
+        rows=scope_rows(self.db,{"P1"},"P1","B1")
+        self.assertIn(("R1","VA","SST-A-100"),rows)
+        self.assertIn(("R1","VB","SST-B-100"),rows)
+        self.assertNotIn(("R1","VA","SST-B-100"),rows)
+        self.assertNotIn(("R1","VB","SST-A-100"),rows)
+        self.assertEqual(
+            self.db.execute("SELECT version_id,source_revision,source_ref FROM sst_source_trace ORDER BY version_id").fetchall(),
+            [("VA","8","Starlink/SST-100/VA"),("VB","9","Starlink/SST-100/VB")])
+
+    def test_fg18_wrong_version_req_batch_links_rejected(self):
+        self._fg18_reused_source_ids()
+        for bad in [("P1","B1","R1","VA","SST-B-100","wrong-version"),
+                    ("P1","B1","R2","VB","SST-B-100","wrong-requirement"),
+                    ("P1","B2","R1","VA","SST-B-100","wrong-batch")]:
+            with self.subTest(link=bad):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",bad)
+        for bad in [("P1","B1","R1","VA","SST-B-100"),
+                    ("P1","B1","R1","VB","SST-A-100"),
+                    ("P1","B2","R1","VA","SST-A-100")]:
+            with self.subTest(link=bad):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",bad)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM brvs").fetchone()[0],6)
+
+    def test_fg18_same_version_source_duplicate_and_internal_id_reuse_rejected(self):
+        self._fg18_reused_source_ids()
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
-                            ("P1","VX","FORGED-X","Starlink","SST-100"))
+                            ("P1","VA","SST-C-100","Starlink","SST-100"))
         with self.assertRaises(sqlite3.IntegrityError):
-            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
-                            ("P1","B1","R1","VA","INTERNAL-Y","wrong-version"))
+            self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
+                            ("P1","VC","SST-A-100","Starlink","different-raw"))
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sst WHERE source_key='SST-100'").fetchone()[0],2)
 
+    def test_fg18_same_raw_source_id_across_projects_allowed(self):
+        self._fg18_reused_source_ids()
+        self.db.execute("INSERT INTO system_version VALUES (?,?,?,?,?,?)",
+                        ("P2","VP2","SYS-A","PF1.2.0","Starlink","a-120"))
+        self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
+                        ("P2","VP2","SST-P2","Starlink","SST-100"))
+        self.assertEqual(
+            self.db.execute("SELECT project_id,version_id,sst_id FROM sst WHERE source_key='SST-100' ORDER BY project_id,version_id").fetchall(),
+            [("P1","VA","SST-A-100"),("P1","VB","SST-B-100"),("P2","VP2","SST-P2")])
 
 if __name__ == "__main__":
     unittest.main()

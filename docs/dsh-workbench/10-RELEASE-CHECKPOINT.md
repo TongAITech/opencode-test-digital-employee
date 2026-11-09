@@ -74,3 +74,17 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 施工目标：构建一个带五个父提交的 A HEAD，完整集成 B/C/D/E 新文件与 A03/02/06/08/09/10 合同差异，并增加 F 发布闭包测试及 SST 原始身份跨版本重用反例；该 SHA 的新 CI 必须另验，不得重用此前各分支 PASS。
 - F FG16 静态修复已独立接受；FG18（B 来源 SST 设计）、FG19（同 HEAD 合并）与 FG20（C 清单）的修订须 F 独立核销；FG17 RC7.2 CDP 完整 CI 失败尚无根因，禁止 FINAL_CI_PASS。
 - B/D/E W0 设计签署附件已纳入候选，但 B 的 FG18 来源域语义改动须 B 复签，F 的整体 W0 设计独立接受尚未获得。W0_DESIGN_FROZEN=NO，A02=BLOCKED_LICENSE，W1–W4 真实运行 NOT_RUN，主线 work/rc7.2 不合入/银行 Windows ZIP 不构建。
+
+
+## B 组 F 审查后提交检查点：WB-FG18（2026-11-09）
+- F 独立审核显示 704c86a 设计 10/10、共同 68/68 成功但新增 SST 上游 ID 跨版本重复场景真实失败：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677。B 已修复设计 DDL 的 source ID 唯一域及相应来源审计，补四个专门反例；核验必须使用修复后同 HEAD CI 和 F 独立重跑。
+- 当前 W0 NOT_FROZEN、A #84 Draft、B #89 Draft、F #85 REVIEWED_WITH_BLOCKERS，FG17/FG19/FG20 等跨组阻断未关闭。B01/B02 真库未开始，PCC 现场、R1/Host/API/Windows ZIP 均未验；商业授权 BLOCKED_LICENSE。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。
+
+## 第二轮 B/C/D/E 精确源 SHA 统一验收候选（F 独立复核必需）
+- B PR #89 `98bac426a35063a306f4eaa4b43c80cf0a0a1745`：FG18 由 B 组自行修复，SQLite 约束新增全项目内部 sst_id UNIQUE、同系统版本来源键 UNIQUE，另设 `sst_source_trace` 保留 namespace/revision/source_ref；F 原始同 raw SST ID 跨版本反例需在当前联合树重跑。B 仍为 DESIGN_SIGNOFF，仅 W0。
+- C PR #92 `4394f7fef7f19035220ea2398af9ff9f19a4b865`：新增 50 个 feature_id 差异表、15 项 Node 测试、原始证据与 B→C 隔离 Git 合并成功；这不是全功能 F02。
+- D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
+- E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
+- 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。

@@ -99,3 +99,18 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | FG20 P1 | C 原版功能清单旧 47 与 A01 50 不一致 | C 候选文档校正为 50 / 35 O+A / 15 N；不声称 50 个行为已实测 |
 | FG16 | F 上轮独立验收 38 Gate 发布依赖闭包，2/2 F 反例和 19/19 A DAG 成功 | STATIC_DESIGN_FIX_ACCEPTED，仅设计层，不代表真实 W4 发布 |
 遗留：B06 真实关联、E01 HTTP/R1、C01 完整页面、D 行内 1.18.26、W2–W4 真 Evidence/FIELD QA 全部未验；A02 BLOCKED_LICENSE、W0_NOT_FROZEN、PR #84 Draft，禁止银行 ZIP 或发布。
+
+
+## WB-FG18 / P0 / B 组修复提交（原独立红测不覆盖）
+- F 独立复现：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677，跨版本复用同一上游 SST-100 原始来源 ID 触发 B 旧 DDL 项目级唯一冲突，违反 B 设计声明。
+- B 修复：UNIQUE(project_id,version_id,source_system,source_key) + UNIQUE(project_id,sst_id)，新增来源 trace 表及四组多版本关联/非法错配/重复拒绝/跨项目反例。当前=CODE_SUBMITTED / CI_PENDING / F_RECHECK_PENDING；同 SHA 真验收后才可评估关闭。
+- W0 未冻结、W1 真 PostgreSQL 与 API NOT_RUN。FG17（A 全矩阵）、FG19（ABCDE 预合并）、FG20（C 清单）不属于 B 自行核销范围，保持 F 阻断。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。
+
+## 第二轮 B/C/D/E 精确源 SHA 统一验收候选（F 独立复核必需）
+- B PR #89 `98bac426a35063a306f4eaa4b43c80cf0a0a1745`：FG18 由 B 组自行修复，SQLite 约束新增全项目内部 sst_id UNIQUE、同系统版本来源键 UNIQUE，另设 `sst_source_trace` 保留 namespace/revision/source_ref；F 原始同 raw SST ID 跨版本反例需在当前联合树重跑。B 仍为 DESIGN_SIGNOFF，仅 W0。
+- C PR #92 `4394f7fef7f19035220ea2398af9ff9f19a4b865`：新增 50 个 feature_id 差异表、15 项 Node 测试、原始证据与 B→C 隔离 Git 合并成功；这不是全功能 F02。
+- D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
+- E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
+- 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。

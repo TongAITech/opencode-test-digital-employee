@@ -154,3 +154,18 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - FG19 P0：F 的原 pinned B→C→D→E 合并由于 08/09/10、A03 冲突而失败，见 job #129218849736。现在 A 提供单个五父提交 SHA，F 需验证父 SHA 与最终合同文本、所有历史证据/失效前置仍存在、同 HEAD 合同+浏览器测试通过。
 - FG20 P1：C 原版原子候选数由旧 47 统一为 A 最新 50（35 个 O/A 上游源码入口候选、15 个 N 新增），保留尚未実际执行的 50 个原子用户动作状态 NOT_RUN。
 - 仍有 W0 门槛：A01 原版按钮与 C demo 差异逐项独立审核、B FG18 复签、D/E 当前合同签收范围差异确认、F 对集成 SHA 接受、A02 BLOCKED_LICENSE。**W0_DESIGN_FROZEN=NO；W1 B01/C01/E01 实际产品代码无验收，RC7.2 主线不合并、不构建银行 ZIP。**
+
+
+## 2026-11-09 B 组执行 F WB-FG18 整改（追加而非覆盖历史）
+- task=WB-A03-B-FG18；状态=CODE_SUBMITTED / NEW_HEAD_CI_PENDING / F_INDEPENDENT_RECHECK_REQUIRED。F 原始 FAIL：https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42634316547/job/129218336677；旧 B 704c86a SQLite 10/10、合同 68/68 绿不覆盖该反例。
+- 修改 tests/test_dsh_workbench_b_a03_design.py 的 SST 唯一身份域，增加 source_trace 和四组负向/正向证据；修订 WB-B-A03-DESIGN-SIGNOFF、02、06 合同；完整源码以 B PR #89 最新 HEAD 为准。
+- B01/B02 仍依赖 A03_CONTRACT_SIGNED + W0_DESIGN_FROZEN；F 最新 ABCDE 审查为 REVIEWED_WITH_BLOCKERS，FG17/19/20 仍 OPEN，A02 BLOCKED_LICENSE。不能提前解锁 W1、不能打 ZIP。
+
+- WB-FG18 CODE_FIXED_DESIGN_CI_PASS（历史修复 SHA eb48d161bd5c7caa29733fccfabc44654a376dd6）：B 14/14、W0+B 72/72、原 F pinned-SHA 测试 1/1；run 42637588144 job 129229772001。F 审查意见仍待，W0 NOT_FROZEN；当前提交只是追加已经成功的可审计记录。
+
+## 第二轮 B/C/D/E 精确源 SHA 统一验收候选（F 独立复核必需）
+- B PR #89 `98bac426a35063a306f4eaa4b43c80cf0a0a1745`：FG18 由 B 组自行修复，SQLite 约束新增全项目内部 sst_id UNIQUE、同系统版本来源键 UNIQUE，另设 `sst_source_trace` 保留 namespace/revision/source_ref；F 原始同 raw SST ID 跨版本反例需在当前联合树重跑。B 仍为 DESIGN_SIGNOFF，仅 W0。
+- C PR #92 `4394f7fef7f19035220ea2398af9ff9f19a4b865`：新增 50 个 feature_id 差异表、15 项 Node 测试、原始证据与 B→C 隔离 Git 合并成功；这不是全功能 F02。
+- D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
+- E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
+- 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
