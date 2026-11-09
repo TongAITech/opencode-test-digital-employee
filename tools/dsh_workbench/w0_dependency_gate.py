@@ -1,4 +1,7 @@
-"""W0/W1 design-vs-implementation dependency guard (not a live task scheduler)."""
+"""W0–W4 design, implementation and release prerequisite DAG validator.
+
+Static correctness only. This does NOT approve actual release or QA evidence.
+"""
 from __future__ import annotations
 
 import json
@@ -15,7 +18,7 @@ KINDS = {"design", "implementation", "integration", "field", "license"}
 
 
 def validate_gate_graph(data: Mapping[str, Any]) -> list[str]:
-    """Validate a declared DAG; especially forbid W1 implementation to unlock W0 signoff."""
+    """Reject circular design gates and missing transitive W2/W3/W4 release prerequisites."""
     if not isinstance(data, Mapping) or data.get("schema") != "dsh-workbench-gates/v1":
         raise GateViolation("UNKNOWN_GATE_SCHEMA")
     gates = data.get("gates")
@@ -64,6 +67,73 @@ def validate_gate_graph(data: Mapping[str, Any]) -> list[str]:
         set(indexed["WB-W4_BANK_RELEASE_APPROVED"]["depends_on"])
     ):
         raise GateViolation("RELEASE_LICENSE_OR_FIELD_GATE_MISSING")
+
+    # FG16: the release must be guarded by real W2/W3/W4 QA, not only
+    # W1 success and a license entry. Design CI never substitutes QA evidence.
+    required_gates = {
+        "WB-F02_FUNCTIONAL_QA_PASS": "W2",
+        "WB-F03_AUTONOMOUS_QA_PASS": "W3",
+        "WB-D04_OFFLINE_QUALIFICATION_PASS": "W4",
+        "WB-A04_FINAL_INTEGRATION_ACCEPTED": "W4",
+        "WB-F04_FIELD_QA_PASS": "W4",
+    }
+    if any(gid not in indexed or indexed[gid]["phase"] != phase
+           for gid, phase in required_gates.items()):
+        raise GateViolation("REQUIRED_RELEASE_GATE_MISSING")
+    direct_requirements = {
+        "WB-F02_FUNCTIONAL_QA_PASS": {
+            "WB-C05_IMPLEMENTATION_QA_PASS",
+            "WB-B08_IMPLEMENTATION_QA_PASS",
+            "WB-D03_IMPLEMENTATION_QA_PASS",
+        },
+        "WB-F03_AUTONOMOUS_QA_PASS": {
+            "WB-E05_IMPLEMENTATION_QA_PASS",
+            "WB-E06_IMPLEMENTATION_QA_PASS",
+            "WB-C06_IMPLEMENTATION_QA_PASS",
+        },
+        "WB-D04_OFFLINE_QUALIFICATION_PASS": {
+            "WB-D03_IMPLEMENTATION_QA_PASS",
+        },
+        "WB-F04_FIELD_QA_PASS": {
+            "WB-F03_AUTONOMOUS_QA_PASS",
+            "WB-D04_OFFLINE_QUALIFICATION_PASS",
+        },
+        "WB-A04_FINAL_INTEGRATION_ACCEPTED": {
+            "WB-F04_FIELD_QA_PASS",
+            "WB-F02_FUNCTIONAL_QA_PASS",
+        },
+    }
+    for gid, dependencies in direct_requirements.items():
+        if not dependencies.issubset(set(indexed[gid]["depends_on"])):
+            raise GateViolation("RELEASE_PREDECESSOR_MISSING")
+
+    def ancestors(gid: str) -> set[str]:
+        found: set[str] = set()
+        frontier = list(indexed[gid]["depends_on"])
+        while frontier:
+            dep = frontier.pop()
+            if dep in found:
+                continue
+            found.add(dep)
+            frontier.extend(indexed[dep]["depends_on"])
+        return found
+
+    # Mandatory cross-wave gates must all appear in the *transitive* release
+    # predecessor closure. E07 Replay is optional, so never a release blocker.
+    mandatory_release = {
+        "WB-F01_INTEGRATION_QA_PASS",
+        "WB-F02_FUNCTIONAL_QA_PASS",
+        "WB-F03_AUTONOMOUS_QA_PASS",
+        "WB-D04_OFFLINE_QUALIFICATION_PASS",
+        "WB-F04_FIELD_QA_PASS",
+        "WB-A04_FINAL_INTEGRATION_ACCEPTED",
+        "WB-A02_LICENSE_RELEASE_APPROVED",
+    }
+    mandatory_release.update(gid for gid in indexed
+                             if indexed[gid]["phase"] in ("W2", "W3") and
+                             gid != "WB-E07_OPTIONAL_REPLAY_QA_PASS")
+    if not mandatory_release.issubset(ancestors("WB-W4_BANK_RELEASE_APPROVED")):
+        raise GateViolation("RELEASE_PREDECESSOR_CLOSURE_INCOMPLETE")
     visiting = set()
     complete = set()
     ordered = []

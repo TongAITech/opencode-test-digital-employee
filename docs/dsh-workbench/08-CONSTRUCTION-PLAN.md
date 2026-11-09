@@ -26,7 +26,7 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 | WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | CODE_COMPLETE_CANDIDATE / F_PENDING（未冻结） |
 | WB-A02 | A | 许可证/商业授权与源码复用方式确认 | WB-A00 | BLOCKED_LICENSE（仍需权利人书面授权或独立实现） |
 | WB-A03 | A | W0 DESIGN_SIGNOFF：字段/状态机/负向合同、跨组可实现性评审（不得要求 W1 实库证据） | WB-A00 | CONTRACT_DRAFT / B-D-E_DESIGN_SIGNOFF_PENDING |
-| WB-F00 | F | W0 独立 DESIGN_REVIEW（不是 W1 产品 QA） | WB-A01_DESIGN_SIGNED, WB-A03_CONTRACT_SIGNED | REVIEWED_WITH_BLOCKERS / WB-FG15_OPEN / F_DESIGN_RECHECK_PENDING |
+| WB-F00 | F | W0 独立 DESIGN_REVIEW（不是 W1 产品 QA） | WB-A01_DESIGN_SIGNED, WB-A03_CONTRACT_SIGNED | REVIEWED_WITH_BLOCKERS / WB-FG15_DESIGN_FIX_ACCEPTED / WB-FG16_FIX_PENDING_F_REVIEW |
 
 ## W1 — 最小真实业务纵向链路
 | 工单 | Owner | 内容 | 依赖 | 状态 |
@@ -105,3 +105,10 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - W1 工单仍在 W0 设计签收及 F 独立设计接受后按 DAG 启动。B/C/D/E 的真实代码/数据库/API/DSH Host 和 F 实测分别受 `IMPLEMENTATION_QA_PASS`、`INTEGRATION_QA_PASS` 约束，绝不提前 PASS。
 - W4 银行商业打包仍需 **独立的 LICENSE_RELEASE_APPROVED + FIELD_QA_PASS**；A02 BLOCKED_LICENSE 的阻断不因 W0 设计冻结而放松。受限源码始终不得进入银行交付。
 - 机器验证：`docs/dsh-workbench/W0-W1-GATE-MANIFEST.json` + `tools/dsh_workbench/w0_dependency_gate.py` + `tests/test_dsh_workbench_gate_dag.py`，必须证明无环、拒绝 W0 依赖 W1 实现、拒绝缺许可/现场 Gate 的发布。最新提交 CI 验证前仍标记 CI_PENDING。
+
+## 2026-11-09 WB-FG16 P0 — F 组发现发布依赖遗漏，A 已修改代码图与负向验收
+- F 最新复验 A HEAD `4349ee63015c390e4b6c092e1ba048560be2e292`：28/28 CI、48/48 W0 专项；**FG15 DESIGN_FIX_ACCEPTED**。新增 **FG16**：旧发布 DAG 仅有 F04+LICENSE，F04 仅有 F01，缺 W2 F02 原版六页十区回归、W3 F03 自主闭环、W4 D04 Windows 资格。来源：F PR #85 / `WB-F00-HEAD-DELTA-4349EE6.md` 及 PR #84 复验评论。
+- 已将 `W0-W1-GATE-MANIFEST.json` 增量拓展到 W2 的 C03/C04/C05、B07/B08、D02/D03、F02，W3 的 E02/E03/E04/E05/E06、C06、F03，以及 W4 的 D04、F04、A04、最终 bank release，逐工单对应上述原始 08 冻结依赖。
+- 新的 F04_FIELD_QA 必须有 F03_AUTONOMOUS_QA + D04_OFFLINE_QUALIFICATION，最终 BANK_RELEASE 还要 F02_FUNCTIONAL_QA、A04_FINAL_INTEGRATION 以及商业 LICENSE；不可用 W1 集成 QA 或静态 oracle 假代真实验收。
+- `w0_dependency_gate.py` 校验 release **所有跨阶段必需祖先闭包**、缺节点、缺直连关键依赖与 W0/W1 设计循环；`test_dsh_workbench_gate_dag.py` 新增移除或绕过 F02/F03/D04 的对抗测试。可选 E07 QA Replay 非最终商业发布前置。
+- 本轮仅静态代码整改，不是 F02/F03/D04/F04 实际证据；**FG16=CODE_FIX_SUBMITTED / F_RECHECK_PENDING**，A02 继续 BLOCKED_LICENSE，B/D/E DESIGN_SIGNOFF 继续 PENDING，W0 NOT_FROZEN，未合并不打 ZIP。

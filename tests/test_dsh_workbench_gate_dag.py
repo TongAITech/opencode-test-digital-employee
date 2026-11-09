@@ -73,6 +73,57 @@ class TestW0W1GateDAG(unittest.TestCase):
         by_id(d, "WB-B01_IMPLEMENTATION_QA_PASS")["depends_on"].remove("WB-A03_CONTRACT_SIGNED")
         self.assert_gate_error("DESIGN_SIGNOFF_NOT_PREREQUISITE", d)
 
+    def test_f02_f03_d04_and_original_pages_are_release_predecessors(self):
+        d = data()
+        self.assertIn("WB-F02_FUNCTIONAL_QA_PASS", [g["id"] for g in d["gates"]])
+        self.assertIn("WB-F03_AUTONOMOUS_QA_PASS",
+                      by_id(d, "WB-F04_FIELD_QA_PASS")["depends_on"])
+        self.assertIn("WB-D04_OFFLINE_QUALIFICATION_PASS",
+                      by_id(d, "WB-F04_FIELD_QA_PASS")["depends_on"])
+        self.assertIn("WB-F02_FUNCTIONAL_QA_PASS",
+                      by_id(d, "WB-W4_BANK_RELEASE_APPROVED")["depends_on"])
+        self.assertEqual(len(validate_gate_graph(d)), len(d["gates"]))
+
+    def test_fg16_remove_f02_gate_even_when_field_and_license_remain(self):
+        d = data()
+        d["gates"] = [g for g in d["gates"] if g["id"] != "WB-F02_FUNCTIONAL_QA_PASS"]
+        self.assert_gate_error("UNKNOWN_DEPENDENCY", d)
+
+    def test_fg16_bypass_f02_regression_in_release(self):
+        d = data()
+        by_id(d, "WB-W4_BANK_RELEASE_APPROVED")["depends_on"].remove("WB-F02_FUNCTIONAL_QA_PASS")
+        self.assert_gate_error("RELEASE_PREDECESSOR_CLOSURE_INCOMPLETE", d)
+
+    def test_fg16_drop_f03_from_field_qa(self):
+        d = data()
+        by_id(d, "WB-F04_FIELD_QA_PASS")["depends_on"].remove("WB-F03_AUTONOMOUS_QA_PASS")
+        self.assert_gate_error("RELEASE_PREDECESSOR_MISSING", d)
+
+    def test_fg16_drop_d04_from_field_qa(self):
+        d = data()
+        by_id(d, "WB-F04_FIELD_QA_PASS")["depends_on"].remove("WB-D04_OFFLINE_QUALIFICATION_PASS")
+        self.assert_gate_error("RELEASE_PREDECESSOR_MISSING", d)
+
+    def test_fg16_remove_original_functional_qa_gate(self):
+        d = data()
+        by_id(d, "WB-A04_FINAL_INTEGRATION_ACCEPTED")["depends_on"].remove("WB-F02_FUNCTIONAL_QA_PASS")
+        self.assert_gate_error("RELEASE_PREDECESSOR_MISSING", d)
+
+    def test_fg16_remove_autonomous_qa_gate_entirely(self):
+        d = data()
+        d["gates"] = [g for g in d["gates"] if g["id"] != "WB-F03_AUTONOMOUS_QA_PASS"]
+        self.assert_gate_error("UNKNOWN_DEPENDENCY", d)
+
+    def test_fg16_cannot_skip_any_mandatory_w2_subchain(self):
+        d = data()
+        by_id(d, "WB-F02_FUNCTIONAL_QA_PASS")["depends_on"].remove("WB-B08_IMPLEMENTATION_QA_PASS")
+        self.assert_gate_error("RELEASE_PREDECESSOR_MISSING", d)
+
+    def test_fg16_optional_replay_is_not_mandatory_to_release(self):
+        d = data()
+        self.assertIn("WB-E07_OPTIONAL_REPLAY_QA_PASS", [g["id"] for g in d["gates"]])
+        self.assertEqual(len(validate_gate_graph(d)), len(d["gates"]))
+
 
 if __name__ == "__main__":
     unittest.main()
