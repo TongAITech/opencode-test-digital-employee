@@ -34,3 +34,9 @@
 ## A 对 F 组 FG16 的最新整改快照（本次 HEAD 自证后才可更新）
 F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 设计修复，FG16 发布依赖遗漏 P0 OPEN。本轮 A 新增 W2/W3/W4 Gate 及必需的 F02/F03/D04/F04/A04/LICENSE 发布闭包校验，更新 08/09 及负向单元测试。
 **F 对最新 HEAD 尚需独立复验，B/D/E 的 W0 DESIGN_SIGNOFF 尚未获得，A01 源码入口锚点仍需补，A02 商业授权或原创来源审计仍 BLOCKED。W0_NOT_FROZEN / NOT_MERGED / NO_BANK_PACKAGE。**
+
+## C 组独立 W0 验收检查点（2026-11-09，尚待 PR/CI 核验）
+- 原创产品能力对账文件：`WB-C-W0-ORIGINAL-UI-AUDIT.md`；原子候选覆盖六页面、十个项目分区、跨区 Scope、中文、主题/搜索、表单、对话、异常与组件/API；参照原版固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 只读行为。
+- 隔离的静态 W0 原型、9 个 Node 单测、专用浏览器/截图脚本与独立 CI 配置均位于 C 分支；本地 9/9 PASS，不代表产品 QA。具体命令/失败日志/截图状态见 `WB-C-W0-TEST-EVIDENCE.md`。
+- 本地浏览器访问受环境策略阻挡，`ERR_BLOCKED_BY_ADMINISTRATOR`；当前 **SCREENSHOT_NOT_CAPTURED、BROWSER_QA_NOT_RUN**。只能在真实 CI 出具 artifacts/job/SHA 后另行核销。
+- A01 设计审查与 B/D/E A03 签收未闭环，F W0 设计未接受；C01/C02 仍 TODO、B06 未完成、E02 未完成；不合入 RC7.2，不构建离线 ZIP、不发布；A02 许可证 `BLOCKED_LICENSE` 不变。
