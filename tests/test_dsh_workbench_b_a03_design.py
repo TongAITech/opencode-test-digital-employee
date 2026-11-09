@@ -65,6 +65,17 @@ CREATE TABLE bv(
     FOREIGN KEY(project_id,version_id)
       REFERENCES system_version(project_id,version_id)
 );
+CREATE TABLE authoritative_req_version(
+    project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
+    source_link_ref TEXT NOT NULL,
+    PRIMARY KEY(project_id,batch_id,requirement_id,version_id),
+    UNIQUE(project_id,batch_id,source_link_ref),
+    FOREIGN KEY(project_id,batch_id,requirement_id)
+      REFERENCES br(project_id,batch_id,requirement_id),
+    FOREIGN KEY(project_id,batch_id,version_id)
+      REFERENCES bv(project_id,batch_id,version_id)
+);
 CREATE TABLE brv(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
     requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
@@ -74,7 +85,10 @@ CREATE TABLE brv(
     FOREIGN KEY(project_id,batch_id,requirement_id)
       REFERENCES br(project_id,batch_id,requirement_id),
     FOREIGN KEY(project_id,batch_id,version_id)
-      REFERENCES bv(project_id,batch_id,version_id)
+      REFERENCES bv(project_id,batch_id,version_id),
+    FOREIGN KEY(project_id,batch_id,requirement_id,version_id)
+      REFERENCES authoritative_req_version(
+        project_id,batch_id,requirement_id,version_id)
 );
 CREATE TABLE authoritative_link(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
@@ -180,16 +194,19 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
         self.db.executemany("INSERT INTO sst VALUES (?,?,?,?,?)",
                             [("P1",v,s,"Starlink",s) for v,s in
                              [("VA","S1"),("VA","S2"),("VB","S3"),
-                              ("VA","S4"),("VC","S5")]])
-        for b,r,v in [("B1","R1","VA"),("B1","R1","VB"),
+                              ("VA","S4"),("VC","S5"),("VC","S6"),("VC","S7")]])
+        for b,r,v in [("B1","R1","VA"),("B1","R1","VB"),("B1","R1","VC"),
                       ("B1","R2","VA"),("B1","R2","VC"),
                       ("B2","R1","VA")]:
             self.db.execute("INSERT OR IGNORE INTO br VALUES (?,?,?)",("P1",b,r))
             self.db.execute("INSERT OR IGNORE INTO bv VALUES (?,?,?)",("P1",b,v))
+            self.db.execute("INSERT INTO authoritative_req_version VALUES (?,?,?,?,?)",
+                            ("P1",b,r,v,"verified-"+b+"-"+r+"-"+v))
             self.db.execute("INSERT INTO brv VALUES (?,?,?,?,?)",
                             ("P1",b,r,v,"UNSPLIT"))
         for b,r,v,s in [("B1","R1","VA","S1"),("B1","R1","VA","S2"),
-                        ("B1","R1","VB","S3"),("B1","R2","VA","S4")]:
+                        ("B1","R1","VB","S3"),("B1","R1","VC","S6"),
+                        ("B1","R1","VC","S7"),("B1","R2","VA","S4")]:
             self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
                             ("P1",b,r,v,s,"link-"+b+"-"+r+"-"+s))
             self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",
@@ -197,11 +214,12 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
 
     def test_t1_t2_t3_real_join_no_cartesian(self):
         rows = scope_rows(self.db, {"P1"}, "P1", "B1")
-        self.assertEqual(len(rows), 5)  # four links + one UNSPLIT row
+        self.assertEqual(len(rows), 7)  # six verified links + one UNSPLIT row
         self.assertEqual(
             {(r,v,s) for r,v,s in rows},
             {("R1","VA","S1"),("R1","VA","S2"),
-             ("R1","VB","S3"),("R2","VA","S4"),("R2","VC",None)})
+             ("R1","VB","S3"),("R1","VC","S6"),("R1","VC","S7"),
+             ("R2","VA","S4"),("R2","VC",None)})
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM system_version WHERE display_label='PF1.2.0'"
         ).fetchone()[0], 2)
@@ -225,7 +243,7 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                 with self.assertRaises(sqlite3.IntegrityError):
                     self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)", link)
         self.assertEqual(self.db.execute(
-            "SELECT COUNT(*) FROM brvs").fetchone()[0], 4)
+            "SELECT COUNT(*) FROM brvs").fetchone()[0], 6)
 
     def test_t8_release_date_unique_across_project_not_within(self):
         # P2 may share P1's date; P1 cannot move B1 onto B2's date.
