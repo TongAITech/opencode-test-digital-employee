@@ -28,7 +28,7 @@
 3. 最终 `WB-W4_BANK_RELEASE_APPROVED` 只依赖 `WB-F04_FIELD_QA_PASS` 与 `WB-A02_LICENSE_RELEASE_APPROVED`。逆向遍历该 DAG，先驱集合没有任何 `F02`、`F03` 或 `D04`；也就是说即使 W2 完整性回归、W3 N1–N10+Agent Teams 真实闭环、D04 离线检查未通过，**这个静态图仍会声称依赖完整**。A 的现有测试只删除整个 `F04` 或 `LICENSE` 门禁，未检验 `F04` 自身先驱。
 4. 复现命令（在包含本次 A HEAD + F 测试的合并工作树上）：
    ```bash
-   python -m unittest tests.test_dsh_workbench_release_dependencies_f -v
+   python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
    ```
    两个独立负向断言 `test_w4_field_gate_requires_autonomous_closed_loop_and_offline_proof` 和 `test_w4_bank_release_requires_original_six_page_ten_section_regression` 应在当前 A manifest 上失败；修复后必须在同 HEAD 运行成功。F 已将该测试实际提交至 **PR #85** 的 `tests/test_dsh_workbench_release_dependencies_f.py`。单独 F 分支尚无 A manifest 时测试明确 skip，**不把 skip 说成 PASS**。
 5. 机器静态图通过不代表**运行时状态**真的绑定审批人、源 SHA、测试 Evidence 或不可伪造资格。发布服务应另建立真实运行门禁与权限审查；目前未实施，保留 `FG13/14` 阻断，不将静态 DAG 视为真实发布授权。
