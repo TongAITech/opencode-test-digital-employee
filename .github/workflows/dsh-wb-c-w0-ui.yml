@@ -4,6 +4,9 @@ on:
     paths:
       - 'tools/dsh_workbench/ui_w0_prototype/**'
       - 'tests/test_dsh_workbench_ui_w0.mjs'
+      - 'tests/test_dsh_workbench_c_feature_reconciliation.mjs'
+      - 'docs/dsh-workbench/WB-A01-ATOMIC-FEATURE-REGISTER.md'
+      - 'docs/dsh-workbench/WB-C-W0-50-FEATURE-DELTA.md'
       - '.github/workflows/dsh-wb-c-w0-ui.yml'
 permissions:
   contents: read
@@ -17,11 +20,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Static syntax checks and nine adversarial data tests
+      - name: Syntax, nine adversarial scope tests and 50 feature contract tests
         run: |
           node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
           node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
-          node --test tests/test_dsh_workbench_ui_w0.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

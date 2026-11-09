@@ -1,6 +1,6 @@
 # WB-C-W0 六页面／十分区原创产品能力对账与交互验收合同
 
-状态：**W0_DESIGN_PROBE / NOT_W1 / NOT_F_QA**。编写基线：A 组 W0 HEAD `515f6a367bd16d3b83197fa2c89e15d63a83c4fe`；原版只读参照 `naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b`（PolyForm Noncommercial 1.0.0）。**未复制原版 HTML、JS、CSS、素材或许可证规避性派生。**所有原始功能记作「原版候选／待人工复核」，不是本仓库已实现。来源锚点由 `WB-A01-ATOMIC-FEATURE-REGISTER.md` 的 47 项记录、原版 README 与中文指南、`public/index.html`、`public/app.js`、`server/routes.js` 抽象；对应源码入口并不等价于按钮真实可用，F 须逐项复核。
+状态：**W0_DESIGN_PROBE / NOT_W1 / NOT_F_QA**。编写基线：A 组 W0 HEAD `515f6a367bd16d3b83197fa2c89e15d63a83c4fe`；原版只读参照 `naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b`（PolyForm Noncommercial 1.0.0）。**未复制原版 HTML、JS、CSS、素材或许可证规避性派生。**所有原始功能记作「原版候选／待人工复核」，不是本仓库已实现。来源锚点由 `WB-A01-ATOMIC-FEATURE-REGISTER.md` 的 50 项记录、原版 README 与中文指南、`public/index.html`、`public/app.js`、`server/routes.js` 抽象；对应源码入口并不等价于按钮真实可用，F 须逐项复核。
 
 ## 页面身份与导航
 
@@ -34,7 +34,7 @@
 
 ## 全局交互与错误分支（必须覆盖，不能只跑 Happy Path）
 
-`index.html#global-search` 的项目/需求/缺陷搜索、键盘入口；设置、版本信息弹窗与变更记录；中文默认及完整语言模式（当前产品正式要求全部中文）；浅色/深色/系统主题；主导航、项目栏、雷达折叠/拖动边界/双击复位；宽屏/390px 窄屏；项目抽屉与完整详情；项目/迭代父子关系与本地八类工作目录；DHS Host 失联（标记 DSH）、取消执行、重复提交、旧数据、0 结果、401/403/404/409/422/503。原版 SSE 是**同机多窗口同步**，不代表跨机器协作。所有成功/失败都需 toast 或区域内反馈并保留正式 error_code；禁将按钮点击、HTTP 200、模型计划、DISPATCHED 认作 PASS。
+`index.html#global-search` 的项目/需求/缺陷搜索、键盘入口；设置、版本信息弹窗与变更记录；中文默认及完整语言模式（当前产品正式要求全部中文）；浅色/深色/系统主题；主导航、项目栏、雷达折叠/拖动边界/双击复位；宽屏/390px 窄屏；项目抽屉与完整详情；项目/迭代父子关系与本地八类工作目录；DSH Host 失联、取消执行、重复提交、旧数据、0 结果、401/403/404/409/422/503。原版 SSE 是**同机多窗口同步**，不代表跨机器协作。所有成功/失败都需 toast 或区域内反馈并保留正式 error_code；禁将按钮点击、HTTP 200、模型计划、DISPATCHED 认作 PASS。
 
 ## Scope 设计与调用（B06 才是权威生产实现）
 
@@ -57,3 +57,8 @@ ProjectDetailShell
 `tools/dsh_workbench/ui_w0_prototype/` 提供**独立原创、离线静态**的六页面导航/十区切换/业务日选择/关系联动/错误反馈草模；所有数据显著标「演示」，不可进入 RC7.2 运行内核或银行交付。`scope.mjs` 是纯数据规约实验，**不是 ACL、数据库事务、真实 SSE 或复合外键**；交互按钮只报「未接入」，不伪造安装/执行/人审。正式 W1 状态仍 `WB-C01=TODO`、`WB-C02=TODO`，其后 C03/C04/C05 受既有 DAG 约束，C06 须等待 E02 和 C04。
 
 F 独立核销时逐 `feature_id` 记录：上游 SHA+入口、目标源 SHA、动作+输入、项目/日期、真实响应/网络追踪、交互正反向、截图、服务端审计/R1 引用、实际结果、Reviewer、时间。**W0 静态原型的单元测试通过，不代替任何正式产品 QA_PASS。**
+
+## F 组 2026-11-09 FG20 复验整改（50 项同源差异矩阵）
+- 固定 `A01@5dc514c` 50 项，35 O/A 候选 + 15 N 新增，与本组 [50 项差异矩阵](./WB-C-W0-50-FEATURE-DELTA.md) 逐 ID/动作/类型对账；F #85 的 **47→50 文档不一致**已在此消除。此前提及的 47 为历史快照，不用于本轮验收。
+- 所有正式产品 50 条 `NOT_RUN`；W0 demo 仅页面/十区/Scope/错误提示，C01/C02 还未满足 A/F W0 冻结及 B06 真实 API 依赖。不得由演示截图推导 50 项功能通过。
+- F 独立结论 `REVIEWED_WITH_BLOCKERS`、FG19 多组账本冲突、FG18 B SST 约束反例红、FG17 全继承 CI 红均保留；本组正核销 FG20、协调 FG19 的 C 分支冲突，不自行宣布 W0 冻结。
