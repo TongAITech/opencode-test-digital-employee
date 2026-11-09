@@ -67,7 +67,7 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 ### C 组 2026-11-10 W0 follow-up 检查点
 - 源基线 75fd2c64159db863cfd1319d41a887785b556d40；本轮仅新增原创 W0 原型交互，正式 C01/C02 未启动。
 - 十区领域表单、必填字段、fail-closed 提交；多选 Scope 的合法关系过滤/级联清理/原子拒绝/不可变查询快照；浏览器脚本逐区核验共享上下文。
-- 当前 CODE_SUBMITTED / CI_PENDING。不得借用上一轮 A HEAD 的 156/156 L0 或旧 C 15/15 + 3 截图作为本 HEAD 证据。
+- 源 SHA 00f3a2e8e3360a5f550a69e9ec92d0c852d98170 已获得同 HEAD W0 probe 20/20 Node + Chromium + 3 PNG 成功，以及 B→C merge probe 15/15 成功（run 42662146741）。F 对本 follow-up 新交互的独立视觉复核仍待；不得借用上一轮 A HEAD 的 L0 结果作为本 HEAD 证据。
 - W0_NOT_FROZEN / A02 BLOCKED_LICENSE / FG17 ROOT_CAUSE_PENDING / FG21 MAINLINE_MERGE_DIRTY；无主线合并、无银行 ZIP、无 W1 QA_PASS。
 
 ## 2026-11-09 E 组来源审计及 W0 设计签署（需 A/F 复核）
