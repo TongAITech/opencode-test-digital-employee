@@ -79,3 +79,10 @@ python -m unittest discover -s tests -p 'test_dsh_workbench_host_inventory_d.py'
 **不要复制此示例路径作为银行实际根目录**。返回 \`METADATA_OBSERVED\` 仅证明已读取允许的 metadata，并始终携带 \`field_verified=false\`、\`dsh_1_18_26_compatible=false\`、\`bank_final=false\`、\`models/skills/commands/attachments/history/cancel=NOT_PROBED\`。此处兼容字段 false 代表**未获兼容认证**，不是断言不兼容；后续现场必须结合实际 DSH version/exports/运行时 Host+Client 证据进行真实验收。任何非白名单/读错/缺全部 manifest 退出非零，不能借“不存在”宣布版本一致。
 
 新负向测试覆盖泄露秘钥、未知路径、符号链接、root 伪装、重复键、过长数据、无包、错误 JSON、非本地实现依赖与 CLI 返回码。**该 CI 不在银行设备运行，不读取实际 1.18.26 安装包**；故 D01 仍 \`FIELD_QA_NOT_RUN\`、D02/03/04 仍因 W0 门禁 \`NOT_STARTED\`。模型密钥仍只由 DSH Host 拥有（NO_DUPLICATE_MODEL_KEYS）。F 的 FG17–19 及 LICENSE/HOLD 不可因本工具通过而关闭。
+
+
+## D01 真实 loopback HTTP 传输边界测试（非真实 DSH）
+
+测试文件 \`tests/test_dsh_workbench_host_live_loopback_d.py\` 使用 Python \`ThreadingHTTPServer\` 动态绑定 \`127.0.0.1:0\` 后开启真正的本机 socket/GET，调用同一 \`wb_d_host_probe.probe\` 客户端而非注入 FakeOpener。五个可重复用例：正常双 GET 且脱敏、服务端返回不同 Session 身份、302 重定向拒绝、超长状态响应拒绝、异常状态 Schema 拒绝；每例检查实际请求路径和无 POST，不能发送外网或模型密钥。
+
+**这是 GitHub CI 的临时 fixture HTTP 服务，而不是银行 DSH 1.18.26。** 它能核验只读请求代码的网络行为，却不能证明实际 1.18.26 存在这些接口或 Host/Client/模型/插件兼容；不升级 \`D01_FIELD_QA_NOT_RUN\`。任意真实 Profile 访问、POST/插件安装、模型调用或 Windows offline 资格均不属于该测试，仍受 W0/F 依赖阻断。
