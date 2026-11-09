@@ -300,5 +300,53 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                             ("P1","B1","R1","VB","S1","invalid-version-sst"))
 
 
+    def test_multi_link_transaction_reverts_first_success_if_second_invalid(self):
+        """Witness real FK rollback at the SQL transaction boundary."""
+        self.db.execute(
+            "INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+            ("P1","B1","R2","VC","S5","verified-r2-vc-s5"))
+        before = self.db.execute("SELECT COUNT(*) FROM brvs").fetchone()[0]
+        self.db.execute("BEGIN IMMEDIATE")
+        with self.assertRaises(sqlite3.IntegrityError):
+            try:
+                self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",
+                                ("P1","B1","R2","VC","S5"))
+                # B2 has R1/VA, but has no source-verified SST relation.
+                self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",
+                                ("P1","B2","R1","VA","S1"))
+                self.db.commit()
+            except sqlite3.IntegrityError:
+                self.db.rollback()
+                raise
+        self.assertEqual(
+            self.db.execute("SELECT COUNT(*) FROM brvs").fetchone()[0], before)
+        self.assertIsNone(self.db.execute(
+            """SELECT 1 FROM brvs WHERE project_id='P1' AND batch_id='B1'
+               AND requirement_id='R2' AND version_id='VC' AND sst_id='S5'"""
+        ).fetchone())
+
+    def test_date_update_reverted_if_audit_insert_fails(self):
+        before = self.db.execute(
+            "SELECT release_date FROM batch WHERE project_id='P1' AND batch_id='B1'"
+        ).fetchone()[0]
+        self.db.execute("BEGIN IMMEDIATE")
+        with self.assertRaises(sqlite3.IntegrityError):
+            try:
+                self.db.execute(
+                    "UPDATE batch SET release_date='2026-11-15' WHERE project_id='P1' AND batch_id='B1'")
+                self.db.execute(
+                    """INSERT INTO batch_date_history VALUES
+                       ('P1','INVALID_BATCH',2,'2026-11-12','2026-11-15','failed audit')""")
+                self.db.commit()
+            except sqlite3.IntegrityError:
+                self.db.rollback()
+                raise
+        self.assertEqual(self.db.execute(
+            "SELECT release_date FROM batch WHERE project_id='P1' AND batch_id='B1'"
+        ).fetchone()[0], before)
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM batch_date_history").fetchone()[0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

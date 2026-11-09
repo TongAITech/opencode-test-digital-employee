@@ -7,12 +7,6 @@ on:
       - 'docs/dsh-workbench/**'
       - 'tests/test_dsh_workbench_b_a03_design.py'
       - '.github/workflows/dsh-wb-b-domain.yml'
-  pull_request:
-    branches: [work/dsh-wb-w0]
-    paths:
-      - 'docs/dsh-workbench/**'
-      - 'tests/test_dsh_workbench_b_a03_design.py'
-      - '.github/workflows/dsh-wb-b-domain.yml'
   workflow_dispatch:
 
 permissions:
