@@ -145,7 +145,7 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 ### C 组 2026-11-10 W0 原创交互深化（不启动 W1）
 - F #94 已对 A 75fd2c64159db863cfd1319d41a887785b556d40 完成独立复验：C 50 项/15 Node 与 156 W0 合同为设计期通过；FG17 FLAKY_OBSERVED / ROOT_CAUSE_PENDING、FG21 work/rc7.2 merge dirty；W0_NOT_FROZEN、A02 BLOCKED_LICENSE。不得把“F 审查完成”写成“F 接受/冻结”。
 - C follow-up work/dsh-wb-ui-followup 仅做 W0 允许的原创原型深化：需求/系统版本/SST 多选关系过滤、不可变 Scope 快照、十区领域表单必填校验及 fail-closed 提交、逐区共享上下文浏览器验证。
-- 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；同 HEAD CI 与截图待新 PR 实际执行。C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
+- 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；source SHA `00f3a2e8e3360a5f550a69e9ec92d0c852d98170` 的 [W0 job 129316185577](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662146741/job/129316185577) 20/20 Node + Chromium 逐区表单/多选/截图 PASS；[B→C merge job 129316185823](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662146741/job/129316185823) 15/15 PASS。仅 W0 原型证据，C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
 
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
