@@ -151,3 +151,41 @@ def test_cli_writes_bounded_non_sensitive_hold_or_observation(tmp_path, local_ds
                  "--dsh-url", "http://example.com:1234", "--output", str(out)])
     assert code == 2
     assert json.loads(out.read_text())["status"] == "HOLD"
+
+def test_cli_never_overwrites_native_team_json_or_its_state_directory(tmp_path, local_dsh):
+    _server, url = local_dsh
+    file, original = _state(tmp_path)
+    state_before = file.read_bytes()
+    for forbidden in (file, file.parent / "receipt.json",
+                      file.parent.parent / "receipt.json"):
+        code = main(["--team-state-file", str(file),
+                     "--team-id", "release-team", "--dsh-url", url,
+                     "--output", str(forbidden)])
+        assert code == 2
+        assert file.read_bytes() == state_before
+        if forbidden != file:\n            assert not forbidden.exists()
+    assert json.loads(file.read_text()) == original
+    # A summary outside the native state root remains a valid JSON file.
+    out = tmp_path / "audit" / "report.json"
+    assert main(["--team-state-file", str(file),
+                 "--team-id", "release-team", "--dsh-url", url,
+                 "--output", str(out)]) == 0
+    assert json.loads(out.read_text())["field_verified"] is False
+    assert not list(out.parent.glob(".r4-roster-*.tmp"))
+
+
+def test_cli_disallows_output_symlink_to_native_team_state(tmp_path, local_dsh):
+    _server, url = local_dsh
+    file, _ = _state(tmp_path)
+    out = tmp_path / "alias.json"
+    try:
+        out.symlink_to(file)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted on this runner")
+    before = file.read_bytes()
+    assert main(["--team-state-file", str(file),
+                 "--team-id", "release-team", "--dsh-url", url,
+                 "--output", str(out)]) == 2
+    assert file.read_bytes() == before
+    assert out.is_symlink()
+
