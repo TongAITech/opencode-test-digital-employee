@@ -1,0 +1,48 @@
+name: RC7.2 R4 Model Governor Fail-Closed Qualification (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_runtime/model_resilience.py'
+      - 'tests/test_rc7_1_model_resilience.py'
+      - '.github/workflows/rc7.2-r4-governor-failclosed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-model-governor-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  r4-rate-ledger:
+    name: r4-governor-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Pinned test harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile and test fail-closed R4 model request admission
+        run: |
+          python -m compileall -q rc7_runtime rc7_release tests
+          python -m pytest -q tests/test_rc7_1_model_resilience.py tests/test_rc72_phase7_model_failover_contract.py --junitxml=r4-model-governor.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-r4-governor-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: r4-model-governor.xml
+          retention-days: 14
+          if-no-files-found: warn
