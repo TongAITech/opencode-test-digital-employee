@@ -68,7 +68,7 @@ function boot() {
   $('chat-history').addEventListener('click',()=>{$('chat-error').textContent='无法读取：本原型没有 DSH 会话历史。';});
   $('calendar-add').addEventListener('click',()=>{$('calendar-error').hidden=false;});
   $('skill-install').addEventListener('click',()=>{$('skill-error').hidden=false;});
-  $('search').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();const count=DEMO.relations.filter(x=>[x.requirement_name,x.sst_id,x.version_label].some(z=>String(z||'').toLowerCase().includes(v))).length;setNotice(v?`演示数据搜索：${count} 条关联匹配；非正式检索。`:'演示数据搜索已清空。');});
+  $('search').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();const count=DEMO.relations.filter(x=>x.project_id===ctrl.state.project_id&&(!ctrl.state.batch_id||x.batch_id===ctrl.state.batch_id)&&[x.requirement_name,x.sst_id,x.version_label].some(z=>String(z||'').toLowerCase().includes(v))).length;setNotice(v?`演示数据搜索：${count} 条关联匹配；非正式检索。`:'演示数据搜索已清空。');});
   $('skill-search').addEventListener('input',e=>{setNotice(`技能目录搜索：${e.target.value || '全部'}（真实目录尚未接入）`);});
   $('theme').addEventListener('click',()=>{const dark=document.body.classList.toggle('dark');$('theme').textContent=dark?'切换浅色主题':'切换深色主题';});
   $('collapse').addEventListener('click',()=>{const collapsed=document.querySelector('.shell').classList.toggle('collapsed');$('collapse').textContent=collapsed?'展开侧栏':'收起侧栏';});
