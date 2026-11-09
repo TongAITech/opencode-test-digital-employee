@@ -16,7 +16,7 @@ permissions:
 jobs:
   original-w0-probe:
     name: Original W0 probe (not W1 QA)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
