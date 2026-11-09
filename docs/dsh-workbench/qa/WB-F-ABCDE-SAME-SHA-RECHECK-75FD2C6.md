@@ -6,7 +6,7 @@
 **F 复验 PR：** [#94](https://github.com/TongAITech/opencode-test-digital-employee/pull/94)  
 **A 施工 PR：** [#84](https://github.com/TongAITech/opencode-test-digital-employee/pull/84)  
 **已有 F 历史审查：** [#85](https://github.com/TongAITech/opencode-test-digital-employee/pull/85)  
-**result:** `FG18_DESIGN_CI_PASS`、`FG20_DESIGN_RECONCILED`、`ABCDE_W0_CONTRACT_CI_PASS`、`FG17_REPRODUCED_FAIL`、`W0_NOT_FROZEN / F_REVIEWED_WITH_BLOCKERS`。
+**result:** `FG18_DESIGN_CI_PASS`、`FG20_DESIGN_RECONCILED`、`ABCDE_W0_CONTRACT_CI_PASS`、`FG17_NONDETERMINISTIC_FAIL_AND_PASS`、`W0_NOT_FROZEN / F_REVIEWED_WITH_BLOCKERS`。
 
 ## 1. 五组 PR 与版本状态
 
@@ -66,6 +66,16 @@ assert 'Before save' == 'Saved on server'
 **历史对照：** 旧 A `f8de595...` [V4 5 job 全绿](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42639771154)，Linux Chromium 全继承 `2908 passed, 4 skipped`，而 [Q1 Ubuntu Python3.8 专项](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42639770756/job/129237438065) 仍 1 failed；这些历史结果**不能代替** A 最新 `75fd2c6` 的最终 L2。
 
 **F decision：FG17 P0 OPEN / PY38_REAL_BROWSER_QA_FAIL，禁止 L2 完整资格宣称。**
+
+## 3A. 同一 A 产品源下再次 F 执行 3/3 PASS — FG17 是未收敛的不稳定问题
+
+前次记录的真红灯必须保留，不得因复验绿灯涂改。F 在同一 A 产品源 SHA `75fd2c6` 的新 F 审查提交 `89d31e29ef735150cafe8b3acc454a12506e26ca` 上再次触发实际工作流；与第一次 `8a4bf7f` 相比，**只新增本审查 Markdown，无任何 A/B/C/D/E 产品/测试代码变化**。
+
+- [F 第二次真实 Chromium job #129296053535](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42656439120/job/129296053535)：**3 passed in 4.84s**。
+- [同 HEAD F 合同 job #129296054091](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42656439120/job/129296054091)：**156/156 Python W0、F FG18 1/1、FG16 2/2、C Node 15/15**。
+- [首次同源 F 真红灯 job #129294169646](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42655897274/job/129294169646)：**2 passed, 1 failed**（toast 仍 Before save）。
+
+**独立结论：`FG17 FLAKY_UNRESOLVED`，而不是简单“固定红灯”或“稳定修复”**。原断言绝不降级；异步 HTTP response vs SPA toast 观察结果存在执行不确定性，必须做多次独立重复、分析响应网络 Evidence、DOM 轮询与 CDP recorder 关联后再签资格。F workflow 已改为同一次 provision 下连续执行 5 轮真 Chrome 测试，任何 1 次失败都 fail-closed、保留每次 XML；这是新的施工验证，不代表已经通过。
 
 ## 4. 当前集成、CI 和许可门禁
 
