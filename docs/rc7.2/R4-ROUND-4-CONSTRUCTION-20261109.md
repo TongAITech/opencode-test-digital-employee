@@ -53,3 +53,7 @@
 - 新增正式 `ExecutionEvidenceReviewService` 类型化只读受控绑定：必须拥有同 R1/release 的 N7 Review，由它对每个 N7 WorkItem 复核实际 ToolDispatch RETURNED、签名 CLEANUP 与 VERIFY 回执、冻结 Oracle、R1 Evidence 和所有资源实际 RELEASED 后，才把仍 ACTIVE 的历史执行 Session 视为**占用 roster、但不再占用执行并发槽**。不关闭 Session、不回收未知副作用、不生成 PASS。
 - 所有未开始、失败、UNKNOWN、证据缺失、不完整清理、审查签名不合格的 Session 继续占用执行容量。原始完整 N7 最终 review/NodeGate/Case 分母不变。
 - 新增正式本地 HTTP N7 端到端独立回归：多 Case + 并发 1，所有真实业务调用一次、资源清理、独立 Gate PASS、冷/热重复运行不会重复调用。**CI 与银行 Field 未过前不得核销。**
+
+## R4-07 启动可用性拒绝退化
+- 严守 RC7 原有“克隆配置后 DSH 本体必须能启动，不得让可选插件恢复/安装阻断 UI”合同。32 人配置检查返回 HOLD 时保留 `state/rc72-team-capacity.json`，以醒目非 PASS 提示继续 DSH UI 启动；不静默称其已扩容，不做前置 npm/plugin 安装。
+- 正式 Mission 仍以独立真实 DSH AgentTeams proof 与 R1 Captain 绑定为前提；`HOLD` 是现场未获资格而非 32 人已达标。代码和脚本专项验收单列。

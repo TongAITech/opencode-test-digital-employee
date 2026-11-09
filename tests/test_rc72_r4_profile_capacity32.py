@@ -124,3 +124,32 @@ def test_wrong_plugin_name_rejected_without_clone_mutation(tmp_path, monkeypatch
         apply_cloned_profile_capacity()
     assert (clone / "cordis.patch.yml").read_bytes() == before
     assert dsh_runtime_profile.profile_snapshot("web")["digest"] == base_digest
+
+
+def test_missing_plugin_report_is_hold_but_dsh_profile_is_unmutated(
+        tmp_path, monkeypatch):
+    from rc7_release.rc72_team_profile_capacity import main
+    bank, clone, digest = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\n  name: '@nanmicoder/dsh-agent-teams'\n"
+        "  config:\n    maxMembers: 8\n")
+    (clone / "node_modules" / "@nanmicoder" / "dsh-agent-teams" / "package.json").unlink()
+    before = (clone / "cordis.patch.yml").read_bytes()
+    receipt = tmp_path / "team-capacity.json"
+    assert main(["--runtime-profile", "rc7.2-bank",
+                 "--base-profile", "web", "--output", str(receipt)]) == 2
+    record = json.loads(receipt.read_text(encoding="utf-8"))
+    assert record["status"] == "HOLD"
+    assert record["field_verified"] is False and record["bank_final"] is False
+    assert "PLUGIN_OR_CONFIG_MISSING" in record["reason"]
+    assert (clone / "cordis.patch.yml").read_bytes() == before
+    assert dsh_runtime_profile.profile_snapshot("web")["digest"] == digest
+
+
+def test_rc72_launcher_handles_capacity_hold_without_bypassing_dsh_startup():
+    from pathlib import Path
+    launcher = Path(__file__).resolve().parents[1] / "packaging" / "rc7" / "AITEST.sh"
+    source = launcher.read_text(encoding="utf-8")
+    assert "if ! \"$PY\" -m rc7_release.rc72_team_profile_capacity" in source
+    assert "DSH UI startup continues; no 32-member or Field PASS is claimed" in source
+    assert 'exec dsh --profile "$PFC_RC7_DSH_PROFILE"' in source
