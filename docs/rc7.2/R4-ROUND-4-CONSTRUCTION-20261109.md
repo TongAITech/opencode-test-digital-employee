@@ -67,3 +67,13 @@
 
 - 移除 `dispatch_ready_batch` 对入参 WorkItem 数量的 `len > team_member_capacity` 错误拒绝：一个投产批次可以拥有超过 32 个有效 ETU/WorkItem；32 是插件成员数，初始 4 是活跃任务并发数，**都不是批次待执行案例数量**。
 - 对 33 个真实入账 R1 READY WorkItem 增加调度回归：只允许 4 个 signed admission / WorkerSession，剩余 29 条保持 READY；重复调用不得二次派工或改变 R1；测试不声称 33 名真实 DSH Agent 已创建。
+
+
+## R4-05 增量施工：共享模型请求额度文件损坏不得重置为零（2026-11-09）
+
+- 本次源码审计发现真实缺口：`rc7_runtime/model_resilience.py` 的持久化滑动窗口在 JSON 截断、非字典、无效时间戳等情况下静默返回 `timestamps=[]`；不同进程的残余模型请求历史被清空，存在超额请求风险。此缺口与 429/502 背压及跨进程安全恢复有关。
+- 独立分支 `work/rc7.2-r4-model-governor-failclosed-20261109`，以 `work/rc7.2@58e5b25ac75a8f6dc71e46fc6bdd0d71aa690d0d` 为起点。
+- 真实修复：只允许首次无状态文件从空窗口启动；已经存在但损坏/非本 schema/含 NaN、负数、布尔或非数值时间戳/符号链接的限流状态必须抛出 `MODEL_RATE_GOVERNOR_STATE_UNVERIFIED`，不得覆盖文件或启动新的模型请求；保留原有正向额度统计、合法恢复和 R1 启动门禁。
+- 测试：在 `tests/test_rc7_1_model_resilience.py` 新增损坏状态不覆写/解锁及真实 launcher 在模型 IO 前阻断的负例；已有 429/502、工具副作用未知不得重复派发及额度窗口回归必须继续通过。
+- 专项 CI：`.github/workflows/rc7.2-r4-governor-failclosed.yml`，Windows/Linux × Python 3.8/3.11，No ZIP。**同 HEAD CI 运行与审查前状态为 SOURCE_SUBMITTED / CI_PENDING；尚未核销 R4-05 整项。**
+- 上述仅修复 R4-05 的一个工程子缺陷；SCRIPT_READY、真实银行 429/502、冷启动跨会话/跨进程补位和全产品 Q8 仍需专属证据；`R4-05_FIELD_PENDING`、`C12_PHYSICAL_HOLD`、`BANK_FINAL=NO`。
