@@ -115,7 +115,8 @@ class TestCommand(unittest.TestCase):
                          action="retry_failed", reason="verified defect")
     def check(self, body=None, principal="user1", authorized=True, rev=4):
         return validate_command(body or self.body, authenticated_principal=principal,
-                                authorized=authorized, current_revision=rev)
+                                authorized=authorized, current_revision=rev,
+                                authorized_scope_ref=self.body["scope_ref"])
 
     def test_authorized_valid_envelope(self):
         self.assertEqual(self.check()["command_id"], "C1")
@@ -127,6 +128,10 @@ class TestCommand(unittest.TestCase):
     def test_no_permission_no_mutation(self):
         with self.assertRaisesRegex(ContractViolation, "FORBIDDEN"):
             self.check(authorized=False)
+
+    def test_foreign_scope_rejected_before_command_acceptance(self):
+        with self.assertRaisesRegex(ContractViolation, "FORBIDDEN"):
+            self.check(dict(self.body, scope_ref="B2:R1:SYS-A:1.2:S1"))
 
     def test_state_revision_conflict(self):
         with self.assertRaisesRegex(ContractViolation, "STATE_REVISION_CONFLICT"):
@@ -142,36 +147,60 @@ class TestCommand(unittest.TestCase):
 
 
 class TestEvent(unittest.TestCase):
-    def event(self, event_id="E1", revision=1, project_id="P1"):
+    def event(self, event_id="E1", revision=1, project_id="P1", batch_id="B1"):
         return dict(event_id=event_id, revision=revision, project_id=project_id,
-                    batch_id="B1", timestamp="2026-11-09T08:00:00+08:00",
-                    type="attempt.created")
+                    batch_id=batch_id, timestamp="2026-11-09T08:00:00+08:00",
+                    type="attempt.created", source_ref="R1:attempt/1", truth_revision=7)
 
     def test_sequential_and_deduplicate(self):
         state = {}
-        self.assertTrue(accept_event(state, self.event(), authenticated_project_id="P1"))
-        self.assertFalse(accept_event(state, self.event(), authenticated_project_id="P1"))
-        self.assertTrue(accept_event(state, self.event("E2", 2), authenticated_project_id="P1"))
+        self.assertTrue(accept_event(state, self.event(), authenticated_project_id="P1", authenticated_batch_id="B1"))
+        self.assertFalse(accept_event(state, self.event(), authenticated_project_id="P1", authenticated_batch_id="B1"))
+        self.assertTrue(accept_event(state, self.event("E2", 2), authenticated_project_id="P1", authenticated_batch_id="B1"))
 
     def test_snapshot_resume_contiguous(self):
         state = {"revision": 9}
-        self.assertTrue(accept_event(state, self.event("E10", 10), authenticated_project_id="P1"))
+        self.assertTrue(accept_event(state, self.event("E10", 10), authenticated_project_id="P1", authenticated_batch_id="B1"))
         self.assertEqual(state["revision"], 10)
 
     def test_gap_requires_recovery(self):
         with self.assertRaisesRegex(ContractViolation, "EVENT_REVISION_GAP"):
-            accept_event({}, self.event("E3", 3), authenticated_project_id="P1")
+            accept_event({}, self.event("E3", 3), authenticated_project_id="P1", authenticated_batch_id="B1")
 
     def test_cross_project_event_forbidden(self):
         with self.assertRaisesRegex(ContractViolation, "FORBIDDEN"):
-            accept_event({}, self.event(project_id="P2"), authenticated_project_id="P1")
+            accept_event({}, self.event(project_id="P2"), authenticated_project_id="P1", authenticated_batch_id="B1")
+
+    def test_cross_batch_event_forbidden_even_with_same_project(self):
+        state = {}
+        with self.assertRaisesRegex(ContractViolation, "FORBIDDEN"):
+            accept_event(state, self.event(batch_id="B2"),
+                         authenticated_project_id="P1", authenticated_batch_id="B1")
+        self.assertNotIn("revision", state)
+
+    def test_cannot_reuse_cursor_from_another_batch(self):
+        state = {}
+        accept_event(state, self.event(),
+                     authenticated_project_id="P1", authenticated_batch_id="B1")
+        with self.assertRaisesRegex(ContractViolation, "EVENT_SCOPE_MISMATCH"):
+            accept_event(state, self.event("E2", 2, batch_id="B2"),
+                         authenticated_project_id="P1", authenticated_batch_id="B2")
+        self.assertEqual(state["revision"], 1)
+
+    def test_truth_revision_and_source_ref_are_required(self):
+        state = {}
+        for payload in (dict(self.event(), truth_revision=True),
+                        dict(self.event(), source_ref="")):
+            with self.assertRaisesRegex(ContractViolation, "VALIDATION_ERROR"):
+                accept_event(state, payload,
+                             authenticated_project_id="P1", authenticated_batch_id="B1")
 
     def test_event_id_conflict(self):
         state = {}
-        accept_event(state, self.event(), authenticated_project_id="P1")
+        accept_event(state, self.event(), authenticated_project_id="P1", authenticated_batch_id="B1")
         with self.assertRaisesRegex(ContractViolation, "EVENT_CONFLICT"):
             accept_event(state, dict(self.event(), type="evidence.verified"),
-                         authenticated_project_id="P1")
+                         authenticated_project_id="P1", authenticated_batch_id="B1")
 
 
 class TestLicenseGate(unittest.TestCase):
@@ -238,6 +267,24 @@ class TestLicenseGate(unittest.TestCase):
         self.stage("extra.js")
         with self.assertRaisesRegex(ContractViolation, "UNMANIFESTED_FILE"):
             self.check([x])
+
+    def test_hidden_normalized_paths_blocked(self):
+        entry = self.stage()
+        for path in ("runtime//worker.py", "runtime/./worker.py",
+                     "runtime/../worker.py", "runtime/worker.py.", "C:/worker.py"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ContractViolation, "UNSAFE_PATH"):
+                    self.check([dict(entry, path=path)])
+
+    def test_symlink_in_staging_blocks(self):
+        entry = self.stage()
+        link = self.root / "vendor-link"
+        try:
+            link.symlink_to(self.root / "runtime", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink not available on this environment")
+        with self.assertRaisesRegex(ContractViolation, "UNSAFE_PATH"):
+            self.check([entry])
 
     def test_traversal_blocked(self):
         x = self.stage()

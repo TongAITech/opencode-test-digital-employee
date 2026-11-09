@@ -85,6 +85,7 @@ def validate_command(
     authenticated_principal: str,
     authorized: bool,
     current_revision: int,
+    authorized_scope_ref: str,
 ) -> Dict[str, Any]:
     """Only validation. Runtime owns atomic persistence, dedup and state transitions."""
     _require(authorized and bool(authenticated_principal), "FORBIDDEN")
@@ -94,6 +95,7 @@ def validate_command(
     for key in ("command_id", "idempotency_key", "scope_ref", "action", "reason"):
         _require(isinstance(command.get(key), str) and bool(command[key].strip()),
                  "VALIDATION_ERROR")
+    _require(command["scope_ref"] == authorized_scope_ref, "FORBIDDEN")
     _require(command["action"] in COMMAND_ACTIONS, "GATE_BLOCKED")
     _require(type(command.get("expected_state_revision")) is int and
              command["expected_state_revision"] >= 0, "VALIDATION_ERROR")
@@ -114,12 +116,25 @@ def accept_event(
     event: Mapping[str, Any],
     *,
     authenticated_project_id: str,
+    authenticated_batch_id: str,
 ) -> bool:
-    """Event cursor contract oracle: dedup; gap => snapshot recovery, never false freshness."""
+    """Design oracle for a single authorized project/batch SSE stream.
+
+    Caller must discard cursor and re-authorize on a scope switch.
+    R1 truth_revision and transport stream revision are independent.
+    This is not an HTTP endpoint, event store, or SSE implementation.
+    """
     _require(isinstance(event, Mapping), "VALIDATION_ERROR")
-    for key in ("event_id", "project_id", "batch_id", "timestamp", "type"):
-        _require(isinstance(event.get(key), str) and bool(event[key]), "VALIDATION_ERROR")
-    _require(event["project_id"] == authenticated_project_id, "FORBIDDEN")
+    for key in ("event_id", "project_id", "batch_id", "timestamp", "type", "source_ref"):
+        _require(isinstance(event.get(key), str) and bool(event[key].strip()), "VALIDATION_ERROR")
+    _require(type(event.get("truth_revision")) is int and
+             event["truth_revision"] >= 0, "VALIDATION_ERROR")
+    _require(bool(authenticated_project_id) and bool(authenticated_batch_id), "FORBIDDEN")
+    _require(event["project_id"] == authenticated_project_id and
+             event["batch_id"] == authenticated_batch_id, "FORBIDDEN")
+    _require(state.get("project_id", authenticated_project_id) == authenticated_project_id and
+             state.get("batch_id", authenticated_batch_id) == authenticated_batch_id,
+             "EVENT_SCOPE_MISMATCH")
     _require(event["type"] in EVENT_TYPES, "VALIDATION_ERROR")
     rev = event.get("revision")
     _require(type(rev) is int and rev >= 1, "VALIDATION_ERROR")
@@ -133,6 +148,8 @@ def accept_event(
         _require(seen[event["event_id"]] == dict(event), "EVENT_CONFLICT")
         return False
     _require(rev == state.get("revision", 0) + 1, "EVENT_REVISION_GAP")
+    state["project_id"] = authenticated_project_id
+    state["batch_id"] = authenticated_batch_id
     state["revision"] = rev
     seen[event["event_id"]] = dict(event)
     return True
@@ -146,8 +163,10 @@ FIRST_PARTY_ORIGIN = "tong aitech/opencode-test-digital-employee".replace(" ", "
 def _relative_path(name: Any) -> PurePosixPath:
     _require(isinstance(name, str) and bool(name), "UNMANIFESTED_FILE")
     path = PurePosixPath(name)
+    segments = name.split("/")
     _require(not path.is_absolute() and "\\" not in name and
-             all(part not in ("", ".", "..") for part in path.parts),
+             all(part not in ("", ".", "..") for part in segments) and
+             all(":" not in part and part == part.rstrip(" .") for part in segments),
              "UNSAFE_PATH")
     return path
 
@@ -158,9 +177,11 @@ def verify_bank_staging(staging: Path, manifest: Mapping[str, Any]) -> int:
     _require(manifest.get("use_case") == "bank_commercial", "UNVERIFIED_USE_CASE")
     entries = manifest.get("files")
     _require(isinstance(entries, list) and bool(entries), "EMPTY_MANIFEST")
+    staged_paths = list(staging.rglob("*"))
+    _require(not any(p.is_symlink() for p in staged_paths), "UNSAFE_PATH")
     actual_files = {
         p.relative_to(staging).as_posix()
-        for p in staging.rglob("*") if p.is_file() or p.is_symlink()
+        for p in staged_paths if p.is_file()
     }
     declared = set()
     by_name = {}
