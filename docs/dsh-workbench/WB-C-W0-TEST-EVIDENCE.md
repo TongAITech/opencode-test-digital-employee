@@ -5,7 +5,7 @@
 ## 证据来源与版本
 - 最新已查 A 组源基线（建 C 分支时）：`work/dsh-wb-w0@515f6a367bd16d3b83197fa2c89e15d63a83c4fe`；PR #84 OPEN/DRAFT，PR #85 OPEN/F REVIEWED_WITH_BLOCKERS。
 - 固定上游只读产品参照：`naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b`；原版为 PolyForm Noncommercial 1.0.0。未复制其受限源码或素材。
-- 产品能力差距：`WB-A01-ATOMIC-FEATURE-REGISTER.md` 共 47 个**设计候选**原子项；C 在 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 对六页面、十区、交互、表单、错误、组件/API 给出独立设计；真正全按钮逐项原版对照、真实 QA、截图仍 **NOT_RUN**。
+- 产品能力差距：`WB-A01-ATOMIC-FEATURE-REGISTER.md` 共 50 个**设计候选**原子项；C 在 `WB-C-W0-ORIGINAL-UI-AUDIT.md` 对六页面、十区、交互、表单、错误、组件/API 给出独立设计；真正全按钮逐项原版对照、真实 QA、截图仍 **NOT_RUN**。
 - W0 原创组件：`tools/dsh_workbench/ui_w0_prototype/index.html`、`app.mjs`、`style.css`、`scope.mjs`。只读演示数据，不挂主导航，不接旧 `rc7_admin` API，不写 R1/DB/Attempt，不提供发布伪操作。
 
 ## 已实际执行的本地检查（2026-11-09）
@@ -31,7 +31,7 @@ python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py \
 | `wb-c-w0-scope-ten-sections.png` | 5 主导航加项目详情第六页面，十区任意切换仍保持同 B12/R1/V2/S3；切需求 R3 显示 SST 待拆分，日期 B19 清旧筛选 | NOT_CAPTURED_LOCAL_POLICY |
 | `wb-c-w0-six-stage-board.png` | 业务六阶段，点击新增弹未接业务 API，不能以拖拽改 NodeGate | NOT_CAPTURED_LOCAL_POLICY |
 | `wb-c-w0-mobile.png` | 390px 窄屏、折叠侧栏、项目导航和筛选可读，主题切换 | NOT_CAPTURED_LOCAL_POLICY |
-| 真实 F 组 UI/HTTP/Host/R1 证据 | 47 项原版候选逐按钮逐异常回归、并发 SSE、主题/搜索、完整表单和授权 | NOT_STARTED; W1/W2 gate |
+| 真实 F 组 UI/HTTP/Host/R1 证据 | 50 项原版候选逐按钮逐异常回归、并发 SSE、主题/搜索、完整表单和授权 | NOT_STARTED; W1/W2 gate |
 
 ## 依赖与阻断
 - W0 保持 `NOT_FROZEN`，A01 仍待 F 原版功能完整性核验；B/D/E A03 设计签署 PENDING；A02 许可证 `BLOCKED_LICENSE`。C 的原创 W0 探针不改变任一 Gate。
@@ -42,4 +42,4 @@ python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py \
 - 用户/法务授权未确认时，PolyForm Noncommercial 受限文件一律不可复制进入银行离线 ZIP；本 PR 不包含原版受限代码。
 
 ## 待 F 评审的项目
-原版 47 个行为候选是否仍缺底层 DOM/handler、B06 scope contract 及图形辅助状态、CI 同 HEAD 实际结果、浏览器截图是否真实采集、无跨项目/批次泄漏、无 NodeGate 伪 PASS、原创代码溯源以及 B/D/E 签署状态。**未经 F 独立审查不得关闭此账本。**
+原版 50 个行为候选（35 项原版入口候选、15 项新增目标）是否仍缺底层 DOM/handler、B06 scope contract 及图形辅助状态、CI 同 HEAD 实际结果、浏览器截图是否真实采集、无跨项目/批次泄漏、无 NodeGate 伪 PASS、原创代码溯源以及 B/D/E 签署状态。**未经 F 独立审查不得关闭此账本。**
