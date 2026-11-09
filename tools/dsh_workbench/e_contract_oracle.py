@@ -150,10 +150,13 @@ def verified_sha256(content: Optional[bytes], expected_hash: Optional[str]) -> b
     """An R1 Evidence record's optional content_hash is never verification itself."""
     if not isinstance(content, bytes) or not isinstance(expected_hash, str):
         return False
-    if len(expected_hash) != 64 or any(c not in "0123456789abcdef"
-                                      for c in expected_hash):
+    if not expected_hash.startswith("sha256:"):
         return False
-    return hmac.compare_digest(hashlib.sha256(content).hexdigest(), expected_hash)
+    digest = expected_hash[len("sha256:"):]
+    if len(digest) != 64 or any(c not in "0123456789abcdef"
+                               for c in digest):
+        return False
+    return hmac.compare_digest(hashlib.sha256(content).hexdigest(), digest)
 
 
 def publication_oracle(nodegate: Mapping[str, Any], n10: Mapping[str, Any],
