@@ -1,0 +1,47 @@
+name: RC7.2 R4 N8 Cold Delivery Integrity (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_n8_execution_diagnosis.py'
+      - 'tests/test_rc72_n8_execution_diagnosis.py'
+      - '.github/workflows/rc7.2-r4-n8-cold-delivery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-n8-delivery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  n8-cold-delivery-integrity:
+    name: r4-n8-cold-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned test dependencies
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile and audit N8 R1 cold-replay evidence
+        run: |
+          python -m compileall -q rc6_runtime rc7_runtime rc7_release tests
+          python -m pytest -q tests/test_rc72_n8_execution_diagnosis.py tests/test_rc72_n8_product_recovery.py --junitxml=rc72-r4-n8-cold-delivery.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-r4-n8-cold-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-r4-n8-cold-delivery.xml
+          retention-days: 14

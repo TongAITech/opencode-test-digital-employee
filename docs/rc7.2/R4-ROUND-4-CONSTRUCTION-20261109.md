@@ -67,3 +67,37 @@
 
 - 移除 `dispatch_ready_batch` 对入参 WorkItem 数量的 `len > team_member_capacity` 错误拒绝：一个投产批次可以拥有超过 32 个有效 ETU/WorkItem；32 是插件成员数，初始 4 是活跃任务并发数，**都不是批次待执行案例数量**。
 - 对 33 个真实入账 R1 READY WorkItem 增加调度回归：只允许 4 个 signed admission / WorkerSession，剩余 29 条保持 READY；重复调用不得二次派工或改变 R1；测试不声称 33 名真实 DSH Agent 已创建。
+
+
+## R4-07 第四施工切片：只读现场成员名册观测工具（source qualified candidate）
+
+- 正式代码 `rc7_release.rc72_team_roster_observation`；行内通过 `python -m rc7_release.rc72_team_roster_observation --team-state-file <workspace>/.agent-teams/<team-id>/team.json --team-id <team-id> --dsh-url http://127.0.0.1:4096 --output state/rc72-team-roster-observation.json` 收集本地插件现存 Team JSON 的 SHA256、非 removed 名册计数、已创建子会话计数、Captain 真实 loopback `/session/<id>` / `/session/status`。此工具**不调用模型、不新增成员、不改变 R1**。
+- 原生 NanmiCoder 插件 `src/state.ts` 以 `<workspace>/<stateDir>/<teamId>/team.json` 存团队；`stateDir` 默认 `.agent-teams`、可自定义，所以必须从真实运行配置传入 team-state-file，不得猜路径。成员 `status=idle/working/removed`；`id=''` 表示仍未创建子会话，不允许当作缺陷。
+- 仅 `ROSTER_SNAPSHOT_AND_LIVE_CAPTAIN_OBSERVED`，输出 `field_verified=false/bank_final=false`：磁盘快照+本地 DSH session 不是原生插件 HMAC membership proof，也不是第33人的真实添加拒绝；后续仍要求受控 DSH AgentTeams 第33人拒绝结果、正式 N7 R1 Session/Lease、真实模型和 E 独立现场验证。不可把测试合成的 32 members 误报为现场。
+- 四平台 read-only 正反例测试独立 CI，不构建 ZIP。
+
+
+## R4-05 增量施工：共享模型请求额度文件损坏不得重置为零（2026-11-09）
+
+- 本次源码审计发现真实缺口：`rc7_runtime/model_resilience.py` 的持久化滑动窗口在 JSON 截断、非字典、无效时间戳等情况下静默返回 `timestamps=[]`；不同进程的残余模型请求历史被清空，存在超额请求风险。此缺口与 429/502 背压及跨进程安全恢复有关。
+- 独立分支 `work/rc7.2-r4-model-governor-failclosed-20261109`，以 `work/rc7.2@58e5b25ac75a8f6dc71e46fc6bdd0d71aa690d0d` 为起点。
+- 真实修复：只允许首次无状态文件从空窗口启动；已经存在但损坏/非本 schema/含 NaN、负数、布尔或非数值时间戳/符号链接的限流状态必须抛出 `MODEL_RATE_GOVERNOR_STATE_UNVERIFIED`，不得覆盖文件或启动新的模型请求；保留原有正向额度统计、合法恢复和 R1 启动门禁。
+- 测试：在 `tests/test_rc7_1_model_resilience.py` 新增损坏状态不覆写/解锁及真实 launcher 在模型 IO 前阻断的负例；已有 429/502、工具副作用未知不得重复派发及额度窗口回归必须继续通过。
+- 专项 CI：`.github/workflows/rc7.2-r4-governor-failclosed.yml`，Windows/Linux × Python 3.8/3.11，No ZIP。**同 HEAD CI 运行与审查前状态为 SOURCE_SUBMITTED / CI_PENDING；尚未核销 R4-05 整项。**
+- 上述仅修复 R4-05 的一个工程子缺陷；SCRIPT_READY、真实银行 429/502、冷启动跨会话/跨进程补位和全产品 Q8 仍需专属证据；`R4-05_FIELD_PENDING`、`C12_PHYSICAL_HOLD`、`BANK_FINAL=NO`。
+
+## R4-05 批次化施工：SCRIPT_READY 原子签发与 CI 去重（2026-11-09）
+
+- 源码审查发现：原 `NativeScriptReadyGateProducer.issue` 先核验 Captain，再在无 R1 账本锁的区间完成签名与 `append_atomic`。真实 Captain 换届可在两者之间发生，使旧代 Captain 仍写入一份刚签发的历史 SCRIPT_READY。下游 inspect 会拒绝旧代，但 R1 写入本身违反原子资格边界。
+- 修复：将最后一次当前 Captain owner/generation 核验、完整 N6/Case/Contract 事实再次核验、签名及唯一 R1 append 保持在同一 OS ledger lock。拒绝变更的冻结事实和过期 Captain；旧签名历史、独立 Reviewer、N7 Case 分母均不放宽；冷重入已有测试保持无重复写入。
+- 新增定向拒绝证据：两次 N6 读取不一致时不产生 SCRIPT_READY/Attempt/R1 变更；真实签发的 R1 append 期间，其他 Captain 相关 ledger 操作无法重入；同状态重复 issue 不再次写入。
+- 新增无 ZIP 的 Windows/Linux Python3.8/3.11 `r4-script-ready-lock` 定向工作流。保留 ABCD v3/v4 同 SHA **完整**产品回归，不删减任何 Case；仅将两条大工作流的 PR 并发组改为 PR 标识并在新 HEAD 到来时自动取消同 PR 的旧 SHA，避免将已过期回归当作交付资格。正式候选 SHA 仍需完整独立 QA；branch/manual 运行不自动取消。
+- 本批次为 **R4_05_SOURCE_SUBMITTED / SAME_HEAD_CI_PENDING**，不是银行 Field 证明，未核销 429/502/cold takeover 所有现场路径；R4-01～04、R4-06/07 继续按其真实 DoD 保持 OPEN，`BANK_FINAL=NO`。
+
+
+## R4-02 批次集成：N8 冷恢复缺失/篡改原生 Delivery 不得重新写入 R1
+
+- 发现现有 ExecutionDiagnosisService._accept 在独立诊断 Receipt 已持久化、原生 N8 Delivery 缺失的情况下会尝试重建 NodeDelivery，并可能在随后原始 EvidenceRefs 校验失败前先写入 R1 Node/Event。
+- 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
+- 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
+- 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
