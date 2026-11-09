@@ -36,3 +36,6 @@ T1 同需求三版本各有多 SST；T2 两需求共享相同系统版本但 SST
 - 写入须同一事务、验证主体项目 Scope、expected_relation_revision、稳定 request_id；非法关联 422 完整回滚，已有 Evidence 的关联删除做审计停用，不物理擦除历史。
 - 旧 RC7.2 ReleaseBatch 迁移先 dry-run 计数、冲突隔离、来源映射、双向审计及回滚演练；原始 Mission/Attempt/Evidence 不重写，迁移前后分母和对象可追溯。
 - 责任和复合关系例子见 [WB-A03-CROSS-GROUP-SIGNOFF.md](WB-A03-CROSS-GROUP-SIGNOFF.md)。上述只是合同，未执行 SQL 迁移。
+
+## WB-B-A03 领域签署附录（W0，仅设计）
+B 组签署源 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 的设计可实现性；规范详见 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)。project_id 参与 BR/BV/BRV/BRVS 复合主外键；BRVS 需 source_verified_link；来源身份为 source_system + source_namespace + source_object_id + source_revision，禁止以版本标签或 SST 名称 join。业务日期 UNIQUE(project_id,release_date)，改期留同事务历史，稳定 batch_id 不变；BUSINESS_TZ 未批准的 legacy timestamp 迁移进入 MIGRATION_HOLD。签署不代表 Postgres 迁移已实施，也不关闭 F 的真实验收缺口。

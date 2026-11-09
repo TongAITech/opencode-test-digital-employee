@@ -34,3 +34,9 @@
 ## A 对 F 组 FG16 的最新整改快照（本次 HEAD 自证后才可更新）
 F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 设计修复，FG16 发布依赖遗漏 P0 OPEN。本轮 A 新增 W2/W3/W4 Gate 及必需的 F02/F03/D04/F04/A04/LICENSE 发布闭包校验，更新 08/09 及负向单元测试。
 **F 对最新 HEAD 尚需独立复验，B/D/E 的 W0 DESIGN_SIGNOFF 尚未获得，A01 源码入口锚点仍需补，A02 商业授权或原创来源审计仍 BLOCKED。W0_NOT_FROZEN / NOT_MERGED / NO_BANK_PACKAGE。**
+
+## B 组 WB-A03 W0 签署交接（2026-11-09）
+- task=WB-A03-B-DESIGN_SIGNOFF；owner=B；source_sha=80efa1bfa585fe29a5939c889d5b5a08e4f742ed；branch=work/dsh-wb-domain；artifact=WB-B-A03-DESIGN-SIGNOFF.md、02/06 增量、tests/test_dsh_workbench_b_a03_design.py；PR / CI 结果必须用各自真实 HEAD 复核。
+- status=B_DESIGN_SIGNOFF_SUBMITTED；W0_DESIGN_FROZEN=NO；B01..B08 REAL_IMPLEMENTATION_NOT_RUN；正式 PostgreSQL/API/R1/银行 FIELD_QA=NOT_RUN；A/F review pending。
+- open=BUSINESS_TZ_APPROVAL / SOURCE_MAPPING / D_E_SIGNOFF / F_DESIGN_ACCEPTANCE / BLOCKED_LICENSE / FG16_RECHECK。
+- next_ready：A/F 完成 W0 冻结及跨组合同合并后，B01、B02 可进入 READY 并开展真实 schema/事务开发；再 B03→B04→B05→B06（供 C/E 消费），B07→B08。绝不将 SQLite 设计见证写成真实 W1 QA_PASS。

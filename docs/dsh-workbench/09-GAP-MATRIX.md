@@ -51,3 +51,9 @@
 F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能力回归、F03 真实自主闭环及 D04 Windows 离线资格：虽有 F04+LICENSE，实际缺全部所需先驱。原 F 回归测试见 `work/dsh-wb-qa` 分支 `tests/test_dsh_workbench_release_dependencies_f.py`。
 **A 代码整改已提交待新 HEAD CI/F 复核**：完善 W2/W3/W4 全量必需 Gate DAG，F04 严格依赖 F03+D04，最终 BANK_RELEASE 强制 F02 + F04 + A04 + A02 LICENSE；validator 计算传递依赖集合并校验（非仅看直接字段），新增移除/绕过任一前置的负向测试。
 状态 = CODE_FIX_SUBMITTED / CI_PENDING / F_RECHECK_PENDING。真实 DB/R1/Host/Windows/授权继续 NOT_RUN/BLOCKED，不得写 RELEASE_QA_PASS。
+
+## B 组独立缺口登记（2026-11-09；W0 源 80efa1bfa585fe29a5939c889d5b5a08e4f742ed）
+- WB-BG01：DESIGN_SPEC_SUBMITTED，来源系统命名空间、复合 PK/FK、SST 来源合法边、日期唯一/历史、Scope 关联查询、403/409/422 与迁移回滚规则详见 B 签署文档。只证明设计，不关闭 F 的 FG02–04/13 实现缺口。
+- WB-BG02：W1_NOT_RUN，PostgreSQL 真实 DDL/事务/锁与 SQL 查询、HTTP/分页、重启无数据串扰缺真实证据。B01–B06 + F 真实验证才能核销。
+- WB-BG03：MIGRATION_HOLD，银行 BUSINESS_TZ/原始来源租户身份/同日冲突、Legacy→batch_id 映射、双向计数及回滚演练未拿到；B08 必须 fail-closed。
+- WB-BG04：DEPENDENCY_BLOCKED，D/E 签署及 A/F W0 冻结尚缺，FG16 由 A/F 独立核销，B 无权自行关闭。

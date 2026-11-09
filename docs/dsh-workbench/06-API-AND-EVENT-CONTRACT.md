@@ -45,3 +45,6 @@ mission.updated、workitem.updated、attempt.created、evidence.verified、nodeg
 - SSE 的订阅身份和水位至少绑定 project_id、batch_id、access_scope_revision；事件要有 source_ref、truth_revision（区别于流 revision）和带时区时间。切换同项目批次也须取消旧流、重授权及丢弃旧 cursor；快照-补放-订阅必须无缝，event gap 不得伪实时。
 - UI 发布不是拖卡片结果：NodeGate PASS 且 N10 完成、Evidence 合格、所需人审通过方可放行；NEEDS_REVISION/BLOCKED/HUMAN_GATE、未结束、过期或无真相一律不可 PASS；原 QA 的 WARN 不等于 NodeGate PASS。
 - Python 契约 oracle 的事件与命令校验仅用于设计期测试，不证明真实 HTTP、R1、持久事务或 SSE 已实现。
+
+## WB-B-A03 Scope 服务边界附录（W0，仅设计）
+详见 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)。B06 仅返回授权 project+batch 的真实 BRV LEFT JOIN BRVS 关联，含 UNSPLIT、来源、relation_revision、access_scope_revision、稳定游标；多选只筛真实连边，不生成笛卡尔积。服务端可信 principal 权限先判 403；授权后资源不存在 404，非法来源或跨批次关联 422，修订/日期冲突/过期游标 409，真相源不可用 503。游标绑定 principal+project+batch+filter+revision；切批次、权限或关系版本必须重查。E 的命令/SSE/R1 及 D 的宿主身份仍需各自设计签署，B 不代签。

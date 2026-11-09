@@ -1,10 +1,10 @@
 # WB-A03 W0 业务/API/事件跨组签收候选
-状态：A_CONTRACT_DRAFT / B_PENDING / D_PENDING / E_PENDING / F_RECHECK_REQUIRED。仅讨论 W0 DESIGN_SIGNOFF；未获得任何组签署，也未取得任何真实功能 QA_PASS。
+状态：A_CONTRACT_DRAFT / B_DESIGN_SIGNOFF_SUBMITTED / D_PENDING / E_PENDING / F_RECHECK_REQUIRED。仅讨论 W0 DESIGN_SIGNOFF；B 组已签 W0 设计，D/E/F 未签，也未取得任何真实功能 QA_PASS。
 参照 F 组 PR #85 的 FG02–05、FG10、FG13；W0 Python 合同测试只验证内存 oracle。
 
 | 组 | 签署范围 | 必须带回的可复核证据 | 结论 |
 |---|---|---|---|
-| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：字段/约束/事务/回滚设计评审，T1–T8 反例预期与接口可实现性签署；W1：真实存储、422 rollback、重启保持另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
+| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：字段/约束/事务/回滚设计评审，T1–T8 反例预期与接口可实现性签署；W1：真实存储、422 rollback、重启保持另验 | B_DESIGN_SIGNOFF_SUBMITTED / IMPLEMENTATION_QA_NOT_RUN |
 | D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：宿主身份/权限/Session 复用/恢复接口边界、不可复用密钥与反例签署；W1+：现场宿主日志、项目隔离和重启恢复另验 | DESIGN_SIGNOFF_PENDING / FIELD_QA_NOT_RUN |
 | E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：R1 数据字段/状态机/SSE 协议/ACL 与 T9–T14 反例设计签署；W1+：真实 API/R1 Evidence/签名 Attempt/SSE 恢复日志另验 | DESIGN_SIGNOFF_PENDING / IMPLEMENTATION_QA_NOT_RUN |
 | F | 独立检查合同遗漏、版权安全与设计退出门槛 | W0：审查设计合同、反例、来源锚点与分层 Gate；W1+：仅按真实证据签 IMPLEMENTATION/INTEGRATION/FIELD_QA_PASS | DESIGN_RECHECK_REQUIRED |
@@ -50,3 +50,6 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 - `INTEGRATION_QA_PASS` = F 验证真实项目→批次日期→需求→系统版本→SST→Case/RC7.2 R1 Evidence 贯通且权限无串扰。
 - `FIELD_QA_PASS` 与 `LICENSE_RELEASE_APPROVED` 在最终离线发布前独立核销；法务权利与 SBOM 保持 BLOCKED_LICENSE，未经许可不得复制 PolyForm 受限源码。
 - 机器可检 DAG 位于 W0-W1-GATE-MANIFEST.json，由 tools/dsh_workbench/w0_dependency_gate.py 验证，拒绝 W0→W1 反向依赖、依赖环、缺失许可或现场发布门禁。该工具只静态校验依赖图，不会自动签署或解锁未获 F 批准的任务。
+
+## B 组正式设计签署（W0）
+B 组针对 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 与 RC7.2 运行合同做了独立可实现性审查，签署 [WB-B-A03-DESIGN-SIGNOFF.md](WB-B-A03-DESIGN-SIGNOFF.md)：投产日期唯一/改期事务历史、来源身份与复合 PK/FK、SST 可信连边、多需求多版本 Scope join、ACL 403、修订 409、非法关联 422、迁移 HOLD/回滚边界、B06 C/E 查询接口。B_DESIGN_SIGNOFF_SUBMITTED 只认 B PR 设计增量，非 W1 实库 API 或 F QA。历史 B_PENDING 是初始审核状态，已被此次提交替代；D/E/F 仍 PENDING，W0 NOT_FROZEN。

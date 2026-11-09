@@ -112,3 +112,7 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 新的 F04_FIELD_QA 必须有 F03_AUTONOMOUS_QA + D04_OFFLINE_QUALIFICATION，最终 BANK_RELEASE 还要 F02_FUNCTIONAL_QA、A04_FINAL_INTEGRATION 以及商业 LICENSE；不可用 W1 集成 QA 或静态 oracle 假代真实验收。
 - `w0_dependency_gate.py` 校验 release **所有跨阶段必需祖先闭包**、缺节点、缺直连关键依赖与 W0/W1 设计循环；`test_dsh_workbench_gate_dag.py` 新增移除或绕过 F02/F03/D04 的对抗测试。可选 E07 QA Replay 非最终商业发布前置。
 - 本轮仅静态代码整改，不是 F02/F03/D04/F04 实际证据；**FG16=CODE_FIX_SUBMITTED / F_RECHECK_PENDING**，A02 继续 BLOCKED_LICENSE，B/D/E DESIGN_SIGNOFF 继续 PENDING，W0 NOT_FROZEN，未合并不打 ZIP。
+
+## B 组 WB-A03 正式 DESIGN_SIGNOFF 提交（2026-11-09）
+- source_sha=80efa1bfa585fe29a5939c889d5b5a08e4f742ed；独立分支 work/dsh-wb-domain；签署内容：WB-B-A03-DESIGN-SIGNOFF.md、02/06 增量及 SQLite 设计约束反例 tests/test_dsh_workbench_b_a03_design.py。B_DESIGN_SIGNOFF_SUBMITTED，W1_IMPLEMENTATION_QA_NOT_RUN，F QA 未执行。
+- 需 A 合并 B PR、D/E 分别签 W0、F 独立接受并明示 W0_DESIGN_FROZEN 后，B01/B02 才成为 READY；B03 依赖 B01+B02，B04→B05→B06 后提供 C/E Scope API；B07→B08 仍待 W2 依赖。禁止在 W0 不满足时自报 W1 验收或构建 ZIP。
