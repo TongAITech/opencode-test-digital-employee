@@ -190,3 +190,50 @@ def test_cli_disallows_output_symlink_to_native_team_state(tmp_path, local_dsh):
     assert file.read_bytes() == before
     assert out.is_symlink()
 
+
+def test_team_state_rejects_symlinked_workspace_or_state_dir_ancestor(tmp_path, local_dsh):
+    _server, url = local_dsh
+    file, _ = _state(tmp_path)
+    state_root = file.parent.parent
+    real_root = tmp_path / ".agent-teams-real"
+    state_root.rename(real_root)
+    alias = tmp_path / ".agent-teams"
+    try:
+        alias.symlink_to(real_root, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        real_root.rename(state_root)
+        pytest.skip("directory symlink creation not permitted on this runner")
+    aliased_file = alias / "release-team" / "team.json"
+    outcome = _audit(aliased_file, url)
+    assert outcome["status"] == "HOLD"
+    assert outcome["reason"] == "R4_TEAM_STATE_PATH_SYMLINK_FORBIDDEN"
+    assert not _server.requests
+
+
+def test_cli_rejects_output_parent_symlink_into_native_state_root(tmp_path, local_dsh):
+    _server, url = local_dsh
+    file, _ = _state(tmp_path)
+    state_root = file.parent.parent
+    alias = tmp_path / "state-alias"
+    try:
+        alias.symlink_to(state_root, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlink creation not permitted on this runner")
+    protected = file.read_bytes()
+    output = alias / "release-team" / "receipt.json"
+    assert main(["--team-state-file", str(file), "--team-id", "release-team",
+                 "--dsh-url", url, "--output", str(output)]) == 2
+    assert file.read_bytes() == protected
+    assert not output.exists()
+
+
+def test_output_dotdot_cannot_escape_native_state_root_check(tmp_path, local_dsh):
+    _server, url = local_dsh
+    file, _ = _state(tmp_path)
+    protected = file.read_bytes()
+    output = file.parent.parent / "other" / ".." / "release-team" / "receipt.json"
+    assert main(["--team-state-file", str(file), "--team-id", "release-team",
+                 "--dsh-url", url, "--output", str(output)]) == 2
+    assert file.read_bytes() == protected
+    assert not (file.parent / "receipt.json").exists()
+
