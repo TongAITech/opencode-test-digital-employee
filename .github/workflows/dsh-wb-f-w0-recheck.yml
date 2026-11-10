@@ -1,0 +1,92 @@
+name: F W0 ABCDE Independent Same-Source Requalification
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-w0-recheck.yml'
+      - 'tests/test_dsh_workbench*_f.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  f-design-contracts:
+    name: f-abcde-w0-contract-and-independent-adversarial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify reviewed A source is an ancestor of this F candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 75fd2c64159db863cfd1319d41a887785b556d40 HEAD
+          echo "F_INDEPENDENT_SOURCE_SHA=$(git rev-parse HEAD)"
+          echo "F_BASE_SOURCE_A=75fd2c64159db863cfd1319d41a887785b556d40"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: All A/B/C/D/E integrated W0 tests, including earlier F-owned tests
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: F-owned FG18 B source-identity and FG16 release-gate cases
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+      - name: C source/50 items and business Scope original JS contracts
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: Verify L0/L1/L2 admission policy without claiming field PASS
+        run: python tools/dsh_workbench/ci_admission.py
+      - name: No release signoff
+        run: echo 'F W0 DESIGN CONTRACT ONLY; LICENSE BLOCKED; PRODUCT AND FIELD QA NOT_RUN'
+
+  f-fg17-py38-real-cdp:
+    name: f-fg17-ubuntu-py38-5x-real-chromium-repeatability
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install frozen Python 3.8-compatible real-browser harness
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.3.5 playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Execute original real Chromium FG17 smoke 5 times, keep every failure
+        shell: bash
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: fg17-f-independent-evidence
+        run: |
+          set +e
+          failures=0
+          for attempt in 1 2 3 4 5; do
+            echo "::group::F FG17 PY38 ACTUAL CHROMIUM attempt=$attempt"
+            python -m pytest -q -ra tests/test_rc72_c09_real_chromium_cdp_smoke.py \
+              --junitxml="f-fg17-py38-$attempt.xml"
+            result=$?
+            echo "FG17_ATTEMPT=$attempt EXIT=$result"
+            if [ "$result" -ne 0 ]; then failures=$((failures + 1)); fi
+            echo "::endgroup::"
+          done
+          echo "FG17_FIVE_TRIAL_FAILURES=$failures"
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-fg17-py38-real-cdp-${{ github.sha }}
+          path: |
+            f-fg17-py38-*.xml
+            fg17-f-independent-evidence/
+          retention-days: 14
+          if-no-files-found: warn
