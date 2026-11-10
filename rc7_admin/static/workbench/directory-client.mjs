@@ -12,7 +12,8 @@ export class DirectoryClient {
    const records=[],ids=new Set(),cursors=new Set();let cursor=null,revision=null,access=null;
    for(let page=0;page<100;page++){
     const params=new URLSearchParams({page_size:'100'});if(cursor)params.set('page_cursor',cursor);
-    const response=await this.fetcher(path+'?'+params,{credentials:'same-origin',redirect:'error',signal:this.abort.signal,headers:{Accept:'application/json'}});
+    // Native Window.fetch rejects a client object as its receiver.
+    const response=await (0,this.fetcher)(path+'?'+params,{credentials:'same-origin',redirect:'error',signal:this.abort.signal,headers:{Accept:'application/json'}});
     if(!response.ok)throw Error('HTTP_'+response.status);
     const value=await response.json();if(generation!==this.generation)return false;
     if(value.schema!=='dsh-workbench/business-directory/v1'||!Array.isArray(value.records)||typeof value.directory_revision!=='string'||!/^[a-f0-9]{64}$/.test(value.directory_revision)||!Object.hasOwn(value,'next_page_cursor'))throw Error('INVALID_DIRECTORY');

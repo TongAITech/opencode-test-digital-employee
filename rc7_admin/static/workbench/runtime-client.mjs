@@ -60,7 +60,8 @@ export class RuntimeClient{
       this.#publish({status:'LOADING',snapshot:null});
       const query=new URLSearchParams({project_id:context.project_id,batch_id:context.batch_id,release_date:context.release_date});
       const paths=[`/api/workbench/v1/missions/${encodeURIComponent(mission)}/graph?${query}`,`/api/workbench/v1/missions/${encodeURIComponent(mission)}/workitems?${query}`,`/api/workbench/v1/projects/${encodeURIComponent(context.project_id)}/release-dates/${context.release_date}/quality?${new URLSearchParams({batch_id:context.batch_id,mission_id:mission})}`];
-      const values=await Promise.all(paths.map(async path=>{const response=await this.fetcher(path,{method:'GET',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});if(!response.ok)fail('HTTP_'+response.status);return response.json();}));
+      // Call the transport as a function: native Window.fetch rejects a client receiver.
+      const values=await Promise.all(paths.map(async path=>{const response=await (0,this.fetcher)(path,{method:'GET',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});if(!response.ok)fail('HTTP_'+response.status);return response.json();}));
       if(generation!==this.#generation)return false;
       const snapshot=validateRuntimeSnapshot(context,mission,...values);
       this.#publish({status:'READY',snapshot});return true;

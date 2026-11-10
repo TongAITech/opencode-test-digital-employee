@@ -4,15 +4,19 @@ import {mountMilestones} from './milestone-panel.mjs';
 import {mountScopePanel} from './scope-panel.mjs';
 import {pages,sections,restore,transition,labels} from './state.mjs';
 let saved={}; try {saved=JSON.parse(localStorage.getItem('dsh-workbench-settings')||'{}')||{};} catch {}
+let scopePanel;
 let state=restore(saved); const $=id=>document.getElementById(id);
 function update(key,value){const active=document.activeElement;const focusId=active?.id;const focusParent=active?.parentElement?.id;const focusItem=active?.dataset?.id;state=transition(state,key,value);try{localStorage.setItem('dsh-workbench-settings',JSON.stringify(state));}catch{}render();if(focusId)$(focusId)?.focus();else if(focusItem&&['pages','sections'].includes(focusParent))$(focusParent).querySelector(`[data-id="${focusItem}"]`)?.focus();}
 function buttons(target,ids,names,key){target.replaceChildren(...ids.map((id,i)=>{const b=document.createElement('button');b.textContent=names[i];b.dataset.id=id;b.setAttribute('aria-current',state[key]===id?'page':'false');b.onclick=()=>update(key,id);return b;}));}
-function render(){const t=labels[state.locale];document.documentElement.lang=state.locale;document.documentElement.dataset.theme=state.theme;document.title=t.title; $('title').textContent=t.title;$('locale-label').textContent=t.locale;$('theme-label').textContent=t.theme;$('locale').value=state.locale;$('theme').replaceChildren(...['light','dark','system'].map((v,i)=>new Option(t.themes[i],v)));$('theme').value=state.theme;buttons($('pages'),pages.slice(0,5),t.pages.slice(0,5),'page');$('project-entry').textContent=t.pages[5];$('heading').textContent=t.pages[pages.indexOf(state.page)];$('boundary').textContent=t.boundary;$('scope').textContent=t.scope;$('sections').hidden=state.page!=='detail';buttons($('sections'),sections,t.sections,'section');$('section-title').textContent=state.page==='detail'?t.sections[sections.indexOf(state.section)]:'';$('readiness').textContent=t.unready;$('retry').textContent=t.retry;document.dispatchEvent(new Event('workbench-view-changed'));}
+function render(){const t=labels[state.locale];document.documentElement.lang=state.locale;document.documentElement.dataset.theme=state.theme;document.title=t.title; $('title').textContent=t.title;$('locale-label').textContent=t.locale;$('theme-label').textContent=t.theme;$('locale').value=state.locale;$('theme').replaceChildren(...['light','dark','system'].map((v,i)=>new Option(t.themes[i],v)));$('theme').value=state.theme;buttons($('pages'),pages.slice(0,5),t.pages.slice(0,5),'page');$('project-entry').textContent=t.pages[5];$('heading').textContent=t.pages[pages.indexOf(state.page)];$('boundary').textContent=t.boundary;$('scope').textContent=t.scope;$('sections').hidden=state.page!=='detail';buttons($('sections'),sections,t.sections,'section');$('section-title').textContent=state.page==='detail'?t.sections[sections.indexOf(state.section)]:'';refreshReadiness();$('retry').textContent=t.retry;document.dispatchEvent(new Event('workbench-view-changed'));}
 $('project-entry').onclick=()=>update('page','detail');$('locale').onchange=e=>update('locale',e.target.value);$('theme').onchange=e=>update('theme',e.target.value);$('retry').onclick=()=>render();render();
 
-const scopePanel=mountScopePanel(document.getElementById("business-scope"));
+scopePanel=mountScopePanel(document.getElementById("business-scope"));
 mountMilestones(document.getElementById('milestones'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
 mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>{update('page','detail');$('heading').tabIndex=-1;$('heading').focus();}});
 
 mountRuntime(document.getElementById('runtime-facts'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
+
+function refreshReadiness(){const t=labels[state.locale];$('readiness').textContent=scopePanel?.client.state.status==='READY'?t.ready:t.unready;}
+document.addEventListener('workbench-scope-changed',refreshReadiness);refreshReadiness();

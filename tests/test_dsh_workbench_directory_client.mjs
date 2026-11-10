@@ -11,3 +11,8 @@ test('date records preserve DATE and reject foreign or invalid identity',async()
 test('empty authorized directory is distinct from unavailable',async()=>{const c=new DirectoryClient(async()=>response(page([])));assert.equal(await c.load(),true);assert.deepEqual(c.state.records,[]);});
 
 test('malformed single-page revision type cannot masquerade as an opaque string',async()=>{const c=new DirectoryClient(async()=>response(page([row],null,{directory_revision:[rev]})));assert.equal(await c.load(),false);assert.deepEqual(c.state.records,[]);});
+
+test('directory transport is called without a client receiver',async()=>{
+ const receivers=[];const client=new DirectoryClient(async function(){receivers.push(this);return response(page());});
+ assert.equal(await client.load(),true);assert.equal(await client.load(),true);assert.deepEqual(receivers,[undefined,undefined]);
+});

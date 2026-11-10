@@ -44,3 +44,25 @@ test('failure of one read cannot publish two successful partial collections or l
  const values=fixtures(),client=new RuntimeClient(async(path,options)=>{if(path.includes('/workitems?'))throw Error('private host filesystem or password');return port(values)(path,options);});
  assert.equal(await client.load(scope(),'M1'),false);assert.equal(client.state.snapshot,null);assert.equal(client.state.error,'TRUTH_SOURCE_UNAVAILABLE');
 });
+
+test('N10 PASS and a PASS Gate with verified hash remain HOLD and Human unknown; missing N10 stays explicit',async()=>{
+ const values=fixtures();
+ const client=new RuntimeClient(port(values));await client.load(scope(),'M1');
+ assert.ok(client.state.snapshot.missing_nodes.includes('N10_RELEASE_CONVERGENCE'));
+ const identity={mission_id:'M1',release_id:'CANONICAL-RUNTIME-1'};
+ values[0].records.rc72_mission_node.push({...identity,mission_node_id:'N10',node_type:'N10_RELEASE_CONVERGENCE',state:'PASS'});
+ values[0].records.rc72_node_delivery.push({...identity,delivery_id:'D10',mission_node_id:'N10',node_type:'N10_RELEASE_CONVERGENCE'});
+ values[0].records.rc72_node_gate.push({...identity,gate_id:'G10',mission_node_id:'N10',node_type:'N10_RELEASE_CONVERGENCE',delivery_id:'D10',decision:'PASS'});
+ values[0].missing_nodes=values[0].missing_nodes.filter(type=>type!=='N10_RELEASE_CONVERGENCE');
+ assert.equal(await client.load(scope(),'M1'),true);
+ assert.equal(client.state.snapshot.release_decision,'HOLD');
+ assert.equal(client.state.snapshot.human_approval,'UNKNOWN_NOT_QUERIED');
+ assert.equal(client.state.snapshot.records.rc72_mission_node[1].state,'PASS');
+ assert.ok(!client.state.snapshot.missing_nodes.includes('N10_RELEASE_CONVERGENCE'));
+});
+
+test('transport is called as a function, never with RuntimeClient as native fetch receiver',async()=>{
+ const values=fixtures(),receivers=[];
+ const client=new RuntimeClient(async function(path,options){receivers.push(this);return port(values)(path,options);});
+ assert.equal(await client.load(scope(),'M1'),true);assert.deepEqual(receivers,[undefined,undefined,undefined]);
+});
