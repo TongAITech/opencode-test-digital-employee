@@ -327,3 +327,9 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - 首milestone详情/日历同资产生命周期与主体恢复COMPONENT_QA_ACCEPTED/MERGED；六kind界面在独立分支，不代表C03/C04完整完成。B07可信R1引用映射仍UNRESOLVED，未授全B07完成。
 - E03提案B审查163/4c02b8af已集成，要求精确幂等/FK/CAS/fencing及丢权威回执的恢复查询。E03仍BLOCKED_FORMAL_CONTROL_API；正式writer跨进程原子准入尚待设计，不以实例锁或PG本地journal冒正式控制事实。
 - FIELD_NEEDS_BANK_TRANSFER；最终交付/真实宿主/Windows/实际并发及F01-F04/许可证门禁未通过。
+
+
+## A 发现同源挂载后的遗留私有路由缺口（2026-11-10）
+- A在ebce951e本地临时R1/loopback真实复现：显式workbench_handler的Host provider返回None，新workbench Scope为403，但旧/api/missions/M_FOREIGN/overview仍200且含fixture Mission。没有访问银行网络或生产R1。
+- 状态P1_FIX_IN_PROGRESS，E独立分支修复显式工作台模式的遗留私有读写默认拒绝，保留独立legacy模式及非敏感meta兼容。safe CLI不能因缺失R1而创建空文件；固定源后须F独立验证。当前尚未签署此缺口关闭。
+- 六kind表单与只读项目目录仍在独立验收/施工，FIELD_NEEDS_BANK_TRANSFER及正式命令阻断不变。
