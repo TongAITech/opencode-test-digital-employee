@@ -59,9 +59,21 @@ def run(output: Path, browser_path: Optional[str] = None) -> None:
                 assert error.is_visible(), title
                 assert "没有创建、修改、执行或审批" in error.inner_text(), title
             assert page.locator("#detail-tabs button").evaluate_all("(items) => new Set(items.map(x => x.dataset.scopeSnapshot)).size") == 1
+            # Source failures are purely local W0 simulations: assert no inferred PASS, real HTTP or R1 write.
+            for code, expected in [("503","SOURCE_UNAVAILABLE"),("403","FORBIDDEN"),("409","REVISION_CONFLICT"),("422","INVALID_SCOPE"),("200","EVIDENCE_OR_REVIEW_MISSING")]:
+                page.get_by_label("模拟响应").select_option(code)
+                page.get_by_role("button", name="模拟来源错误").click()
+                assert expected in page.locator("#source-preview-status").inner_text(), (code, expected)
+                assert "W0 模拟" in page.locator("#source-preview-status").inner_text()
+            page.get_by_role("button", name="模拟旧响应迟到").click()
+            assert "STALE_RESPONSE" in page.locator("#source-preview-status").inner_text()
+            page.get_by_label("模拟响应").select_option("503")
+            page.get_by_role("button", name="模拟来源错误").click()
+            assert "SOURCE_UNAVAILABLE" in page.locator("#source-preview-status").inner_text()
             page.screenshot(path=str(output / "wb-c-w0-scope-ten-sections.png"), full_page=True)
 
             requirements.select_option(["R3"])
+            assert "筛选已切换" in page.locator("#source-preview-status").inner_text()
             versions = page.get_by_label("系统版本", exact=True)
             assert versions.locator("option").evaluate_all("(items) => items.map(x => x.value).filter(Boolean)") == ["V3"]
             versions.select_option(["V3"])
