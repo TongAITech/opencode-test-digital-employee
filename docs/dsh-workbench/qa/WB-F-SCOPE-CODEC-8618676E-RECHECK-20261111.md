@@ -210,4 +210,3 @@ try:
  print('PG positive filtered one-edge PASS; negative rejections',rejections,'of 2')
 finally:case.doCleanups()
 ```
-
