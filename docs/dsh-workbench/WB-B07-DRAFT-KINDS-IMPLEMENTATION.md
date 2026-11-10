@@ -38,3 +38,5 @@ WB_PG_TEST_DSN='host=/tmp/dsh-pg-371f43f0 port=55432 dbname=postgres' ../pg-envi
 FIELD_NEEDS_BANK_TRANSFER：Host/Origin/CSRF使用已声明fixture；真实DSH/Windows/离线/业务来源与正式R1验证映射必须搬运行内验收。未扩大正式事实边界，未实现自动草稿提升、正式缺陷资格或正式报告生成。
 
 实现联合真实PG188/188通过；随后补无效Unicode零副作用例与HTTP严格Unicode/过深JSON拒绝，定向2/2通过。最终新增类48项（7新增+41继承），完整总数应189，必须以最终源CI/F实际结果为准，不将此前188沿用为新源数字。轻量此前522发现/257明确跳过，仅265实际合同；不等于真实PG验收。
+
+固定前另补DB跨版本kind不可变触发器，拒绝绕开PATCH allowlist直接把case_draft改成knowledge；攻击/六kind完整生命周期/保留milestone降级定向3/3通过。最终DraftKinds49项=8新增+41继承，预计联合190项，以最终同SHA CI/F实测为准。

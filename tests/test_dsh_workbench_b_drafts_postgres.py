@@ -113,3 +113,10 @@ class DraftKinds(prior.Milestone):
         self.scope_seed()
         self.error(400,lambda:self.assets.mutate('alice','P1','B1','create',self.draft('knowledge',payload={'body':'\ud800'})))
         self.assertEqual(self.owner.execute('SELECT count(*) FROM wb.asset_root').fetchone()[0],0)
+
+    def test_database_rejects_asset_kind_change_across_versions(self):
+        self.scope_seed()
+        created=self.assets.mutate('alice','P1','B1','create',self.draft('case_draft'))
+        with self.assertRaisesRegex(infra.psycopg.Error,'IMMUTABLE_ASSET_KIND'):
+            self.owner.execute("INSERT INTO wb.asset_revision(project_id,batch_id,asset_id,revision,kind,title,due_date,state,scope_level,created_release_date,scope_link_count,actor,reason) SELECT project_id,batch_id,asset_id,2,'knowledge',title,NULL,state,scope_level,created_release_date,scope_link_count,actor,'forged kind' FROM wb.asset_revision WHERE asset_id=%s",(created['record']['asset_id'],))
+        self.assertEqual(self.assets.get('alice','P1','B1',created['record']['asset_id'])['record']['kind'],'case_draft')
