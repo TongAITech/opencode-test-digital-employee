@@ -1,4 +1,4 @@
-name: RC7.2 R4 Same-HEAD E Independent Merge Admission (No ZIP)
+name: RC7.2 R4 Same-HEAD Engineering QA Merge Admission (No ZIP)
 
 on:
   pull_request:
@@ -24,11 +24,12 @@ permissions:
 
 jobs:
   r4-independent-e:
-    # This policy is for PR #113 / R4 integration, not unrelated PRs.
+    # Engineering source gate for PR #113; optional GitHub human review
+    # is NOT a frozen RC7.2 requirement. Preserve genuine changes veto.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.ref == 'work/rc7.2-r4-consolidated-1to5-20261110'
-    name: r4-exact-sha-source-and-review-admission
+    name: r4-exact-sha-source-engineering-qa-admission
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     env:
@@ -44,7 +45,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Refuse stale, incomplete, skipped CI or non-independent E review
+      - name: Require 18 independent same-SHA CI QA runs and no real changes-requested
         run: >-
           python -m rc7_release.rc72_r4_merge_gate
           --expected-head "$HEAD_SHA" --pr-number "$PR_NUMBER"
