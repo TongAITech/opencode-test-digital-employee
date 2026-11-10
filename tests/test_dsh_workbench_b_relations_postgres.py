@@ -1,6 +1,7 @@
 """B03 real PostgreSQL batch membership tests; no SQLite substitutes."""
 import test_dsh_workbench_b_postgres as base
-from test_dsh_workbench_b_postgres import DSN, psycopg, sql
+from test_dsh_workbench_b_postgres import DSN, psycopg
+sql=getattr(base,'sql',None)
 from tools.dsh_workbench.business_migrations import migrate, downgrade
 from tools.dsh_workbench.business_relations import RelationStore, import_verified_requirement_version
 import unittest

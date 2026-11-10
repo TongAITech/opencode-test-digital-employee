@@ -17,3 +17,5 @@ WB_PG_TEST_DSN='host=/tmp/dsh-pg-371f43f0 port=55432 dbname=postgres' ../pg-envi
 ```
 
 使用PostgreSQL17.6，逐测试独立DB与非owner runtime角色；覆盖授权/撤权/外层BEGIN防串扰、合法BR/BV、跨项目FK、CAS/重放、audit失败零副作用恢复、权威来源缺失/非法组合拒绝、来源不可改写、增量降级重建与B01继承负向/恢复。真实PG CI专属workflow已纳入两份测试，不能以无DSN的明确SKIP代验收。
+
+历史CI：337bc30e真PG专属45/45 PASS；W0轻量环境无Psycopg时新测试模块错误导入可选sql导致ImportError，已修正为可发现的明确SKIP。专属PG工作流仍强制安装驱动、配置真实DSN，并通过通配路径包含关联测试；不以SKIP替代真PG。修复后本地轻量308 tests OK/45明确SKIP；真实PG源验收另计。
