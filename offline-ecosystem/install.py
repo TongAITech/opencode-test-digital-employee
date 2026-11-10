@@ -255,6 +255,9 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
         native_target.chmod(native_target.stat().st_mode | 0o111)
     if _sha256(native_target) != native["sha256"]:
         raise InstallError("MNEMON_CLI_COPY_SHA256_MISMATCH")
+    mnemon_version_output = _run([str(native_target), "--version"])
+    if native["version"] not in mnemon_version_output:
+        raise InstallError("MNEMON_CLI_VERSION_MISMATCH")
 
     env = os.environ.copy()
     env.update({
@@ -304,7 +307,8 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
              "bundle_tree_sha256": row.get("bundle_tree_sha256")}
             for row in checked["manifest"]["extensions"]
         ],
-        "mnemon_cli": {"path": str(native_target), "version": native["version"], "sha256": native["sha256"]},
+        "mnemon_cli": {"path": str(native_target), "version": native["version"], "sha256": native["sha256"],
+                       "version_output": mnemon_version_output.strip()},
         "modlens_enabled": False,
         "bank_final": False,
     }
@@ -333,6 +337,9 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
         raise InstallError("ECOSYSTEM_HEALTH_PLUGIN_MISSING:" + ",".join(missing))
     if not native_path.is_file() or _sha256(native_path) != receipt["mnemon_cli"]["sha256"]:
         raise InstallError("MNEMON_CLI_HEALTH_SHA256_MISMATCH")
+    native_version = _run([str(native_path), "--version"])
+    if receipt["mnemon_cli"]["version"] not in native_version:
+        raise InstallError("MNEMON_CLI_HEALTH_VERSION_MISMATCH")
     return {"status": "PASS", "profile": profile, "plugins": len(receipt["extensions"]),
             "mnemon_cli": str(native_path), "modlens_enabled": receipt.get("modlens_enabled", False)}
 
