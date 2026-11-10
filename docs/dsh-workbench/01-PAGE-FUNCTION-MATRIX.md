@@ -66,3 +66,7 @@
 
 ## A01 原版源码行号与入口锚点追踪
 原子对账表已追加固定 fc5a054a48973d004580a3cc1de60da3f701150b 的 `public/index.html` DOM 和 `public/app.js` 具名函数行号：见 [WB-A01-ATOMIC-FEATURE-REGISTER.md](WB-A01-ATOMIC-FEATURE-REGISTER.md)。已定位 33 条 O/A 源码参考候选；14 条 N 新增无原版入口。该索引不是已验证的新工作台 UI，也不等于所有原版按钮已经按行为逐项签收。
+
+
+## 2026-11-10 A01 中英文范围确认（F #106 后续整改）
+A 组确认保留中文（默认 `zh-CN`）与英文（`en-US`）两种正式产品语言，不静默删除 `P05-03` Skill 双语说明和 `X01-01` 六页面/十分区全站切换与主题能力。W0 演示仅中文、`P05-03=NO_INTERACTION`、`X01-01=THEME_COLLAPSE_ONLY`，**50/50 正式功能仍 NOT_RUN**。要求与 12 项 W1 正反例详见 [WB-A01 中英文与主题范围合同](WB-A01-BILINGUAL-SCOPE.md)。本次仅 `A01_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`，F 审查/产品代码与许可证门禁不变。
