@@ -1,0 +1,15 @@
+# D/C 未知业务写入的主体绑定恢复增量
+
+状态：DESIGN_REVIEW_PENDING_B_D / 不修改R1事实；发现源da1a7e82c6d6cf90923624b8acdddd1b32934b56。
+
+真实缺陷：Alice提交已成功丢响应后，Bob拥有同project写权并重放Alice旧pending，服务端以Bob的幂等域新建重复资产。它是客户端恢复主体绑定缺口，不是已证明的ACL越权。只比对project/batch不能解决。
+
+提议新增只读GET /api/workbench/v1/write-context。服务端先经可信Host provider认证，返回schema和opaque write_context；值为稳定cursor key上domain-separated HMAC，消息为可信principal的规范序列化，不输出原principal。无provider503，非法主体403，密钥未配置/无效503。该token仅标识当前写入主体域，不签权、不代替CSRF/Origin/ACL或Captain/资源租约；它不宣称真实DSH会话/SSO适配或跨session epoch资格。
+
+每次资产POST/PATCH/DELETE/restore通过X-DSH-Write-Context传expected token，服务端与当前已认证主体的期望值常量时间比较；缺失403 WRITE_CONTEXT_REQUIRED，错误409 WRITE_CONTEXT_CHANGED。在任何业务变更或幂等回执读取前验证，拒绝时数据库无新增资产/修订/outbox。body/query principal、mutation_authorized或自报token并非权威，旧错误token即使当前Bob有写权也不可重放Alice旧意图。项目ACL、mutation授权及CSRF/Origin仍分别强制验证。
+
+C首次新写前读取当前context，若失败不得发资产写。pending捕获原context及原request_id/payload，任何读刷新/locale/导航/当前context重读均不能替换旧pending token；重试使用原token。主体切换后409维持UNKNOWN/HOLD，不能因该拒绝推断原Alice提交未发生，也不能启用新UUID重复写；恢复Alice及原合法Scope后同key查询/重放对账。旧pending无context时failclosed，不补Bob当前context。Scope变化时私有payload隔离，不能展示或发送到新Scope。
+
+稳定key重启可继续对账；key轮换令旧token失效时维持HOLD并要求受控恢复，不自动换token/重新执行。token不存URL/localStorage、不打印日志，不是用户密钥；响应no-store，同源读取，不新增CORS宽放。真实Host提供稳定principal身份语义仍须搬运行内验证，FIELD_NEEDS_BANK_TRANSFER。
+
+D职责结论：D_DESIGN_ACCEPTED_FOR_SUBJECT_BINDING_ONLY（待B确认接口/服务端顺序）。C实现只在此增量确认后接入。真实PG/browser验收必须包含Alice已提交丢响应→Bob合法同项目写权→旧pending被拒且资产数不增→刷新/切语仍HOLD→Alice恢复同key对账无重复；缺token/伪token/provider缺失、CSRF/ACL仍拒绝。fixture不是现场，不允许让缺实现动作accepted。
