@@ -188,3 +188,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - C PR #97 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 交付 W0 原创原型多选 Scope 与十区表单；早期 C 源 `d4863bab` 的 20/20 Node + 真实 Chromium/3 PNG 通过；不是正式六页十区 F02。
 - A 将 B/C/E 增量保留原来源、合入统一源码树；共享 08/09/10 **只追加设计证据**，不删除原 F 红灯；C 浏览器 CI 保持禁止仅因三账本改动而重跑，旧完整 RC7.2 V4/Q1 仍作为非 Draft/正式门禁。
 - B01/B02、C01/C02、E01 真实 PostgreSQL/HTTP/R1/DSH Host 正式实现、F02/F03/D04/F04、32 人现场、商业授权均未通过：**W0_NOT_FROZEN / W1–W4_NOT_RUN / A02_BLOCKED_LICENSE / PR #84 DRAFT / NO_BANK_ZIP**。
+
+## 2026-11-10 A 组 W0 只读 Scope 回包隔离补强
+
+- A 最新统一 W0 参考源 `200a96ac2ce3b69f2bd76a98517444699c8fbe92`，已有 B/C/E 设计增量。A 的该精确 SHA W0 L0 [job 129542422674](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729154482/job/129542422674) 实际为 Python 180/180、C Node 20/20、CI admission policy 13 workflows PASS；此历史结果不能代替本新提交的验证。
+- 从 C follow-up PR #97 source `cf96541b0833dfa32654d6f3451742af73c9c5ff` 原样引入 `ScopeReadFence` 只读原型和 9 项负向 Node 合同。用 project/batch/过滤集合+relation/access/truth revision 票据拒绝旧项目、旧批次、旧权限的迟到响应；403 不泄漏对象，503/R1 STALE/缺 Evidence+人审 NodeGate PASS 不得显示 QA_PASS；无网络、无真实权限、只提供 PREVIEW_ONLY。
+- 把这些反例纳入单一 W0 PR L0 合同；新增 CI policy 防止以后删掉 scope_fence 负向测试；不触发完整 RC7.2 ZIP。仅源模型/模拟响应，不是正式 C01/C02、B06、D Host 或 E01 实施。
+- F 最新 #101 审查的是历史 A `b385e042c4543f5d918d61bff5e01be1d88afba7`，认可 FG17 定向真实浏览器和 FG21 Git 冲突解决，FG22 当时仍红。A 在 `5bba94c` 修订 FG22 负向错误码且 A@200a W0 L0 已绿。F 必须对新的整合源 SHA 重新确认，W0_NOT_FROZEN。
+- A02 始终 BLOCKED_LICENSE，原版受限 PolyForm Noncommercial 源码不可复制或去标识进入银行交付；此 `ScopeReadFence` 反例并不构成法务许可审查。
+
