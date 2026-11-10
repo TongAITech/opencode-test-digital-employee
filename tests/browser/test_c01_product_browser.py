@@ -1,8 +1,10 @@
 """C01 real browser navigation; no business success fixtures."""
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from playwright.sync_api import sync_playwright
 from rc7_admin.product_server import ProductAdminApplication, create_server
 

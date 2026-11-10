@@ -1,0 +1,32 @@
+name: Workbench C01 product browser component
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'rc7_admin/static/workbench/**'
+      - 'rc7_admin/product_server.py'
+      - 'tests/browser/test_c01_product_browser.py'
+      - 'tests/test_dsh_workbench_c01.mjs'
+      - '.github/workflows/dsh-wb-c01-product.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c01-product-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/test_dsh_workbench_c01.mjs
+      - run: python -m pip install 'playwright==1.56.0'
+      - run: python -m playwright install --with-deps chromium
+      - name: Real product browser negative and recovery tests (not business QA)
+        run: python -m unittest discover -s tests/browser -p test_c01_product_browser.py -v
