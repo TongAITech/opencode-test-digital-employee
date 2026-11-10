@@ -141,6 +141,13 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
 
 
+
+### C 组 W0 来源响应栅栏与负向验收（2026-11-10）
+- C PR #97 已重基在 A 200a96ac 的统一 W0 源树；A 的 B/E/F 账本原样保留，C 仅提交原创 source_fence.mjs 和十项反例。
+- 模拟 401/403/404/409/422/503、200 缺证据或人工审批、STALE/UNKNOWN R1；按项目/稳定批次/选中复合关联/修订/epoch 丢弃迟到响应。
+- 第一轮 6249f1a 同 SHA CI 仅 20/20 Node + 原型真 Chromium PASS（截图 artifact 13723128464），漏跑新十项。CI 已修复成 30 项正反例与真实当前 C branch 合并探针，新 HEAD 结果须核对。
+- 状态 W0_ORIGINAL_PROTOTYPE / C01-C02_W1_NOT_STARTED；F #101 最近判 W0_NOT_FROZEN、FG22 为 A CI blocker；A02 BLOCKED_LICENSE。正式 B06/R1/Host/F02 未运行。
+
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
 - 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。

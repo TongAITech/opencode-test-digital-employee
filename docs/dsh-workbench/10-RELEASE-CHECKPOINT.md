@@ -63,6 +63,12 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。
 
 
+
+### C 组新增 W0 source fence 检查点（2026-11-10）
+- C PR #97 维持六页面、十区、投产日期→需求→系统版本→SST 多选关系；新增源错误和迟到响应模拟，零真实 API、零假 QA_PASS。
+- 第一轮 6249f1a 的 20 Node + 真 Chromium CI PASS 不覆盖新增10项；工作流修复已提交，需要新 SHA 30/30 与浏览器截图复核，不冒用历史绿灯。
+- W0_NOT_FROZEN、C01/C02 W1_NOT_STARTED、F02_NOT_RUN、B06_NOT_IMPLEMENTED、A02_BLOCKED_LICENSE，禁止银行 ZIP。
+
 ## 2026-11-09 E 组来源审计及 W0 设计签署（需 A/F 复核）
 - W0 PR #84 审核来源 HEAD `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`；F PR #85 仍 REVIEWED_WITH_BLOCKERS。E 施工分支 `work/dsh-wb-runtime` 对独立控制面协议形成 `E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`，详见 `WB-E-A03-DESIGN-SIGNOFF.md`。E 分支实际提交 SHA/CI 必须以创建 PR 后同 HEAD API 结果更新，不借用 A 的历史 success。
 - 已核对真实 `rc7_admin/server.py`, `product_server.py`, `projection.py`, `rc6_runtime/truth.py`, `rc7_runtime/rc72_domain.py`, `rc72_linkage.py`, `models.py`, `truth_overlay.py`, `derived.py` 的 blob SHA；旧 HTTP 没有可信项目 ACL、正式命令、SSE 或 `/api/workbench/v1`；R1 是 JSONL 原子事实源；Evidence content_hash 可选。对应实现 HOLD 见 09。

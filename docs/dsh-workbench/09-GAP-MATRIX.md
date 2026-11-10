@@ -78,6 +78,14 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA；原版受限源码不得进入银行交付。
 
 
+
+### C 组 W0 新增反例与待核销缺口（2026-11-10）
+| GAP | 现状 | 核销条件 |
+|---|---|---|
+| WB-CG05 异步响应跨 Scope | W0 source fence 原创代码已提交，epoch + 项目/批次/修订拒绝旧响应；正式 SSE/ACL 未接 | B06、E SSE、D Host 实际并发/撤权回归及 F02 |
+| WB-CG06 业务真相不可伪 PASS | W0 401/403/404/409/422/503、缺 Evidence/Human Review、STALE/UNKNOWN 不作 PASS；十项单测 CI 待新 HEAD | R1 真 Evidence/人审/控制面 HTTP + F02 |
+| WB-FG22 A-owned CI admission | F #101 独立旧源曾发现错误码负向断言红，C 不代修 A CI | A 最新 HEAD 同源 L0 + F 独立复核 |
+
 ## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
 | E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
 |---|---|---|---|---|
