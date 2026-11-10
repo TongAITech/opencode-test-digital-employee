@@ -55,6 +55,12 @@ class TestCIAdmission(unittest.TestCase):
                      " tests/removed_scope_fence.mjs",
                      "W0_SCOPE_RESPONSE_FENCE_NOT_ADMITTED")
 
+    def test_w0_a01_bilingual_design_proof_must_remain(self):
+        self.changed("w0",
+                     "python tools/dsh_workbench/w0_i18n_contract.py",
+                     "echo bilingual-proof-skipped",
+                     "W0_A01_BILINGUAL_DESIGN_GATE_REMOVED")
+
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",
                      "L1_SOURCE_PIN_OR_GATES_MISSING")
