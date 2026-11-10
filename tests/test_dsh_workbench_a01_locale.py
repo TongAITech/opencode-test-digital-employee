@@ -28,6 +28,12 @@ class TestA01LocaleDecision(unittest.TestCase):
     def test_original_fifty_and_bilingual_scope_preserved(self):
         self.assertEqual(errors(self.spec, self.a01, self.delta), [])
 
+    def test_matrix_count_matches_f_50_feature_reconciliation(self):
+        matrix = (DOCS / "01-PAGE-FUNCTION-MATRIX.md").read_text(encoding="utf-8")
+        self.assertIn("35 条 O/A", matrix)
+        self.assertIn("15 条 N", matrix)
+        self.assertIn("50", (DOCS / "WB-C-W0-50-FEATURE-DELTA.md").name)
+
     def test_english_removed_would_fail_closed(self):
         self.reject(lambda s: s.update(w1_required_locales=["zh-CN"]),
                     "A01_BILINGUAL_SILENTLY_REMOVED")

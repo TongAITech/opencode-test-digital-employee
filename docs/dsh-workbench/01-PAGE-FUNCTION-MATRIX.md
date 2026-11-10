@@ -65,7 +65,7 @@
 详见 [WB-A01-ATOMIC-FEATURE-REGISTER.md](WB-A01-ATOMIC-FEATURE-REGISTER.md)。含操作、正反向预期、来源及验收凭据字段；全部仍为 NOT_RUN，不是实际已实现的按钮或独立 QA_PASS。
 
 ## A01 原版源码行号与入口锚点追踪
-原子对账表已追加固定 fc5a054a48973d004580a3cc1de60da3f701150b 的 `public/index.html` DOM 和 `public/app.js` 具名函数行号：见 [WB-A01-ATOMIC-FEATURE-REGISTER.md](WB-A01-ATOMIC-FEATURE-REGISTER.md)。已定位 33 条 O/A 源码参考候选；14 条 N 新增无原版入口。该索引不是已验证的新工作台 UI，也不等于所有原版按钮已经按行为逐项签收。
+原子对账表已追加固定 fc5a054a48973d004580a3cc1de60da3f701150b 的 `public/index.html` DOM 和 `public/app.js` 具名函数行号：见 [WB-A01-ATOMIC-FEATURE-REGISTER.md](WB-A01-ATOMIC-FEATURE-REGISTER.md)。已定位 35 条 O/A 源码参考候选；15 条 N 新增无原版入口。该索引不是已验证的新工作台 UI，也不等于所有原版按钮已经按行为逐项签收。
 
 
 ## 2026-11-10 A01 中英文范围确认（F #106 后续整改）
