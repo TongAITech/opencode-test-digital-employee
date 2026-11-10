@@ -1,0 +1,69 @@
+{
+  "mode": "ISOLATED_EXISTING_FIXTURE_CATALOG_READ_ONLY",
+  "source_sha": "199a316334abb41c77890ed5608b989e2a7e6126",
+  "postgres_version": "17.6",
+  "project_columns": [
+    [
+      "project_id",
+      "text",
+      "NO"
+    ],
+    [
+      "name",
+      "text",
+      "NO"
+    ],
+    [
+      "access_scope_revision",
+      "bigint",
+      "NO"
+    ]
+  ],
+  "project_constraints": [
+    [
+      "c",
+      "CHECK ((access_scope_revision > 0))"
+    ],
+    [
+      "c",
+      "CHECK ((btrim(name) <> ''::text))"
+    ],
+    [
+      "c",
+      "CHECK ((btrim(project_id) <> ''::text))"
+    ],
+    [
+      "p",
+      "PRIMARY KEY (project_id)"
+    ]
+  ],
+  "runtime_project_privileges": {
+    "select": true,
+    "insert": false,
+    "update": false,
+    "delete": false
+  },
+  "runtime_project_name_update": false,
+  "project_rls": [
+    true,
+    false
+  ],
+  "project_policies": [
+    [
+      "SELECT",
+      "wb.allowed(project_id, false)",
+      null
+    ]
+  ],
+  "runtime_acl_select": false,
+  "release_batch_keys": [
+    [
+      "p",
+      "PRIMARY KEY (project_id, batch_id)"
+    ],
+    [
+      "u",
+      "UNIQUE (project_id, release_date)"
+    ]
+  ]
+}
