@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -140,7 +141,11 @@ class ModelResilienceTests(unittest.TestCase):
                         AgentRuntimeError, "MODEL_RATE_GOVERNOR_STATE_UNVERIFIED"):
                     governor.reserve()
                 self.assertEqual(state_path.read_bytes(), original)
-                self.assertFalse(governor.lock_path.exists())
+                # The OS-advisory lock file persists after unlock. It is never
+                # removed in a way that can undermine another process's lock.
+                self.assertTrue(governor.lock_path.is_file())
+                governor._lock()
+                governor._unlock()
             # A valid owned snapshot remains usable; recovery is explicit.
             state_path.write_text(json.dumps({
                 "schema": "rc7.1-model-rate-window-v1",
@@ -148,6 +153,101 @@ class ModelResilienceTests(unittest.TestCase):
             }), encoding="utf-8")
             self.assertTrue(governor.reserve().admitted)
             self.assertFalse(governor.reserve().admitted)
+
+    def test_r4_predictable_governor_temp_symlink_cannot_overwrite_other_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            protected = Path(root) / "protected-bank-file.txt"
+            protected.write_text("ORIGINAL BANK DATA", encoding="utf-8")
+            legacy_temp = governor.state_path.with_suffix(".tmp")
+            try:
+                legacy_temp.symlink_to(protected)
+            except (OSError, NotImplementedError):
+                self.skipTest("Platform does not permit creation of test symlinks")
+            self.assertTrue(governor.reserve().admitted)
+            self.assertEqual(protected.read_text(encoding="utf-8"), "ORIGINAL BANK DATA")
+            self.assertTrue(legacy_temp.is_symlink())
+            self.assertFalse(governor.state_path.is_symlink())
+            self.assertFalse(governor.reserve().admitted)
+
+    def test_r4_governor_atomic_write_leaves_legacy_temp_untouched(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            legacy_temp = governor.state_path.with_suffix(".tmp")
+            legacy_temp.write_text("stale crash remnant", encoding="utf-8")
+            self.assertTrue(governor.reserve().admitted)
+            self.assertEqual(legacy_temp.read_text(encoding="utf-8"),
+                             "stale crash remnant")
+            self.assertFalse(governor.reserve().admitted)
+            self.assertFalse(any(governor.state_path.parent.glob(
+                ".shared-window-*.tmp")))
+
+    def test_r4_active_bank_quota_lock_cannot_be_stolen_after_30_seconds(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            second = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0,
+                lock_timeout_seconds=0.05)
+            first._lock()
+            try:
+                stale = time.time() - 3600
+                os.utime(str(first.lock_path), (stale, stale))
+                with self.assertRaisesRegex(
+                        AgentRuntimeError, "MODEL_RATE_GOVERNOR_LOCK_TIMEOUT"):
+                    second.reserve()
+                self.assertTrue(first.lock_path.is_file())
+                self.assertIsNotNone(first._lock_fd)
+            finally:
+                first._unlock()
+            self.assertTrue(second.reserve().admitted)
+            self.assertFalse(first.reserve().admitted)
+
+    def test_r4_legacy_orphan_marker_can_recover_without_resetting_model_quota(self):
+        with tempfile.TemporaryDirectory() as root:
+            now = time.time()
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0,
+                now_fn=lambda: now)
+            governor.state_path.write_text(json.dumps({
+                "schema": "rc7.1-model-rate-window-v1",
+                "timestamps": [now],
+            }), encoding="utf-8")
+            governor.lock_path.write_text("dead-legacy-process-marker",
+                                          encoding="utf-8")
+            stale = now - 3600
+            os.utime(str(governor.lock_path), (stale, stale))
+            # A filesystem marker left by a crashed process does not own a
+            # kernel lock. Recovery must preserve the one already-used slot.
+            blocked = governor.reserve()
+            self.assertFalse(blocked.admitted)
+            self.assertEqual(blocked.request_count, 1)
+            self.assertTrue(governor.lock_path.is_file())
+            self.assertFalse(governor.reserve().admitted)
+
+    def test_r4_os_quota_lock_releases_on_abrupt_worker_process_exit(self):
+        with tempfile.TemporaryDirectory() as root:
+            script = (
+                "import os,sys;"
+                "from pathlib import Path;"
+                "from rc7_runtime.model_resilience import PersistentSlidingWindowGovernor;"
+                "g=PersistentSlidingWindowGovernor(Path(sys.argv[1]));"
+                "g._lock();"
+                "os._exit(0)"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", script, root],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=20, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(
+                "utf-8", errors="replace"))
+            # The process never called _unlock. The OS nevertheless releases
+            # its lock and cold restart can re-acquire it.
+            governor = PersistentSlidingWindowGovernor(Path(root))
+            self.assertTrue(governor.reserve().admitted)
+            self.assertTrue(governor.lock_path.is_file())
 
     def test_r4_corrupt_rate_ledger_blocks_actual_launcher_before_model_io(self):
         with tempfile.TemporaryDirectory() as root:

@@ -1,0 +1,47 @@
+name: RC7.2 R4 Q3-Q6 Field Signature Gate (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_field_qualification.py'
+      - 'tests/test_rc72_field_qualification.py'
+      - '.github/workflows/rc7.2-r4-field-signature-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-field-signature-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  field-signature-gate:
+    name: r4-field-signature-${{ matrix.os }}-python-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned test dependencies
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile and independently test signed field admission
+        run: |
+          python -m compileall -q rc7_runtime rc7_release tests
+          python -m pytest -q tests/test_rc72_field_qualification.py --junitxml=rc72-r4-field-signature.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-r4-field-signature-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-r4-field-signature.xml
+          retention-days: 14
