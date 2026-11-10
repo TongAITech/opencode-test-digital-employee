@@ -15,3 +15,8 @@ DSH 原生侧栏中一个“测试工作台”入口。六大主页面不改名�
 
 ## 必验体验
 六大页面、十个分区不回退；主题/搜索/侧栏折叠/附件/历史/模型/技能/命令正常；移动窄屏至少可完成查看和过滤；所有日期时区以银行业务时区约定，不能使用浏览器 UTC 转换造成日期偏移；项目切换不串上下文。
+
+## A01 双语与呈现层不变量（F #106 后续设计确认）
+- P05-03/X01-01 均保留 `zh` 默认、`en` 可切换目标；不是 W0 原型当前已交付。中文或英文切换不能触发后端 Mission/Case/Attempt/R1/NodeGate 写入，不能改变 project_id、batch_id、release_date、requirement_ids、system_version_ids、sst_ids 及宿主 session、权限/事实版本。
+- 主题 system/light/dark、侧栏与雷达宽度独立于 locale；状态/错误码始终使用不可变机器码，翻译只发生在 UI。缺译文/非法 locale 需可观察的降级或拒绝，不能暗中静默显示未确认的成功。
+- 六页面/十分区和 QA Skill 文字的正式 C01/C02 实施与 F02 独立真实 UI 回归仍为 NOT_RUN；设计负向合同见 [WB-A01-I18N-SCOPE-DECISION.md](WB-A01-I18N-SCOPE-DECISION.md)。
