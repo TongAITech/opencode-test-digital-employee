@@ -72,6 +72,42 @@ def errors(decision: dict, a01_register: str, c_delta: str) -> List[str]:
             out.append("A01_LOCALE_ORIGINAL_FEATURE_TRACE_MISSING:" + fid)
         elif c[4] != "NOT_RUN":
             out.append("A01_LOCALE_REAL_PRODUCT_QA_FAKED:" + fid)
+    # The theme handler alone is not evidence for bilingual behavior.
+    # Pin both the actual original i18n functions and the settings picker.
+    # Static provenance checks cannot grant a commercial redistribution right.
+    provenance = decision.get("upstream_readonly_provenance") or {}
+    reference = {
+        "P05-03": ("public/i18n.js#L700-L722", "public/app.js#L2085-L2091"),
+        "X01-01": ("public/i18n.js#L700-L722", "public/app.js#L2048-L2094"),
+    }
+    if (provenance.get("repository") != "naodeng/dsh-qa"
+            or provenance.get("pinned_sha") != "fc5a054a48973d004580a3cc1de60da3f701150b"
+            or provenance.get("license") != "PolyForm-Noncommercial-1.0.0"
+            or provenance.get("copied_source") is not False):
+        out.append("A01_BILINGUAL_UPSTREAM_PROVENANCE_OR_LICENSE_INVALID")
+    evidence = provenance.get("evidence")
+    if not isinstance(evidence, list) or len(evidence) != len(reference):
+        out.append("A01_BILINGUAL_ORIGINAL_SOURCE_ANCHOR_MISSING")
+    else:
+        seen = set()
+        for row in evidence:
+            if not isinstance(row, dict):
+                out.append("A01_BILINGUAL_ORIGINAL_SOURCE_ANCHOR_MISSING")
+                continue
+            feature = row.get("feature_id")
+            if (feature not in reference or feature in seen
+                    or (row.get("i18n_anchor"), row.get("ui_anchor")) != reference.get(feature)
+                    or row.get("evidence_state") != "ORIGINAL_ENTRYPOINT_OBSERVED_NOT_W1_QA"):
+                out.append("A01_BILINGUAL_ORIGINAL_SOURCE_ANCHOR_MISSING")
+                continue
+            seen.add(feature)
+            a = row_for(a01_register, feature)
+            if len(a) != 7 or ("i18n.js:L700-L722" not in a[2]
+                    or ("app.js:L2085-L2091" if feature == "P05-03"
+                        else "app.js:L2048-L2094") not in a[2]):
+                out.append("A01_BILINGUAL_REGISTER_ENTRYPOINT_UNVERIFIED:" + feature)
+        if seen != set(reference):
+            out.append("A01_BILINGUAL_ORIGINAL_SOURCE_ANCHOR_MISSING")
     cases = decision.get("acceptance_cases")
     if (not isinstance(cases, list) or len(cases) != len(REQUIRED_CATEGORIES)
             or [x.get("category") for x in cases if isinstance(x, dict)]
