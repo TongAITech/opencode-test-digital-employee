@@ -122,6 +122,18 @@ CREATE TABLE brvs(
       REFERENCES authoritative_link(
         project_id,batch_id,requirement_id,version_id,sst_id)
 );
+CREATE TRIGGER sst_trace_no_update BEFORE UPDATE ON sst_source_trace
+BEGIN SELECT RAISE(ABORT,'VERIFIED_SOURCE_TRACE_APPEND_ONLY'); END;
+CREATE TRIGGER sst_trace_no_delete BEFORE DELETE ON sst_source_trace
+BEGIN SELECT RAISE(ABORT,'VERIFIED_SOURCE_TRACE_APPEND_ONLY'); END;
+CREATE TRIGGER req_version_link_no_update BEFORE UPDATE ON authoritative_req_version
+BEGIN SELECT RAISE(ABORT,'VERIFIED_REQUIREMENT_VERSION_LINK_APPEND_ONLY'); END;
+CREATE TRIGGER req_version_link_no_delete BEFORE DELETE ON authoritative_req_version
+BEGIN SELECT RAISE(ABORT,'VERIFIED_REQUIREMENT_VERSION_LINK_APPEND_ONLY'); END;
+CREATE TRIGGER sst_link_no_update BEFORE UPDATE ON authoritative_link
+BEGIN SELECT RAISE(ABORT,'VERIFIED_SST_LINK_APPEND_ONLY'); END;
+CREATE TRIGGER sst_link_no_delete BEFORE DELETE ON authoritative_link
+BEGIN SELECT RAISE(ABORT,'VERIFIED_SST_LINK_APPEND_ONLY'); END;
 """
 
 SCOPE_SQL = """
@@ -150,6 +162,21 @@ def scope_rows(db, authorized_projects, project_id, batch_id):
                   (project_id,batch_id)).fetchone() is None:
         raise DomainError(404, "RESOURCE_NOT_FOUND")
     return db.execute(SCOPE_SQL, (project_id,batch_id)).fetchall()
+
+
+
+def scope_rows_with_states(db, authorized_projects, project_id, batch_id):
+    """W0 projection witness: split status comes from verified BRVS rows.
+
+    This derives from one scope_rows query result. The mutable brv.split_state
+    fixture column is not a second source of truth. Production B06 must
+    obtain its entire page and revision watermark in one consistent snapshot.
+    """
+    return [(requirement_id, version_id,
+             "SPLIT" if sst_id is not None else "UNSPLIT", sst_id)
+            for requirement_id, version_id, sst_id
+            in scope_rows(db, authorized_projects, project_id, batch_id)]
+
 
 
 def attach_sst(db, authorized_projects, project_id, batch_id, requirement_id,
@@ -226,6 +253,91 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                             ("P1",b,r,v,s,"link-"+b+"-"+r+"-"+s))
             self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",
                             ("P1",b,r,v,s))
+
+
+    def test_w0_split_state_derived_from_verified_relation_not_stale_flag(self):
+        """The fixture's stored UNSPLIT flag is stale for all linked SST rows."""
+        rows = scope_rows_with_states(self.db, {"P1"}, "P1", "B1")
+        self.assertEqual(len(rows), 7)
+        self.assertEqual({(r,v,state,s) for r,v,state,s in rows},
+                         {("R1","VA","SPLIT","S1"), ("R1","VA","SPLIT","S2"),
+                          ("R1","VB","SPLIT","S3"), ("R1","VC","SPLIT","S6"),
+                          ("R1","VC","SPLIT","S7"), ("R2","VA","SPLIT","S4"),
+                          ("R2","VC","UNSPLIT",None)})
+        # Tamper both directions: query must not trust a denormalized label.
+        self.db.execute(
+            """UPDATE brv SET split_state='SPLIT'
+               WHERE project_id='P1' AND batch_id='B1'
+                 AND requirement_id='R2' AND version_id='VC'""")
+        self.db.execute(
+            """UPDATE brv SET split_state='UNSPLIT'
+               WHERE project_id='P1' AND batch_id='B1'
+                 AND requirement_id='R1' AND version_id='VA'""")
+        self.assertEqual(scope_rows_with_states(self.db, {"P1"}, "P1", "B1"),
+                         rows)
+
+    def test_w0_split_state_updates_after_verified_attach_without_fake_sst(self):
+        before = scope_rows_with_states(self.db, {"P1"}, "P1", "B1")
+        self.assertIn(("R2","VC","UNSPLIT",None), before)
+        self.assertNotIn(("R2","VC","SPLIT","S5"), before)
+        self.db.execute(
+            "INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+            ("P1","B1","R2","VC","S5","verified-B1-R2-VC-S5"))
+        rev = self.db.execute(
+            "SELECT relation_revision FROM batch WHERE project_id='P1' AND batch_id='B1'"
+        ).fetchone()[0]
+        attach_sst(self.db, {"P1"}, "P1", "B1", "R2", "VC", "S5",
+                   rev, "verified-B1-R2-VC-S5")
+        after = scope_rows_with_states(self.db, {"P1"}, "P1", "B1")
+        self.assertNotIn(("R2","VC","UNSPLIT",None), after)
+        self.assertIn(("R2","VC","SPLIT","S5"), after)
+        self.assertEqual(len(after), len(before))
+
+    def test_w0_verified_source_proofs_cannot_be_rewritten_or_deleted(self):
+        """Nonblank but forged revisions/refs are not permitted silent mutations."""
+        statements = [
+            ("UPDATE sst_source_trace SET source_revision='forged-rev' "
+             "WHERE project_id='P1' AND version_id='VC' AND sst_id='S5'"),
+            ("UPDATE sst_source_trace SET source_ref='forged:valid:looking' "
+             "WHERE project_id='P1' AND version_id='VC' AND sst_id='S5'"),
+            ("DELETE FROM sst_source_trace "
+             "WHERE project_id='P1' AND version_id='VC' AND sst_id='S5'"),
+            ("UPDATE authoritative_req_version SET source_link_ref='forged-valid' "
+             "WHERE project_id='P1' AND batch_id='B1' "
+             "AND requirement_id='R1' AND version_id='VA'"),
+            ("UPDATE authoritative_link SET source_link_ref='forged-valid' "
+             "WHERE project_id='P1' AND batch_id='B1' "
+             "AND requirement_id='R1' AND version_id='VA' AND sst_id='S1'")
+        ]
+        # Prove a source link with no BRVS consumer still cannot be deleted.
+        self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                        ("P1","B1","R2","VC","S5","verified-but-not-attached"))
+        statements.append(
+            "DELETE FROM authoritative_link WHERE project_id='P1' "
+            "AND batch_id='B1' AND requirement_id='R2' "
+            "AND version_id='VC' AND sst_id='S5'")
+        for sql in statements:
+            with self.subTest(sql=sql):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.db.execute(sql)
+        self.assertEqual(self.db.execute(
+            """SELECT source_revision,source_ref FROM sst_source_trace
+               WHERE project_id='P1' AND version_id='VC' AND sst_id='S5'"""
+        ).fetchone(),("source-rev-1","starlink:verified:VC:S5"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM authoritative_link WHERE sst_id='S5'"
+        ).fetchone()[0],1)
+
+    def test_w0_scope_state_projection_keeps_acl_and_batch_fence(self):
+        with self.assertRaises(DomainError) as denied:
+            scope_rows_with_states(self.db, set(), "P1", "DOES_NOT_EXIST")
+        self.assertEqual(denied.exception.status, 403)
+        with self.assertRaises(DomainError) as missing:
+            scope_rows_with_states(self.db, {"P1"}, "P1", "DOES_NOT_EXIST")
+        self.assertEqual(missing.exception.status, 404)
+        # The independent B2 R1/VA link is not silently inherited from B1.
+        self.assertEqual(scope_rows_with_states(self.db, {"P1"}, "P1", "B2"),
+                         [("R1","VA","UNSPLIT",None)])
 
     def test_t1_t2_t3_real_join_no_cartesian(self):
         rows = scope_rows(self.db, {"P1"}, "P1", "B1")
