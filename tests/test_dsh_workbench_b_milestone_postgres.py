@@ -113,7 +113,8 @@ class Milestone(prior.Scope):
         path='/api/workbench/v1/projects/P1/batches/B1/assets'
         def request(method,path,body=None,**headers):
             data=json.dumps(body).encode() if body is not None else None
-            values={'Cookie':'host-fixture=alice','Content-Type':'application/json','Origin':'https://trusted-host.test','X-CSRF-Token':'session-bound-fixture'};values.update(headers)
+            with urlopen(Request(origin+'/api/workbench/v1/write-context',headers={'Cookie':'host-fixture=alice'}),timeout=5) as context_response:context=json.load(context_response)['write_context']
+            values={'X-DSH-Write-Context':context,'Cookie':'host-fixture=alice','Content-Type':'application/json','Origin':'https://trusted-host.test','X-CSRF-Token':'session-bound-fixture'};values.update(headers)
             try:
                 with urlopen(Request(origin+path,data=data,headers=values,method=method),timeout=5) as response:return response.status,json.load(response)
             except HTTPError as error:return error.code,json.load(error)

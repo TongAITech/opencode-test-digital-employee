@@ -102,8 +102,10 @@ class DraftKinds(prior.Milestone):
         server=create_scope_server(('127.0.0.1',0),lambda:infra.psycopg.connect(**self.params,autocommit=True),self.scope.key,provider)
         threading.Thread(target=server.serve_forever,daemon=True).start();self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
         url='http://127.0.0.1:'+str(server.server_port)+'/api/workbench/v1/projects/P1/batches/B1/assets'
+        context_url='http://127.0.0.1:'+str(server.server_port)+'/api/workbench/v1/write-context'
+        with urlopen(Request(context_url,headers={'Cookie':'host-session-fixture'}),timeout=5) as context_response:context=json.load(context_response)['write_context']
         for kind in PAYLOADS:
-            request=Request(url,data=json.dumps(self.draft(kind)).encode(),headers={'Content-Type':'application/json','Cookie':'host-session-fixture','Origin':'https://host-fixture.test','X-CSRF-Token':'session-proof'},method='POST')
+            request=Request(url,data=json.dumps(self.draft(kind)).encode(),headers={'X-DSH-Write-Context':context,'Content-Type':'application/json','Cookie':'host-session-fixture','Origin':'https://host-fixture.test','X-CSRF-Token':'session-proof'},method='POST')
             with urlopen(request,timeout=5) as response:
                 self.assertEqual(response.status,201);value=json.load(response)
                 self.assertEqual(value['record']['kind'],kind);self.assertEqual(value['record']['r1_reference_state'],'UNRESOLVED')
