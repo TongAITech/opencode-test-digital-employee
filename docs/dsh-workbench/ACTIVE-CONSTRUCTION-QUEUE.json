@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "b4eb06be3622b54ac0c96d692dcc0b6849bbdd83",
+    "last_tested_code_sha": "e7edb8a99cc48d5a30975f6f3e0689631c8b7852",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -54,7 +54,8 @@
         213,
         214,
         224,
-        227
+        227,
+        229
       ],
       "next_action": "Preserve new exact F failure; fix trusted method identity without probing unknown callable; no failed implementation merge."
     },
@@ -71,8 +72,8 @@
       "ticket": "C_REQUIREMENTS_RELATIONS",
       "owner": "C",
       "pr": 225,
-      "source_sha": "26257eaed8f78857ce9d22b8325a4cffb419b67f",
-      "state": "F_FUNCTIONAL_ACCEPTANCE_PENDING_REPORT_P2_MOBILE",
+      "source_sha": "79ff9823fe8bdc67a1b4cbc0a69d710664ef1840",
+      "state": "FIXED_SOURCE_F_EXACT_RECHECK_RUNNING",
       "next_action": "Fix common Scope select long ID 375px overflow; F new exact source recheck before integration."
     }
   ],
@@ -152,6 +153,15 @@
       "sha": "b4eb06be3622b54ac0c96d692dcc0b6849bbdd83",
       "real_pg_profile": 27,
       "profile_artifact": 2
+    },
+    {
+      "sha": "e7edb8a99cc48d5a30975f6f3e0689631c8b7852",
+      "python_workbench_real_pg": {
+        "executed": 632,
+        "passed": 632,
+        "skipped": 0,
+        "seconds": 150.198
+      }
     }
   ],
   "rules": [
