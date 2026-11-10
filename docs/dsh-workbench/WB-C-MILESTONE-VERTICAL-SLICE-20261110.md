@@ -11,3 +11,11 @@ Host须通过受控页面元数据提供会话绑定CSRF token；客户端只回
 真实浏览器tests/browser/test_milestone_product_browser.py：实际product_server同源HTTP、独立真PG/非owner运行角色，DB asset_root/revision/outbox作Oracle。详情建→日历同ID→两语→改期rev2→退役rev3→恢复rev4，DB版本和outbox各4；错CSRF403、强制旧CAS409、篡改BRVS422均未新增版本；真实DB故障503清空及恢复。拦截真实已提交响应造成网络丢失，原request_id重放后asset_root不重复；UNSPLIT R2精确Scope落真实asset_brv_link且不继承SST。R1空测试文件字节始终不变，不创建正式运行事实。
 
 本地Node24/24、真实浏览器四项4/4（C01/C02/milestone/同源）、CI admission13通过。最初退役浏览器测试未填必需reason真实失败，补齐用户输入后通过，未弱化后端审计要求。远端精确源CI与F独立审查须另取，不以本地绿代替。截图不作为业务Oracle，未修改08/09/10或R1。
+
+## F156未知提交恢复P1整改
+
+F对a7fd0827真PG/HTTP/Chromium发现：提交已成功但响应丢失后，“刷新里程碑”无条件清pending，使新UUID写入重新可用；原浏览器成功未覆盖此负例。保留历史缺陷，不用旧绿灯转移。
+
+修复为未知请求维持HOLD：读刷新/切语/切分区不能清原request_id/payload或启用新提交；Scope变化/撤权清显示列表与表单，原请求只在私有闭包隔离，不显示旧payload，不向新project/batch发送。仅重新授权的原project+batch可重试；已不确定的请求再遇403不能据此推断旧提交未发生。只有同键重放取得明确结果后解除HOLD。首次明确4xx拒绝可通过刷新重新编辑，网络/503不确定性不作同等处理。
+
+真浏览器新增：已提交丢响应→刷新仍保留retry且禁新保存→切语/切分区仍HOLD→改batch清私密表单/禁原重试→原批次撤权Scope403仍禁重试→恢复ACL重新加载合法Scope→原key重放，DB资产仍2而不重复。页面崩溃持久恢复仍未实现，保持此前限制；FIELD_NEEDS_BANK_TRANSFER不变。
