@@ -208,3 +208,10 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - C 源 `source_fence.mjs` + 10 条 SourceReadFence Node 负向用于拒绝跨项目/批次/epoch/修订异步响应、401/403/404/409/422/503、R1 STALE、缺 Evidence/人审假 PASS；A 继承 #103 的 W0 必跑约束及新 L1/Node 校验。**源模拟预览，不能伪称正式 Host/API/R1。**
 - B/C/E 通过真实多父 Git 集成到 A `work/dsh-wb-w0`，保留 C/F/B/D/E 的原始证据与错误历史；三本账为追加更正，不删除旧结论。P0 FG21 Git 源冲突已解决；FG22 源 A200 180/180 PASS；FG23 新集成 HEAD CI 与 F 独立核验后才能关闭。
 - **门禁：W0_NOT_FROZEN / A02_BLOCKED_LICENSE / A_PR84_DRAFT / W1-W4_PRODUCT_QA_NOT_RUN / R4_ROSTER32_ACTIVE4_DEFAULT / NO_BANK_ZIP**。不把 L0 demo 绿灯当独立 F acceptance；未经商业许可不得复制受限 naodeng/dsh-qa 代码。
+
+
+### A 组 ABCDE 同源真实验收检查点 `db1026fd`（2026-11-10）
+- 多父来源：A `200a96ac` + B #95 `50bd16d9` + C #97 `b2a64df6` + E #102 `26b2deaf` + A #103 `d082e71f`，全部作为真实 Git parents，D 历史源由 A 首父继承；含 RC7.2 R4 合入的第一父祖先。
+- 同源 Actions [run #42735465054 / job #129563488731](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42735465054/job/129563488731) ：**206/206 Python unittest + 30/30 Node + CI_ADMISSION_POLICY_PASS（13 workflows）**；FG23 `C_BROWSER_RERUN_ON_LEDGER` 负向代码在该源保留且通过。针对 F 原旧 A+B+C 183/1 FAIL，只判 **A_UNIFIED_L0_RECHECK_PASS / F_INDEPENDENT_RECHECK_PENDING**。
+- 工程经济：C 原型 browser workflow 删除 PR paths 08/09/10；A Draft 保持 V3/V4/Q1/N5/Field 长矩阵 skip，L1 非 Draft/人工 pinned SHA 执行，真实 Browser 从未因 L0 PASS 代签。PR 累计差异同步仍可能触发旧 C Workflow，新候选需 F 与 release-review 验证实际工作流调度。
+- FG21 source mergeable=true、最新主线 `87f956f` 已纳入祖先；F #104 评审的是更旧源 `200a96a`，**不是 `db1026fd` 的独立签署**。B/E/C 真 PostgreSQL、DSH Host/R1/Agent Teams32/Windows field 仍 NOT_RUN；A02 BLOCKED_LICENSE、W0 NOT_FROZEN，严禁 W1 正式施工越依赖，银行 ZIP 禁止。

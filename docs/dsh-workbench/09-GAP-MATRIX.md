@@ -159,3 +159,14 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | FG17, FG21, FG22 | F FG17 定向真实 Py3.8 PASS，PR84 R4 Git merge conflict resolved，A200 W0 180/180 Node20/20 | PREVIOUS_HEAD_CI_EVIDENCE / NEW_HEAD_RECHECK | FG17 新源资格、FG21 所有 required checks、FG22/23 F 同源核销 |
 | C01/C02 50功能与source fence | C W0 原创六页十区模拟验证、30 Node、3 PNG；source fence 只验证只读 preview/失败拒绝 | W0_PROTOTYPE_ONLY / F_VISUAL_REVIEW_PENDING | 真实 DSH Host/B06、完整 50 原子 F02 UI/API/Evidence |
 | A02 授权与交付 | PolyForm Noncommercial 上游源码不得商业复制；来源审计/法务尚未通过 | BLOCKED_LICENSE | LEGAL_LICENSE_RELEASE_APPROVED + F04 FIELD_QA + W1-W4 正式 QA |
+
+
+### FG23/FG18/E/C 最新统一树 GAP 证据（A `db1026fd`）
+| 项目 | 同源核验 | 退出状态 |
+|---|---|---|
+| FG23 高成本 Chromium PR 路径误触发 | A 同 SHA Python 206/206、Node 30/30，CI policy 13 workflows PASS；原 F #104 183/1 FAIL 证据仍在 | A_CODE_FIXED/UNIFIED_L0_PASS；F_INDEPENDENT_RECHECK_PENDING |
+| FG18 来源可信追踪/跨版本 SST | 已纳入 B #95 `50bd16d` 新 trace↔authoritative_link composite FK、原 FG18 负例；合同 Python 同源 PASS | W0_DESIGN_RECHECK_PENDING_F；PostgreSQL W1 NOT_RUN |
+| B06/R1 全分页安全 | E #102 `26b2deaf` 逐页消费、游标/版本/SSE 并未建立真实 API；同源 W0 Python PASS | PROTOCOL_CONTRACT_ONLY / E01_REAL_NOT_RUN |
+| FG20/ScopeReadFence | C #97 `b2a64df` W0 六页十区 30 Node 合同 PASS；浏览器已在 C SHA 用真实 Playwright+PNG 跑通，但 A 新 SHA Browser L1 尚未运行 | W0_PREVIEW_ONLY / F_VISUAL_SIGNOFF_PENDING |
+| FG21/FG17/FG22 | FG21 Git 冲突已解；FG17 Py3.8 定向证据是旧 A b385e；FG22 新 A 旧源码错误码回归已修且单源再绿 | L2+F 同 SHA full qualification 仍 required |
+| 许可/现场发布 | BLOCKED_LICENSE、DSH Host1.18.26/W1-W4 FIELD_QA_NOT_RUN | RELEASE_BLOCKED/NO_BANK_ZIP |

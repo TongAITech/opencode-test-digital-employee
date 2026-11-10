@@ -122,3 +122,9 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - **F #104 发现 FG23 的原始失败** https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42732024122/job/129552134247 保留，C 仅提交 CI PR paths 修复，同源 Browser+30Node 源工作流成功 https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42734198368；需新联合 HEAD F recheck；仅改 08/09/10 的 PR synchronize 仍可能因累计差异触发浏览器，CI 经济优化需单独实测，不宣传已完全消除。
 - 新源 CI 在明确完成前状态 `NEW_HEAD_W0_CI_PENDING / F_W0_DESIGN_RECHECK_REQUIRED`；W0 非产品 QA；B06 真 API、R1、DSH Host1.18.26、PostgreSQL、32真实团队、Windows免安装都不在这里验收。
 - **W0_NOT_FROZEN, A02_BLOCKED_LICENSE, W1-W4_QA_NOT_RUN, NO_RC72_MERGE, NO_BANK_ZIP**。正式 L1/L2 在 release-ready 同 SHA 准入；不得以本轮减负抹去真实 Q1/FG17 负例。
+
+
+### A 组 `db1026fd` W0 同源回归 checkpoint（2026-11-10）
+- 原 C #97 FG23 浏览器 PR paths 回退，F #104 于旧 A+B+C 源发现 183 tests /1 FAIL `C_BROWSER_RERUN_ON_LEDGER`；A 在新联合 SHA `db1026fd1036d2e0b00853f56383e89b8bb0b9d0` 实测 [job 129563488731](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42735465054/job/129563488731) **Python 206/206、Node 30/30、CI Policy 13/13 通过**。这是 A 持有的同 HEAD L0，F 对新联合源复核尚未签。
+- 同一 Git commit 的父提交包含 B #95 50bd16d（verified sst_source_trace）、C #97 b2a64df（SourceReadFence 30 Node/FG23 修复）、E #102 26b2dea（B06 all-pages consumer）、A #103 d082e71（scope fence CI policy），不把旧子组绿灯冒充本 HEAD；三本账与 A03 已同步。
+- W0 设计未获 F 独立 ACCEPT，PR #84 仍 Draft；W1 B01/B02/C01/E01、真 PostgreSQL/DSH Host/HTTP/R1/32 Teams/Windows 免安装未进行；商业 PolyForm Noncommercial 源码不得复制进入银行交付，A02 BLOCKED_LICENSE，最终正式交付仍 BLOCKED。
