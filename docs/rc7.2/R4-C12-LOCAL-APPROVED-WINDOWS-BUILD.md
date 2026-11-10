@@ -37,13 +37,15 @@ python -m rc7_release.rc72_c12_local_portable build `
   --dsh-file $dshFile --dsh-sha256 $dshSha256 --approval-record $approval
 ```
 
+**重要：** 新解压的包内 Node 可执行文件必须在真实 Windows 构建机的受控隔离环境中具备有效的出站阻断（可参考原 GitHub Actions 的 Windows Firewall 专用 Node 规则）；构建器执行 `--require-windows-outbound-block`，不会自动修改宿主防火墙。网络阻断未生效时必须失败并删除最终 ZIP，不能跳过该核验。Windows pip-mirror 验证需要构建机的受控 Python/pytest 组件和真实离线物料。
+
 ## 工程执行顺序
 
 - **真正无副作用的 preflight 在最前**：精确 SHA 格式、真实文件大小及 PE32+/AMD64、独立 SHA256、批准文件哈希；失败不下载、不建 ZIP。
 - 真实 Windows 构建机绑定 `git HEAD` 与 `SOURCE_COMMIT` 且拒绝 tracked worktree 改动；禁止覆盖已有同 SHA ZIP、收据或构建目录。
 - 调用已冻结的 `plugin_payload.acquire` 与 `rc72_package.build_package(make_zip=False)`；必须先由正式 `rc72_dsh_main_payload.materialize(source_file=...)` 复制并重验真实 exe，再获取所有 offline payload，封存 `PACKAGE_MANIFEST`、`CHECKSUMS` 和全能力清单。
 - 使用原生 `_repack` 一次成包并生成 ZIP SHA256；独立临时空目录重新解压，验证路径无法逃逸、没有 ZIP symlink。
-- **从新解压的包内 Python 执行** package identity、runtime delivery、full capability inventory、Windows clean R1 qualification；再用源码外的独立 QA audit 校验相同 source commit 和物理 DSH 文件。
+- **从新解压的包内 Python 执行** package identity、runtime delivery、full capability inventory、Windows clean R1 qualification、隔离环境下的完整 Python/document/OCR probe、禁止网络外连的 Node execution-node 验证、严格全文检索验证；再由源码外的独立 QA audit 校验同一 source commit 和物理 DSH，并运行 Windows pip-mirror 实证测试。与 GitHub 既有 Q2 流程对齐，全部失败即拒绝出 ZIP。
 - 上述任何步骤失败，不保留貌似可交付的最终 ZIP；全部成功才写出 `PHYSICAL_Q2_CANDIDATE_ONLY` 收据（主程序 SHA、批准文件 SHA、ZIP SHA，均非银行最终 PASS）。
 
 ## 核销、真实输入与限制
