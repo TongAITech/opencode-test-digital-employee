@@ -12,4 +12,4 @@ $('project-entry').onclick=()=>update('page','detail');$('locale').onchange=e=>u
 const scopePanel=mountScopePanel(document.getElementById("business-scope"));
 mountMilestones(document.getElementById('milestones'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
-mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>update('page','detail')});
+mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>{update('page','detail');$('heading').tabIndex=-1;$('heading').focus();}});

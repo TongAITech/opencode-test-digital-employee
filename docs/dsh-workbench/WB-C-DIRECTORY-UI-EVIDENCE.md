@@ -16,3 +16,14 @@ PYTHONPATH="$PWD/../pg-environment-venv/lib/python3.9/site-packages" WB_PG_TEST_
 ```
 
 Host/CSRF仍为明确fixture，仅组件证据；FIELD_NEEDS_BANK_TRANSFER。不授完整首页/看板、C03/C04整体、正式R1结果或现场资格。未改R1/08/09/10。远端同SHA CI与F独立验收待执行。
+
+
+## F 对01676a8d的两项真实反例与修复
+
+F新增真实键盘回归发现：卡片Enter进入详情后重绘移除原按钮，焦点退BODY。现卡片动作同步导航后聚焦详情heading（tabIndex=-1），后续Tab到项目详情入口；目录异步重绘只恢复仍属于可见卡片的稳定按钮，不用timer或抢占已移动到页面其他位置的焦点。卡片按钮accessible name包含项目名。
+
+F另发现日期请求403后旧项目仍在项目select中。现日期目录或Scope加载的明确403均使整个项目目录缓存与选择失效，Scope/资产显示清空、保ERROR和显式重载入口；如果焦点原位于被失效的目录控件，移到加载按钮以便键盘恢复。其他页面焦点不被异步抢占。它修复过期可选状态，不声称原后端授权被绕过。不触碰资产控制器private pending/request_id/write-context。
+
+新增真PG/Chromium断言覆盖卡片focus→Enter→heading→Tab、撤权403后无P1选项/无卡片/选择器禁用及恢复焦点；原分页、迟到、改期、两语、503和Alice/Bob/Alice未知提交恢复例全部保留。定向1/1与Node43/43通过；固定新源仍须六browser及F独立复验，不将旧源通过转移。
+
+修复后本地六套真实PG/HTTP/Chromium6/6通过（27.01秒），包括原分页/主体恢复与新增键盘/双403路径；Node43/43通过。新提交后的同SHA CI与F独立复验仍待核对。
