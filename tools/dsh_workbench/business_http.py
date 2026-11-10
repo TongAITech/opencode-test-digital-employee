@@ -16,7 +16,7 @@ class HostIdentity:
     principal: str
 
 
-def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None):
+def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass
 
@@ -37,13 +37,15 @@ def create_scope_server(address,connection_factory,cursor_key,host_identity_prov
                     raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
                 url=urlsplit(self.path)
-                match=re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/release-dates/(\d{4}-\d{2}-\d{2})/scope',url.path)
+                match=re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/release-dates/(\d{4}-\d{2}-\d{2})/(scope|quality)',url.path)
                 if match is None:raise BusinessError(404,'RESOURCE_NOT_FOUND')
                 project=unquote(match[1])
                 if not project or '/' in project:raise BusinessError(400,'INVALID_SCOPE')
                 try:q=parse_qs(url.query,keep_blank_values=True,max_num_fields=400,strict_parsing=True) if url.query else {}
                 except ValueError:raise BusinessError(400,'INVALID_SCOPE')
+                quality=match[3]=='quality'
                 allowed={'batch_id','requirement_ids','system_version_ids','sst_ids','page_size','page_cursor'}
+                if quality:allowed={'batch_id','mission_id','page_size'}
                 if set(q)-allowed or any(len(q[k])!=1 for k in ('batch_id','page_size','page_cursor') if k in q):
                     raise BusinessError(400,'INVALID_SCOPE')
                 try:page_size=int(q.get('page_size',['100'])[0])
@@ -51,7 +53,11 @@ def create_scope_server(address,connection_factory,cursor_key,host_identity_prov
                 # The connection belongs to this request; identity cannot leak to
                 # another request or be supplied by the browser's query/body.
                 with connection_factory() as connection:
-                    value=ScopeStore(connection,cursor_key).scope(identity.principal,project,batch_id=q.get('batch_id',[None])[0],release_date=match[2],requirement_ids=q.get('requirement_ids'),system_version_ids=q.get('system_version_ids'),sst_ids=q.get('sst_ids'),page_size=page_size,page_cursor=q.get('page_cursor',[None])[0])
+                    if quality:
+                        if quality_service_factory is None:raise BusinessError(503,'TRUTH_SOURCE_UNAVAILABLE')
+                        if any(len(q.get(k,[]))!=1 or not q[k][0] for k in ('batch_id','mission_id')):raise BusinessError(400,'INVALID_SCOPE')
+                        value=quality_service_factory(ScopeStore(connection,cursor_key)).quality(identity.principal,project,q['batch_id'][0],match[2],q['mission_id'][0],page_size)
+                    else:value=ScopeStore(connection,cursor_key).scope(identity.principal,project,batch_id=q.get('batch_id',[None])[0],release_date=match[2],requirement_ids=q.get('requirement_ids'),system_version_ids=q.get('system_version_ids'),sst_ids=q.get('sst_ids'),page_size=page_size,page_cursor=q.get('page_cursor',[None])[0])
                 self.respond(200,value)
             except BusinessError as error:
                 self.respond(error.status,{'error':{'code':error.code}})
