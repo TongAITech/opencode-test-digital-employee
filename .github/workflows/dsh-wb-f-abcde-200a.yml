@@ -4,7 +4,6 @@ on:
     branches: [work/dsh-wb-w0]
     paths:
       - '.github/workflows/dsh-wb-f-abcde-200a.yml'
-      - 'docs/dsh-workbench/qa/WB-F-ABCDE-REVIEW-200A96A.md'
   workflow_dispatch:
 
 permissions:
@@ -46,11 +45,12 @@ jobs:
           echo "F_SYNTHETIC_HEAD=$(git rev-parse HEAD)"
       - name: B plus C plus D plus E complete W0 Python contracts, no exclusions
         run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
-      - name: C twenty original feature and Scope adversarial Node tests
+      - name: C thirty original feature, Scope and source-fence adversarial Node tests
         run: |
           node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
           node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
-          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
       - name: F-owned SST identity and release DAG independent negatives
         run: |
           python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
