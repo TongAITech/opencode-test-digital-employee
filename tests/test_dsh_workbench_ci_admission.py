@@ -45,6 +45,11 @@ class TestCIAdmission(unittest.TestCase):
                      "  push:\n    branches: [work/dsh-wb-w0]\n  workflow_dispatch:",
                      "W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
 
+    def test_a01_w1_bilingual_must_remain_in_w0_design_gate(self):
+        self.changed("w0", "python tools/dsh_workbench/a01_locale_scope.py",
+                     "echo bilingual not required",
+                     "A01_W1_BILINGUAL_SCOPE_GATE_REMOVED")
+
     def test_w0_c_node_scope_negative_tests_must_run(self):
         self.changed("w0", "node --test tests/test_dsh_workbench_ui_w0.mjs",
                      "echo skipped C scope tests",

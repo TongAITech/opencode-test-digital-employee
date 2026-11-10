@@ -170,3 +170,12 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | FG20/ScopeReadFence | C #97 `b2a64df` W0 六页十区 30 Node 合同 PASS；浏览器已在 C SHA 用真实 Playwright+PNG 跑通，但 A 新 SHA Browser L1 尚未运行 | W0_PREVIEW_ONLY / F_VISUAL_SIGNOFF_PENDING |
 | FG21/FG17/FG22 | FG21 Git 冲突已解；FG17 Py3.8 定向证据是旧 A b385e；FG22 新 A 旧源码错误码回归已修且单源再绿 | L2+F 同 SHA full qualification 仍 required |
 | 许可/现场发布 | BLOCKED_LICENSE、DSH Host1.18.26/W1-W4 FIELD_QA_NOT_RUN | RELEASE_BLOCKED/NO_BANK_ZIP |
+
+
+## F #106 核销与 A01 双语设计范围 GAP（2026-11-10）
+| GAP | F 新结论 / A 新施工 | 当前状态 | 剩余退出门槛 |
+|---|---|---|---|
+| FG23 C Browser PR 账本误触发 | F #106 同 SHA `a3555b1` 独立 206 Python、30 Node、真实 Chromium+3 PNG，负向注入仍拒绝账本路径 | **FG23_CLOSED（F 签收）** | 真实 PR synchronize 仅 ledger-only 的重复 Chromium 成本仍需独立监测，不可混淆发布 L2 |
+| FG20 50 项原版范围 | F #106 `FG20_DESIGN_RECONCILIATION_PASS`，35 O/A + 15 N 原版候选身份一致 | DESIGN_RECONCILIATION_PASS / PRODUCT_50_NOT_RUN | W1 完整真 UI/API/DB/Host，F02 逐项 QA |
+| A01-LOCALE P05-03 / X01-01 | A `KEEP_ZH_EN_W1_REQUIRED`，默认中文且保留英文；12 项负向/许可/状态 Oracle；W0 中文仅模拟 | A_SCOPE_RECORDED / F_DESIGN_REVIEW_PENDING | F 确认 W0 设计完整，W1 C/D 实现中英文/主题/Skill，F02 正反例，许可另签 |
+| W0 F00 & A02 | C W0 原型通过 **不等于 W0 总体冻结**，PolyForm NC 授权未取得 | W0_NOT_FROZEN / BLOCKED_LICENSE | F00 对 A01+A03 正式 DESIGN_ACCEPTED；法务/F 许可和 W1–W4 真证据不能预填 |

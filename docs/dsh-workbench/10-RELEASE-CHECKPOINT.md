@@ -128,3 +128,9 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 原 C #97 FG23 浏览器 PR paths 回退，F #104 于旧 A+B+C 源发现 183 tests /1 FAIL `C_BROWSER_RERUN_ON_LEDGER`；A 在新联合 SHA `db1026fd1036d2e0b00853f56383e89b8bb0b9d0` 实测 [job 129563488731](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42735465054/job/129563488731) **Python 206/206、Node 30/30、CI Policy 13/13 通过**。这是 A 持有的同 HEAD L0，F 对新联合源复核尚未签。
 - 同一 Git commit 的父提交包含 B #95 50bd16d（verified sst_source_trace）、C #97 b2a64df（SourceReadFence 30 Node/FG23 修复）、E #102 26b2dea（B06 all-pages consumer）、A #103 d082e71（scope fence CI policy），不把旧子组绿灯冒充本 HEAD；三本账与 A03 已同步。
 - W0 设计未获 F 独立 ACCEPT，PR #84 仍 Draft；W1 B01/B02/C01/E01、真 PostgreSQL/DSH Host/HTTP/R1/32 Teams/Windows 免安装未进行；商业 PolyForm Noncommercial 源码不得复制进入银行交付，A02 BLOCKED_LICENSE，最终正式交付仍 BLOCKED。
+
+
+## 2026-11-10 F #106 最终 C W0 验收 / A01 双语保留检查点
+- F #106 在精确 A `a3555b187eb35d27a2d712313dd8ea7daa28915f` 源 [run #42740012204](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42740012204) 独立验收：206/206 Python、30/30 Node、FG16 2/2、FG18 1/1、21/21 CI 负例、原型真 Chromium PASS，3 张 PNG F 已目视；**FG23_CLOSED、FG20_DESIGN_RECONCILIATION_PASS、C_W0_PROTOTYPE_REVIEW_PASS**。该结论不覆盖 W1 50 功能。
+- A01 产品范围决定 `KEEP_ZH_EN_W1_REQUIRED`：保留 `P05-03` Skill 双语说明与 `X01-01` 完整中英文/浅深系统主题，中文为 W0 默认；W1 C/D 正式实现与 F02 真实验收必须覆盖 `zh-CN,en-US` 12 个正反例。只标记 `A_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`，没有擅自签 `WB-A01_DESIGN_SIGNED` 或 `WB-F00_DESIGN_ACCEPTED`。
+- A `fc2619d` 范围合同单测真实 [run #42743331421](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42743331421) **218 Python、30 Node、CI policy 13 PASS**；完整产品 QA/许可证/现场仍不同门槛。W0_NOT_FROZEN、A02 BLOCKED_LICENSE、NO_BANK_ZIP。

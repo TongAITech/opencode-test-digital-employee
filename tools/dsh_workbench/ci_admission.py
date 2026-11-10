@@ -74,6 +74,8 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "test_dsh_workbench*.py", "ci_admission.py", "workflow_dispatch:",
     )):
         errors.append("W0_FAST_GATE_NOT_WIRED")
+    if "a01_locale_scope.py" not in sources["w0"]:
+        errors.append("A01_W1_BILINGUAL_SCOPE_GATE_REMOVED")
     if not all(x in sources["w0"] for x in (
         "tests/test_dsh_workbench*.mjs",
         "node --test tests/test_dsh_workbench_ui_w0.mjs",

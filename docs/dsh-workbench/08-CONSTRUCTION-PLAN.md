@@ -215,3 +215,11 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 同源 Actions [run #42735465054 / job #129563488731](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42735465054/job/129563488731) ：**206/206 Python unittest + 30/30 Node + CI_ADMISSION_POLICY_PASS（13 workflows）**；FG23 `C_BROWSER_RERUN_ON_LEDGER` 负向代码在该源保留且通过。针对 F 原旧 A+B+C 183/1 FAIL，只判 **A_UNIFIED_L0_RECHECK_PASS / F_INDEPENDENT_RECHECK_PENDING**。
 - 工程经济：C 原型 browser workflow 删除 PR paths 08/09/10；A Draft 保持 V3/V4/Q1/N5/Field 长矩阵 skip，L1 非 Draft/人工 pinned SHA 执行，真实 Browser 从未因 L0 PASS 代签。PR 累计差异同步仍可能触发旧 C Workflow，新候选需 F 与 release-review 验证实际工作流调度。
 - FG21 source mergeable=true、最新主线 `87f956f` 已纳入祖先；F #104 评审的是更旧源 `200a96a`，**不是 `db1026fd` 的独立签署**。B/E/C 真 PostgreSQL、DSH Host/R1/Agent Teams32/Windows field 仍 NOT_RUN；A02 BLOCKED_LICENSE、W0 NOT_FROZEN，严禁 W1 正式施工越依赖，银行 ZIP 禁止。
+
+
+## 2026-11-10 A01 中英文范围裁决与 F #106 增量核销
+- F [PR #106](https://github.com/TongAITech/opencode-test-digital-employee/pull/106) 已对 A 源 `a3555b187eb35d27a2d712313dd8ea7daa28915f` **独立复验**：W0 206/206 Python、C 30/30 Node、FG16 2/2、FG18 1/1、21/21 CI admission 负向、真实 Chromium/三截图目视。F 关闭 `FG23_CLOSED`，签 `FG20_DESIGN_RECONCILIATION_PASS` 与 `C_W0_PROTOTYPE_REVIEW_PASS`，**没有签 W0 总冻结**；原 FG23 183/1 FAIL 仍保留。
+- F 明确指出 A01 `P05-03` Skill 双语说明、`X01-01` 全站语言/主题在 W0 中文演示均 NOT_RUN；不能把 `THEME_COLLAPSE_ONLY` / `NO_INTERACTION` 误判成双语完成。**A 决策 `KEEP_ZH_EN_W1_REQUIRED`**：中文 `zh-CN` 默认，英文 `en-US` 正式保留为 W1 C/D 开发和 F02 按钮级验收，不静默裁剪原 50 功能。
+- 本轮新增 [A01 双语设计合同](WB-A01-BILINGUAL-SCOPE.md)、[机器可读 12 项 W1 负例](WB-A01-LOCALE-SCOPE.json)、[静态门禁](../../tools/dsh_workbench/a01_locale_scope.py) 和 unittest。设计状态为 `A_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`，不是 W1 UI QA；F 可独立核验英语+技能缺译回退、日期/ID 不漂移、权限/NodeGate/Human Gate 不伪 PASS、主题偏好用户隔离、许可不绕过。
+- 同源码提交 `fc2619d6f4ef36afe50b594a3a4630057c1ae884` 的 [W0 run #42743331421](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42743331421) **Python 218/218 + Node 30/30 + CI policy13 PASS**；这是 A 的范围静态测试，不继承为 F 对新 HEAD 的签署。
+- A02 PolyForm Noncommercial `BLOCKED_LICENSE`、W0 `NOT_FROZEN`、W1–W4 真实 API/Host/Postgres/R1/Windows/Evidence/50 功能依赖照旧；PR #84 Draft，不合入 RC7.2/不构建银行 ZIP。
