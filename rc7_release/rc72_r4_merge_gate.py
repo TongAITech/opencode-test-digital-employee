@@ -50,7 +50,8 @@ def _hold(reason, sha):
     }
 
 
-def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers):
+def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers,
+                   expected_pr_number=None):
     """Pure review of GitHub-origin data. Never use caller-provided approval booleans."""
     sha = str(expected_sha or "")
     if not SHA.fullmatch(sha):
@@ -61,6 +62,17 @@ def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers):
                          snapshot.get("workflow_runs"), snapshot.get("reviews"))
     if not isinstance(pr, dict):
         return _hold("R4_PR_PROOF_MISSING", sha)
+    number = pr.get("number")
+    if (type(number) is not int or number < 1
+            or (expected_pr_number is not None
+                and (type(expected_pr_number) is not int
+                     or number != expected_pr_number))):
+        return _hold("R4_PR_NUMBER_MISMATCH", sha)
+    head = pr.get("head")
+    if (not isinstance(head, dict)
+            or not isinstance(head.get("ref"), str)
+            or not head["ref"].strip()):
+        return _hold("R4_PR_HEAD_BRANCH_UNVERIFIED", sha)
     if (pr.get("state") != "open" or pr.get("draft") is not False
             or not isinstance(pr.get("head"), dict)
             or pr["head"].get("sha") != sha
@@ -83,6 +95,19 @@ def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers):
         if (run.get("head_sha") != sha or run.get("event") != "pull_request"
                 or not isinstance(run.get("id"), int) or isinstance(run.get("id"), bool)):
             return _hold("R4_CI_SOURCE_OR_EVENT_UNVERIFIED", sha)
+        # The GitHub SHA filter alone is not a PR association: the same commit
+        # can be used by another pull request. Require a native per-run PR
+        # reference to the exact candidate, not a caller-written string.
+        associated = run.get("pull_requests")
+        if (not isinstance(associated, list) or
+                not any(isinstance(item, dict)
+                        and type(item.get("number")) is int
+                        and item["number"] == number
+                        for item in associated)):
+            return _hold("R4_CI_PULL_REQUEST_ASSOCIATION_UNVERIFIED", sha)
+        if (run.get("head_branch") is not None
+                and run.get("head_branch") != head["ref"]):
+            return _hold("R4_CI_HEAD_BRANCH_MISMATCH", sha)
         # Refuse multiple different runs with the same name. Silent selection
         # by name could accidentally hide a conflicting failed run.
         if name in selected:
@@ -192,7 +217,8 @@ def main(argv=None):
             expected_sha=args.expected_head, token=os.environ.get("GITHUB_TOKEN", ""))
         verdict = check_snapshot(
             snapshot, expected_sha=args.expected_head,
-            trusted_e_reviewers=trusted.split(","))
+            trusted_e_reviewers=trusted.split(","),
+            expected_pr_number=args.pr_number)
     except (AdmissionError, HTTPError, URLError, OSError, ValueError, TypeError,
             UnicodeError) as exc:
         reason = str(exc) if isinstance(exc, AdmissionError) else "R4_GITHUB_PROOF_UNAVAILABLE"
