@@ -138,3 +138,13 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | R4-32 | F #101 源码定向 100/100 | ROSTER32_SOURCE_PASS / ACTIVE4_DEFAULT | DSH1.18.26 真实 32 名册/资源并发/断线恢复/Windows Git Bash 现场 |
 
 权限、合同门禁：B06 由 DSH Host 会话派生可信 principal；response source_refs、records、next_page_cursor 单一规范，E 仅读来源验证和 R1 拥有权。B01/B02/E01/C01/C02 **不准**以 W0 见证伪报实现 QA。BUSINESS_TZ 与真实来源映射 HOLD；A02 非商业许可与原创来源审计 BLOCKED_LICENSE；W0_NOT_FROZEN、W1–W4 NOT_RUN。
+
+## 2026-11-10 W0 跨批次只读回包隔离新增缺口
+
+| GAP | 当前状态 | 保留的工程证据与未关闭项 |
+|---|---|---|
+| WB-CG05 / P0 | W0_SCOPE_READ_FENCE_CONTRACT_SUBMITTED | 新增 C 原型 ScopeReadFence 9 项 Node 正反例：项目/批次/筛选变化、relation/access/truth revision 变化或旧请求晚到必须拒绝；401/403/404/409/422/503 等不可伪 PASS；无真实 Host/B06/R1 网络连接，F02 NOT_RUN |
+| WB-CG06 / P1 | W0_CI_ADMISSION_NEGATIVE_SUBMITTED | W0 L0 must execute scope response fence，删除 Node 测试路径应触发 W0_SCOPE_RESPONSE_FENCE_NOT_ADMITTED；最新 CI 按本次 source_sha 实际运行核实，绝不提前标 PASS |
+| WB-FG22 / P1 | A_HEAD_L0_FIX_VERIFIED / F_NEW_SHA_REVIEW_PENDING | A 200a 同 SHA W0 Python 180/180、Node 20/20、policy PASS；F #101 是旧 A 源，不自动批准新版或新的 Node 反例 |
+| WB-A02 / 阻断 | BLOCKED_LICENSE | 此只读测试与原版商业许可相互独立；未经商业授权或可审计原创/第三方许可审核不得银行发布 |
+
