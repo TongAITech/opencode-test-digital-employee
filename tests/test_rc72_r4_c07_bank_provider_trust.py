@@ -61,7 +61,7 @@ def create_captain_observation_provider(**kwargs):
     if marker is not None:
         body += "\nfrom pathlib import Path\nPath(%r).write_text('executed')\n" % str(marker)
     path = tmp_path / "approved_bank_team_provider.py"
-    path.write_text(body, encoding="utf-utf-8")
+    path.write_text(body, encoding="utf-8")
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
