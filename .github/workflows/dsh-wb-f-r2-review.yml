@@ -1,0 +1,108 @@
+name: F independent R2 W0 scope-security and integration acceptance
+
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-r2-review.yml'
+      - 'tests/test_dsh_workbench_f_r2_r1_scope.py'
+      - 'docs/dsh-workbench/qa/WB-F-R2-F6AA-RECHECK-20261110.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  F_A_PIN: 'f6aa541a7c82b74bcd1937754637d8341111fb70'
+  F_B108_PIN: 'b801c25bbec361e6a791c561d5a7dd0ec9440aaf'
+  F_E107_PIN: 'a04933fbe7b651c10b589b90cade5da65bdd8b81'
+  F_C97_PIN: 'b2a64df65661880808510d0486f6aefc70ca23df'
+  F_D90_PIN: 'a332e6c575cac9d2b6ef0b2038615b276dcfa602'
+
+jobs:
+  f-r2-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify F-only diff and exact A/B/C/D/E source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$F_A_PIN" HEAD
+          for x in "$F_B108_PIN" "$F_E107_PIN" "$F_C97_PIN" "$F_D90_PIN"; do
+            git merge-base --is-ancestor "$x" "$F_A_PIN"
+          done
+          echo "F_RECHECKED_A_SOURCE=$F_A_PIN"
+          echo "F_QA_SHA=$(git rev-parse HEAD)"
+          for f in $(git diff --name-only "$F_A_PIN"..HEAD); do
+            case "$f" in
+              .github/workflows/dsh-wb-f-r2-review.yml|tests/test_dsh_workbench_f_r2_r1_scope.py|docs/dsh-workbench/qa/WB-F-R2-F6AA-RECHECK-20261110.md) ;;
+              *) echo "NON_F_FILE_MODIFIED:$f"; exit 2 ;;
+            esac
+          done
+      - name: F independent real AdminProjection adversarial identity-before-details tests
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_f_r2_r1_scope.py' -v
+      - name: E read-only scoped Mission and multipage B06 regression on actual source
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
+      - name: Full W0 Python contracts including license, static release DAG and no fake freeze
+        if: matrix.python-version == '3.11'
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: A01 provenance, CI admission and final W0 release boundary
+        if: matrix.python-version == '3.11'
+        run: |
+          python tools/dsh_workbench/a01_locale_scope.py
+          python tools/dsh_workbench/ci_admission.py
+
+  f-r2-ui-and-host-boundaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact A integration source and C/D ancestry
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$F_A_PIN" HEAD
+          git merge-base --is-ancestor "$F_C97_PIN" "$F_A_PIN"
+          git merge-base --is-ancestor "$F_D90_PIN" "$F_A_PIN"
+      - name: C six pages, ten sections and source fence Node contracts
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: Run real Chromium W0 prototype on newly integrated A source
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+          python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "${{ runner.temp }}/f-r2-browser"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-r2-f6aa-chromium-${{ github.sha }}
+          path: ${{ runner.temp }}/f-r2-browser/*.png
+          if-no-files-found: error
+          retention-days: 14
