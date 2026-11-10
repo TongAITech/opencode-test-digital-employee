@@ -87,6 +87,14 @@ C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA�
 | WB-CG03 浏览器证据 | W0_PROBE_CI_PASS / F_VISUAL_REVIEW_PENDING | SHA `d4863ba` 同 HEAD 20/20 Node、真实 Chromium 逐区表单/多选、3 PNG artifact 13693719815；B→C 合并探针 15/15 | F 对新 SHA 视觉复核；正式 F02 UI/API/Host QA |
 | WB-CG04 设计/许可门禁 | BLOCKED | F 仍 W0_NOT_FROZEN；A02 BLOCKED_LICENSE；FG17/FG21 仍 OPEN | A/F 正式 W0 冻结、授权或原创来源审计；RC7.2 merge gate |
 
+
+### C 组 2026-11-10 响应与授权边界新增缺口
+| GAP | 状态 | W0 提交内容 | 关闭门槛 |
+|---|---|---|---|
+| WB-CG05 旧响应跨 Scope | W0_CODE_SUBMITTED / NEW_CI_PENDING | epoch+复合 Scope 身份拒绝跨项目、批次、修订过期响应，10 项反例 | B06/Host 真实 ACL、SSE、撤权与旧水位独立 F02 |
+| WB-CG06 R1 错误降级 | W0_CODE_SUBMITTED / NEW_CI_PENDING | 401/403/404/409/422/503、200 无 Evidence/Human Review、R1 STALE/UNKNOWN 均不作 PASS | E R1/Evidence/人审真实接口、审计和 F02 |
+| WB-FG22 A CI 门禁 | A_OWNER / F_RECHECK_REQUIRED | F #101 复核了真实错误码预期与 validator 分歧，C 不代修 A validator | A 同源 L0 修复、F 独立复验 |
+
 ## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
 | E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
 |---|---|---|---|---|

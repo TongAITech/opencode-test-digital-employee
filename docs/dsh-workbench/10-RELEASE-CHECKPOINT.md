@@ -70,6 +70,12 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 最新源 SHA d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8 已获得同 HEAD W0 probe 20/20 Node + Chromium + 3 PNG 成功（run 42662706264，artifact 13693719815），以及 B→C merge probe 15/15 成功（job 129318183968）。F 对本 follow-up 新交互的独立视觉复核仍待；不得借用上一轮 A HEAD 的 L0 结果作为本 HEAD 证据。
 - W0_NOT_FROZEN / A02 BLOCKED_LICENSE / FG17 ROOT_CAUSE_PENDING / FG21 MAINLINE_MERGE_DIRTY；无主线合并、无银行 ZIP、无 W1 QA_PASS。
 
+
+### C 组 2026-11-10 追加来源票据负向证据
+- PR #97 扩展 W0 原创错误预览（源票据、过期响应、403/409/422/503、R1 Evidence/Human Review 不完整），新增十项负向测试。
+- 历史 6249f1a CI 仅既有20项+Chromium成功，新增10项漏跑属真实测试覆盖缺口；新 workflow 已修补两个 Job 和 follow-up 分支，但须新 SHA 30/30/浏览器证据才可核销。
+- 当前所有真实功能仍：C01/C02 NOT_STARTED；F02 NOT_RUN；W0 NOT_FROZEN；A02 BLOCKED_LICENSE；未合入主线、无银行 ZIP。
+
 ## 2026-11-09 E 组来源审计及 W0 设计签署（需 A/F 复核）
 - W0 PR #84 审核来源 HEAD `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`；F PR #85 仍 REVIEWED_WITH_BLOCKERS。E 施工分支 `work/dsh-wb-runtime` 对独立控制面协议形成 `E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`，详见 `WB-E-A03-DESIGN-SIGNOFF.md`。E 分支实际提交 SHA/CI 必须以创建 PR 后同 HEAD API 结果更新，不借用 A 的历史 success。
 - 已核对真实 `rc7_admin/server.py`, `product_server.py`, `projection.py`, `rc6_runtime/truth.py`, `rc7_runtime/rc72_domain.py`, `rc72_linkage.py`, `models.py`, `truth_overlay.py`, `derived.py` 的 blob SHA；旧 HTTP 没有可信项目 ACL、正式命令、SSE 或 `/api/workbench/v1`；R1 是 JSONL 原子事实源；Evidence content_hash 可选。对应实现 HOLD 见 09。

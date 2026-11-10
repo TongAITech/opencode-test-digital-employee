@@ -147,6 +147,13 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - C follow-up work/dsh-wb-ui-followup 仅做 W0 允许的原创原型深化：需求/系统版本/SST 多选关系过滤、不可变 Scope 快照、十区领域表单必填校验及 fail-closed 提交、逐区共享上下文浏览器验证。
 - 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；最新 HEAD `d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8` 的 [W0 job 129318183234](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183234) 20/20 Node + Chromium 逐区表单/多选/截图 PASS，artifact 13693719815；[B→C merge job 129318183968](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183968) 15/15 PASS。仅 W0 原型证据，C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
 
+
+### C 组 2026-11-10 来源响应栅栏与安全降级 W0 反例
+- PR #97 以 A 5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1 为最近一次集成父源；之后 A 若演进需重新精确核对，不借用旧 SHA CI。
+- 新增 source_fence.mjs、10 项失败/并发单测和 W0 UI 错误演示；维持原六页面、十项目分区及独立业务六阶段。新增模拟面板不访问 B06/R1/Host，不标正式 QA_PASS。
+- 第一轮 CI 6249f1a 存在覆盖漏跑：20/20 Node+Chrome/三截图通过，但新增10个源票据测试未被原 browser job 包含；已修工作流改为两 Job 执行 30 项，并改用本 PR 源分支；新 HEAD 必须重新核查。
+- F #101 独立结论仍 REVIEWED_WITH_BLOCKERS，FG17 定向真浏览器 PASS、FG21 源冲突解决、FG22 A CI 负向 OPEN；W0_NOT_FROZEN、A02 BLOCKED_LICENSE、C01/C02 W1_NOT_STARTED。
+
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
 - 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。

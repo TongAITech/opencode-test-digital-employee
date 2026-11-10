@@ -71,3 +71,10 @@ F 独立核销时逐 `feature_id` 记录：上游 SHA+入口、目标源 SHA、�
 - 十区表单可行性：十个分区各自展示其领域字段（项目概览/质量任务/需求/用例/缺陷/里程碑/报告/知识/会议纪要/门禁），所有必填字段有原生浏览器校验；即使字段完整，提交也 fail-closed，显示未连接正式 API、未产生任何业务写入。
 - 跨区上下文一致性：每次 Scope 变化更新全部十个分区入口的同一只读快照标识；逐区切换验证同一投产日期/需求/系统版本/SST 选择不丢失。
 - 证据范围：这些是原创静态 W0 演示；没有 B06 数据库/API、ACL、分页、SSE、R1、Host、Mission/Attempt/Evidence 持久化，不可记正式功能 QA_PASS。原版 PolyForm Noncommercial 源码仍零复制。
+
+## 2026-11-10 C 组来源错误与迟到响应 W0 验证合同
+新增 source_fence.mjs 和 test_dsh_workbench_ui_source_fence.mjs，均为原创无网络 W0 反例，不是真实 Host/B06/R1。
+- ScopeReadFence 以项目、稳定 batch_id、业务日期、需求/系统版本/SST 多选集合、关系/权限/真相修订及 epoch 生成票据；旧票据的迟到响应被拒。
+- 错误态区分 401、403、404、409、422、503、200 缺 Evidence/Human Review、R1 STALE/UNKNOWN；403 文本不泄露资源身份；即使显示 NodeGate PASS 也不会记真实 QA_PASS。
+- 详情页提供明确标为 W0 模拟的来源错误和旧响应迟到演示入口，浏览器回归必须覆盖负向场景。此代码不执行 API、不写 R1、无服务端 ACL，不能当作正式 C02。
+- F #101 最近一次审核对 A b385e04 给出 FG17 定向通过、FG21 Git 冲突解决、FG22 A CI 负向失败；W0 仍未冻结、A02 BLOCKED_LICENSE，正式 C01/C02/F02 NOT_RUN。
