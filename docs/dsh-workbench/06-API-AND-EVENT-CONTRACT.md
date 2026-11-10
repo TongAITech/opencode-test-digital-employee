@@ -100,3 +100,9 @@ W1 验收必须在真实 PostgreSQL 执行：迁移与回滚、同需求多版�
 
 ## B07 草稿资产CRUD增量候选
 新增`projects/{project_id}/batches/{batch_id}/assets`及版本CAS、幂等、退役/恢复、日历同源里程碑查询合同，详见[WB-B07-DRAFT-ASSET-API-CONTRACT.md](WB-B07-DRAFT-ASSET-API-CONTRACT.md)。当前DESIGN_REVIEW_PENDING，尚无这些资产HTTP端点。写入需服务器Host mutation授权与CSRF边界、项目ACL；不接受客户端principal或正式R1事实字段。历史冻结设计签署不覆盖本新增接口。
+
+## B01/B06只读目录精确增量
+GET `/api/workbench/v1/projects`只列可信Host当前principal经RLS可读项目，records字段为project_id/name/access_scope_revision，不猜业务phase或质量统计。
+GET `/api/workbench/v1/projects/{project_id}/release-dates`先项目授权；records字段为project_id/batch_id/release_date（DATE原值）/date_revision/relation_revision/access_scope_revision。稳定batch_id改期不变。授权空列表可records=[]；无权项目403、缺Host/DB503。均不新增项目或ACL写接口。
+两端点仅接受page_size(1–100)/page_cursor，拒绝客户端principal及重复标量参数。响应schema=`dsh-workbench/business-directory/v1`，含directory_revision（当前完整可见快照SHA256）、records、顶层next_page_cursor（末页null）、warnings/gap_indicators；日期目录另含project_id/access_scope_revision。
+签名cursor绑定主体、目录类型/project、page_size、完整可见项目/ACL或日期/修订指纹与位置；增授、撤权、改期、目录可见数据变化旧cursor409。每页真实PG REPEATABLE READ/RLS，无R1 fallback、无虚构统计；不改变R1权威。实现及现场资格分别独立验收，FIELD_NEEDS_BANK_TRANSFER。

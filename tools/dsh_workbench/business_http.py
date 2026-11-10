@@ -39,6 +39,19 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
                 url=urlsplit(self.path)
+                directory=re.fullmatch(r'/api/workbench/v1/projects(?:/([^/]+)/release-dates)?',url.path)
+                if directory:
+                    from .business_directory import DirectoryStore
+                    try:q=parse_qs(url.query,keep_blank_values=True,max_num_fields=4,strict_parsing=True) if url.query else {}
+                    except ValueError:raise BusinessError(400,'INVALID_DIRECTORY_QUERY')
+                    if set(q)-{'page_size','page_cursor'} or any(len(v)!=1 for v in q.values()):raise BusinessError(400,'INVALID_DIRECTORY_QUERY')
+                    try:size=int(q.get('page_size',['100'])[0])
+                    except ValueError:raise BusinessError(400,'INVALID_PAGE_SIZE')
+                    project=unquote(directory[1]) if directory[1] else None
+                    if project is not None and (not project or '/' in project):raise BusinessError(400,'INVALID_DIRECTORY_QUERY')
+                    with connection_factory() as connection:value=DirectoryStore(connection,cursor_key).directory(identity.principal,project,size,q.get('page_cursor',[None])[0])
+                    self.respond(200,value)
+                    return
                 if url.path=='/api/workbench/v1/write-context':
                     if url.query:raise BusinessError(400,'INVALID_WRITE_CONTEXT_REQUEST')
                     self.respond(200,{'schema':SCHEMA,'write_context':subject_write_context(cursor_key,identity.principal)})
