@@ -38,6 +38,15 @@ class RelationStore(BusinessStore):
             self._audit(project,principal,request,'batch.requirement_version',batch,{'requirement':requirement,'version':version,'revision':expected+1})
             return expected+1
 
+    def attach_sst(self,principal,project,batch,requirement,version,sst,expected,request):
+        with self._scope(principal,project):
+            if self._claim(project,principal,request,['brvs',batch,requirement,version,sst,expected]): return expected+1
+            self._revision(project,batch,expected)
+            self.db.execute('INSERT INTO wb.batch_requirement_version_sst VALUES(%s,%s,%s,%s,%s)',(project,batch,requirement,version,sst))
+            self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
+            self._audit(project,principal,request,'batch.sst',batch,{'requirement':requirement,'version':version,'sst':sst,'revision':expected+1})
+            return expected+1
+
 
 def import_verified_requirement_version(owner_connection,project,batch,requirement,version,source_link_ref,source_revision):
     """Trusted source-ingestion owner only, after external proof verification.
@@ -47,3 +56,17 @@ def import_verified_requirement_version(owner_connection,project,batch,requireme
     with owner_connection.transaction():
         owner_connection.execute('INSERT INTO wb.verified_requirement_version VALUES(%s,%s,%s,%s,%s,%s)',(project,batch,requirement,version,source_link_ref,source_revision))
         owner_connection.execute("INSERT INTO wb.audit(project_id,actor,request_id,action,object_id,detail) VALUES(%s,current_user,%s,'source.requirement_version',%s,jsonb_build_object('source_ref',%s::text,'source_revision',%s::text))",(project,source_link_ref+':'+source_revision,batch,source_link_ref,source_revision))
+
+
+def import_sst_identity(owner_connection,project,version,sst,source,namespace,object_id,source_revision,source_ref):
+    """Trusted, source-verified ingestion only; runtime has no INSERT privilege."""
+    with owner_connection.transaction():
+        owner_connection.execute('INSERT INTO wb.sst_identity VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(project,version,sst,source,namespace,object_id,source_revision,source_ref))
+        owner_connection.execute("INSERT INTO wb.audit(project_id,actor,request_id,action,object_id,detail) VALUES(%s,current_user,%s,'source.sst',%s,jsonb_build_object('source_ref',%s::text,'source_revision',%s::text,'version',%s::text))",(project,'sst:'+sst+':'+source_revision,sst,source_ref,source_revision,version))
+
+
+def import_verified_sst_link(owner_connection,project,batch,requirement,version,sst,source_link_ref,source_revision):
+    """External proof must authorize this exact requirement/version/SST tuple."""
+    with owner_connection.transaction():
+        owner_connection.execute('INSERT INTO wb.verified_sst_link VALUES(%s,%s,%s,%s,%s,%s,%s)',(project,batch,requirement,version,sst,source_link_ref,source_revision))
+        owner_connection.execute("INSERT INTO wb.audit(project_id,actor,request_id,action,object_id,detail) VALUES(%s,current_user,%s,'source.sst_link',%s,jsonb_build_object('source_ref',%s::text,'source_revision',%s::text,'sst',%s::text))",(project,'sst-link:'+source_link_ref+':'+source_revision,batch,source_link_ref,source_revision,sst))
