@@ -79,5 +79,51 @@ class TestA01LocaleDecision(unittest.TestCase):
                     "A01_TEN_SECTION_LOCALE_ORACLE_MISSING")
 
 
+    def test_i18n_source_cannot_be_misrepresented_as_theme_only(self):
+        self.reject(
+            lambda spec: spec["upstream_readonly_provenance"]["evidence"][1].update(
+                ui_anchor="public/app.js#L148"),
+            "A01_BILINGUAL_ORIGINAL_SOURCE_ANCHOR_MISSING",
+        )
+
+    def test_upstream_commit_or_legal_rights_cannot_be_relabelled(self):
+        self.reject(
+            lambda spec: spec["upstream_readonly_provenance"].update(pinned_sha="unverified"),
+            "A01_BILINGUAL_UPSTREAM_PROVENANCE_OR_LICENSE_INVALID",
+        )
+        self.reject(
+            lambda spec: spec["upstream_readonly_provenance"].update(license="MIT"),
+            "A01_BILINGUAL_UPSTREAM_PROVENANCE_OR_LICENSE_INVALID",
+        )
+
+    def test_copying_restricted_source_does_not_pass_readonly_a01_gate(self):
+        self.reject(
+            lambda spec: spec["upstream_readonly_provenance"].update(copied_source=True),
+            "A01_BILINGUAL_UPSTREAM_PROVENANCE_OR_LICENSE_INVALID",
+        )
+
+    def test_accepted_language_feature_must_have_i18n_handler_source_anchor(self):
+        affected = next(line for line in self.a01.splitlines()
+                        if line.startswith("| X01-01 |"))
+        broken = self.a01.replace(
+            affected, affected.replace("i18n.js:L700-L722", "theme-only-source"),
+        )
+        self.assertIn(
+            "A01_BILINGUAL_REGISTER_ENTRYPOINT_UNVERIFIED:X01-01",
+            errors(self.spec, broken, self.delta),
+        )
+
+    def test_skill_feature_picker_anchor_cannot_disappear(self):
+        affected = next(line for line in self.a01.splitlines()
+                        if line.startswith("| P05-03 |"))
+        broken = self.a01.replace(
+            affected, affected.replace("app.js:L2085-L2091", "missing-language-picker"),
+        )
+        self.assertIn(
+            "A01_BILINGUAL_REGISTER_ENTRYPOINT_UNVERIFIED:P05-03",
+            errors(self.spec, broken, self.delta),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
