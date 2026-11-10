@@ -4,7 +4,7 @@ Only current in-process projections are inspected. Raw/scheduler/other-process
 writers remain outside this guard. No tools/workbench, Host or PG dependency.
 """
 from functools import wraps
-from types import MethodType
+from types import MethodType, FunctionType
 import inspect
 
 from .control_plane import TaskScheduler, GapRepairPlanner, ControlPlaneError, _stable_id
@@ -29,6 +29,11 @@ _ADAPTER = {name: getattr(EconomyAwareTaskSchedulerAdapter, name)
             for name in vars(EconomyAwareTaskSchedulerAdapter)
             if name != '__init__' and callable(getattr(EconomyAwareTaskSchedulerAdapter, name))}
 
+_SCHEDULER_DESCRIPTORS = {name: inspect.getattr_static(TaskScheduler, name) for name in _SCHEDULER}
+_PLANNER_DESCRIPTORS = {name: inspect.getattr_static(GapRepairPlanner, name) for name in _PLANNER}
+_ADAPTER_DESCRIPTORS = {name: inspect.getattr_static(EconomyAwareTaskSchedulerAdapter, name) for name in _ADAPTER}
+_ROUTE_DESCRIPTOR = inspect.getattr_static(GapRouter, 'route')
+
 
 # Exact held-object call chain used by the default economy lease. No descriptor
 # is invoked while validating this closure; raw R1/global program replacement is
@@ -47,9 +52,9 @@ def _known_object(value, cls, methods, error):
         if name in vars(value) or inspect.getattr_static(cls, name) is not descriptor:
             raise error(UNRESOLVED)
         actual = getattr(value, name)
-        if isinstance(descriptor, staticmethod):
-            valid = actual is descriptor.__func__
-        elif isinstance(descriptor, classmethod):
+        if type(descriptor) is staticmethod:
+            valid = _bound(actual, descriptor.__func__, None, static=True)
+        elif type(descriptor) is classmethod:
             valid = _bound(actual, descriptor.__func__, cls)
         else:
             valid = _bound(actual, descriptor, value)
@@ -57,10 +62,23 @@ def _known_object(value, cls, methods, error):
             raise error(UNRESOLVED)
 
 
-def _bound(actual, method, receiver):
-    if getattr(actual, '__func__', None) is not None:
-        return actual.__func__ is method and actual.__self__ is receiver
-    return actual is method  # staticmethod, no receiver
+def _bound(actual, method, receiver, static=False):
+    # Intrinsic concrete types first: never introspect an unclassified callable.
+    # Python FunctionType/MethodType cannot be impersonated by __getattr__.
+    if type(method) is not FunctionType:
+        return False
+    if static:
+        return type(actual) is FunctionType and actual is method
+    return (type(actual) is MethodType and actual.__func__ is method and
+            actual.__self__ is receiver)
+
+
+def _expected_method(value, cls, name, method, descriptor, error):
+    if inspect.getattr_static(cls, name) is not descriptor:
+        raise error(UNRESOLVED)
+    actual = getattr(value, name)
+    if not _bound(actual, method, value, static=type(descriptor) is staticmethod):
+        raise error(UNRESOLVED)
 
 
 
@@ -93,11 +111,14 @@ def _trusted_components(control, error, leasing=False):
                 EconomyAwareTaskSchedulerAdapter.__getattr__ is not _ADAPTER['__getattr__']):
             raise error(UNRESOLVED)
         for name, method in _ADAPTER.items():
-            if not _bound(getattr(scheduler, name), method, scheduler):
-                raise error(UNRESOLVED)
+            _expected_method(scheduler, EconomyAwareTaskSchedulerAdapter, name, method, _ADAPTER_DESCRIPTORS[name], error)
         for name, method in _SCHEDULER.items():
-            if name not in _ADAPTER and not _bound(getattr(scheduler, name), method, scheduler.delegate):
-                raise error(UNRESOLVED)
+            if name not in _ADAPTER:
+                descriptor = _SCHEDULER_DESCRIPTORS[name]
+                if inspect.getattr_static(TaskScheduler, name) is not descriptor:
+                    raise error(UNRESOLVED)
+                if not _bound(getattr(scheduler, name), method, scheduler.delegate, static=type(descriptor) is staticmethod):
+                    raise error(UNRESOLVED)
         if leasing:
             resolver = scheduler.descriptor_resolver
             if type(resolver) is not MethodType:
@@ -108,8 +129,8 @@ def _trusted_components(control, error, leasing=False):
             _known_object(semantics, WorkScheduleSemanticsService, _SEMANTICS_CLOSURE, error)
             _known_object(scheduler.selector, EconomyAwareReadySelector, _SELECTOR_CLOSURE, error)
             _known_object(scheduler.selector.cost_window_config, BankCostWindowConfig, _POLICY_CLOSURE, error)
-            if (type(getattr(resolver, '__self__', None)) is not CanonicalCriticalPathResolver or
-                    getattr(resolver, '__func__', None) is not CanonicalCriticalPathResolver.resolve or
+            if (type(owner) is not CanonicalCriticalPathResolver or
+                    resolver.__func__ is not _RESOLVER_CLOSURE['resolve'] or
                     type(scheduler.selector) is not EconomyAwareReadySelector or
                     'plan' in vars(scheduler.selector) or
                     owner.truth is not control.truth or owner.release_id != control.release_id or
@@ -130,15 +151,12 @@ def _trusted_components(control, error, leasing=False):
     if original_control.load_execution_terminal_receipt is not _TERMINAL_LOAD:
         raise error(UNRESOLVED)
     for name, method in _SCHEDULER.items():
-        actual = getattr(scheduler, name)
-        if not _bound(actual, method, scheduler):
-            raise error(UNRESOLVED)
+        _expected_method(scheduler, TaskScheduler, name, method, _SCHEDULER_DESCRIPTORS[name], error)
     for name, method in _PLANNER.items():
-        if not _bound(getattr(control.gap_planner, name), method, control.gap_planner):
-            raise error(UNRESOLVED)
-    if (type(control.gap_planner.router) is not GapRouter or
-            not _bound(control.gap_planner.router.route, _ROUTE, control.gap_planner.router)):
+        _expected_method(control.gap_planner, GapRepairPlanner, name, method, _PLANNER_DESCRIPTORS[name], error)
+    if type(control.gap_planner.router) is not GapRouter:
         raise error(UNRESOLVED)
+    _expected_method(control.gap_planner.router, GapRouter, 'route', _ROUTE, _ROUTE_DESCRIPTOR, error)
 
 
 class Targets:

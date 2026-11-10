@@ -389,3 +389,65 @@ def test_unknown_class_descriptor_is_not_executed(tmp_path,monkeypatch):
     monkeypatch.setattr(CanonicalCriticalPathResolver,'_assess',property(descriptor))
     unchanged(truth,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
     assert calls==[]
+
+
+@pytest.mark.parametrize('where,method',[
+    ('inner','start'),('inner','_row'),('inner','_task_from_row'),('planner','plan'),
+    ('router','route'),('outer','start'),('critical','_assess'),('semantics','resolve'),
+    ('selector','plan'),('policy','is_working_day')])
+@pytest.mark.parametrize('spoof',[False,True])
+def test_callable_objects_cannot_probe_or_spoof_dependency_identity(tmp_path,where,method,spoof):
+    from types import MethodType
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first)
+    first.lease_next(worker_ref='w',capabilities=[])
+    obj={'inner':first.scheduler.delegate,'planner':first.gap_planner,'router':first.gap_planner.router,
+         'outer':first.scheduler,'critical':first.critical_path,'semantics':first.schedule_semantics,
+         'selector':first.scheduler.selector,'policy':first.scheduler.selector.cost_window_config}[where]
+    original=getattr(obj,method);calls=[]
+    func=original.__func__ if type(original) is MethodType else original
+    receiver=original.__self__ if type(original) is MethodType else None
+    class Unknown:
+        def __getattribute__(self,name):
+            calls.append('attribute:'+name)
+            if spoof and name=='__func__':return func
+            if spoof and name=='__self__':return receiver
+            raise AttributeError(name)
+        def __call__(self,*args,**kwargs):
+            calls.append('call')
+            return original(*args,**kwargs)
+    object.__setattr__(obj,method,Unknown())
+    call=(lambda:first.lease_next(worker_ref='w',capabilities=[])) if where in ('critical','semantics','selector','policy') else (lambda:first.start('T1',worker_ref='w'))
+    unchanged(truth,call,code=UNRESOLVED)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('where,method',[('inner','start'),('planner','plan'),('router','route')])
+def test_unbound_real_function_does_not_impersonate_instance_method(tmp_path,where,method):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first)
+    first.lease_next(worker_ref='w',capabilities=[])
+    obj={'inner':first.scheduler.delegate,'planner':first.gap_planner,'router':first.gap_planner.router}[where]
+    original=getattr(obj,method)
+    setattr(obj,method,original.__func__)
+    unchanged(truth,lambda:first.start('T1',worker_ref='w'),code=UNRESOLVED)
+
+
+def test_common_bound_helper_uses_intrinsic_types_before_any_hooks():
+    from types import MethodType
+    from rc7_runtime.unadmitted_scope_guard import _bound
+    class Owner:
+        def method(self):pass
+    owner=Owner();original=owner.method;calls=[]
+    class Unknown:
+        def __getattribute__(self,name):
+            calls.append(name)
+            if name=='__func__':return original.__func__
+            if name=='__self__':return owner
+            raise AttributeError(name)
+        def __call__(self,*args):calls.append('call')
+    assert not _bound(Unknown(),original.__func__,owner)
+    assert not _bound(Unknown(),original.__func__,None,static=True)
+    assert calls==[]
+    assert _bound(original,original.__func__,owner)
+    assert not _bound(MethodType(original.__func__,Owner()),original.__func__,owner)
+    assert not _bound(original.__func__,original.__func__,owner)
+    assert _bound(original.__func__,original.__func__,None,static=True)

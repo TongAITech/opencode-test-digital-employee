@@ -45,3 +45,13 @@ outer adapter全部已知自有和转发方法在调用前逐一校验（不只�
 新增Tripwire进一步实际发现：旧getattr(resolver,'__self__')会先探测未知callable对象；扩展测试首次261过1失败。修复为先要求真实MethodType，再取receiver，未知对象零探测/零调用。静态descriptor检查也在任何getattr之前拒绝替代property。此限定检查不声称防任意raw R1后端或任意全局程序改写；原raw/跨进程/Field-start/mtime边界保留。
 
 最终本地联合 **330/330、5.78s**：未改的F227全部150（含原148绿及2红转绿）+未改F224旧34+当前仓内78 guard（原61及新增17个闭包callback/错绑/unknown对象/property零调用）+68受影响legacy。diff检查通过，仅runtime helper/test/本证据变更；模型/reader/writer/008/08–10均未改，包归档helper必需资格保持。既有显式HEAD Python3.8/3.11 CI将运行仓内78+68=146项，外部F脚本330组合是本地实际执行，不能把CI测试数量混写。单次新提交后冻结，CI结果交A记PR body/主台账，不追加证据追HEAD；交F对新完整源独立复验。
+
+## F229 callable身份伪造修复（保留1b拒绝结论）
+
+完整读F229/65ec6a38报告和脚本，旧1b实际执行独立8例：8/8失败、1.03s。plain对象在拒绝前已被探__func__，spoof对象可伪造func/self通过并让public start写R1；不是raw残余。旧330及CI146全绿不能抵消此P1。
+
+本次统一审计所有_bound调用：先用intrinsic type证明真实MethodType及原FunctionType，再直接读取真实method元数据；未知对象不访问__func__/__self__/__class__等属性。FunctionType只在显式且已静态证明的staticmethod通路允许；普通instance方法收到原裸function也拒绝，避免把原先“static fallback”误用为身份资格。class方法核真实class receiver，instance方法核真实对象receiver，既有truth/release关联继续保留。
+
+Scheduler/outer adapter转发/planner/router现在也保存并先比较静态class descriptor，确认后才读取method slot；nested resolver/semantics/selector/policy走同一严格helper。未知替代对象的__getattribute__/__getattr__/__call__均为零调用；没有试执行unknown或接受自签verified字段。检查是受管依赖槽的具体Python对象身份，不声称防任意全局Function.__code__改写、raw backend或跨进程writer。
+
+最终本地 **362/362、7.18s**：旧330完整重跑+F229新8转绿+仓内新增24（10依赖槽×plain/spoof、3处真unbound function不能冒充实例方法、共用helper直接MethodType/FunctionType/错误receiver/static正反例）。既有default/base/economy/合法clock、REGISTERED/caps、missing refs及包归档源资格保留，模型/reader/writer/008/08–10未动。diff检查通过；CI仍显式精确HEAD，仓内102 guard+68 legacy=170项，外部F脚本仅本地联合运行，不混写数量。单次新提交后冻结；实际3.8/3.11结果由A记body/主台账，不追加CI证据HEAD，交F新完整源独立复验。
