@@ -386,7 +386,7 @@ def test_accepted_n8_cold_replay_refuses_forged_outcome_action_without_side_effe
         server.server_close()
 
 
-@pytest.mark.parametrize("damage", ["missing_delivery", "forged_delivery_evidence"])
+@pytest.mark.parametrize("damage", ["missing_delivery", "forged_delivery_evidence", "duplicate_delivery"])
 def test_n8_cold_replay_refuses_missing_or_forged_delivery_before_r1_write(
         tmp_path, monkeypatch, damage):
     """A genuine N7 failure/process diagnosis cannot mint a missing N8 Delivery."""
@@ -412,14 +412,21 @@ def test_n8_cold_replay_refuses_missing_or_forged_delivery_before_r1_write(
                     and filters.get("delivery_id") == receipt["delivery_id"]):
                 if damage == "missing_delivery":
                     return []
+                if damage == "duplicate_delivery":
+                    return rows + [dict(rows[0])]
                 return [dict(rows[0], evidence_refs=["FORGED-R1-EVIDENCE"])]
             return rows
 
         monkeypatch.setattr(truth, "query", untrusted_delivery)
         expected = ("N8_ACCEPTED_DELIVERY_NOT_UNIQUE_OR_MISSING"
-                    if damage == "missing_delivery" else "N8_ACCEPTED_DELIVERY_LINEAGE_CHANGED")
+                    if damage in ("missing_delivery", "duplicate_delivery")
+                    else "N8_ACCEPTED_DELIVERY_LINEAGE_CHANGED")
+        # Recreate the product service after the original acceptance receipt
+        # was persisted, modeling a cold controller re-entry against R1.
+        cold_service = ExecutionDiagnosisService(
+            prep, evidence_root=tmp_path / "diagnosis-cold")
         with pytest.raises(ContractError, match=expected):
-            service.run(p["preparation_id"])
+            cold_service.run(p["preparation_id"])
         assert truth.store.path.read_bytes() == before
         assert truth.query("execution_attempt")[0]["status"] == "BLOCKED"
         assert server.calls == []
