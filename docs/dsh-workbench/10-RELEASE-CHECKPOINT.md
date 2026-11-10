@@ -1,4 +1,15 @@
 # 工作台交付检查点
+
+## 当前权威状态（2026-11-10）
+
+- 当前已集成检查点：`0b22bb80`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
+- W0 设计冻结源 `a73ed52d`，F 正式签署 #121；B01–B06、C01/C02、E01 与同源入口已分别独立组件验收并集成，来源见下文各工单证据。组件接受不等于 F01/F02/现场或全部产品完成。
+- 正在施工：B07 首里程碑真实资产切片，E02 Mission/N1–N10 只读投影；C03/C04 等待里程碑真实 API 后联调。B07其余草稿资产、B08、E03–E06与完整界面仍未完成。
+- 仍然阻断：D01 真实 DSH 宿主/SSO 与现场资格、D02/D03、Windows 离线交付、Agent Teams 实际并发及资源恢复、F01–F04、LICENSE_RELEASE_APPROVED。测试 fixture Host 不是现场认证。
+- RELEASE=NOT_APPROVED；PR #84 保持 Draft；不合并 `work/rc7.2`，不生成银行交付 ZIP。
+
+## 初始与历史检查点（仅追溯，以当前状态和最新同SHA证据为准）
+
 状态：W0 文档阶段；不是已交付产品
 基线仓库：TongAITech/opencode-test-digital-employee
 基线分支：work/rc7.2
