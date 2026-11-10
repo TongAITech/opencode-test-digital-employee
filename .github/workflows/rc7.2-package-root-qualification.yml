@@ -1,0 +1,52 @@
+name: RC7.2 Package Root and Nested Extraction Qualification
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_release/rc72_package_root.py'
+      - 'rc7_release/rc72_package.py'
+      - 'packaging/rc7.2/AITEST.sh'
+      - 'packaging/rc7.2/start-rc7.2.cmd'
+      - 'tests/test_rc72_package_root_resolution.py'
+      - '.github/workflows/rc7.2-package-root-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-package-root-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  package-root-resolution:
+    name: nested-package-root-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned qualification tooling
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile package resolver and launchers contract
+        run: python -m compileall -q rc7_release/rc72_package_root.py rc7_release/rc72_package.py tests/test_rc72_package_root_resolution.py
+      - name: Test exact, nested, ambiguous and symlink package roots
+        run: python -m pytest -q tests/test_rc72_package_root_resolution.py tests/test_rc72_windows_clean_unpack_contract.py --junitxml=rc72-package-root-${{ matrix.os }}-${{ matrix.python }}.xml
+      - name: Upload root-resolution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc72-package-root-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          path: rc72-package-root-${{ matrix.os }}-${{ matrix.python }}.xml
+          if-no-files-found: warn
+          retention-days: 14
