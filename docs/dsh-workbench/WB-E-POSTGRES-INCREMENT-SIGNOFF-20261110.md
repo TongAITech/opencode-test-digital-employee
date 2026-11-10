@@ -18,6 +18,6 @@
 
 源码核对：`rc7_admin/projection.py::mission_overview_scoped` 在唯一身份匹配前不刷新全量投影或查询关联明细；`tools/dsh_workbench/e_readonly_scope_prototype.py::read_scoped_r1_mission_overview` 强制 scoped port。当前只是旧 R1 只读预适配，不能视作生产 ACL 或 E01 完成。
 
-本源实际执行：`python3 -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py'`，结果见提交时日志。测试为合同与隔离 fixture，不是真实生产执行 Evidence。未修改实现、02/06、08/09/10或RC7.2冻结合同。
+本源实际执行：`python3 -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py'`，真实结果 **82/82 PASS**（1.296s）。测试为合同与隔离 fixture，不是真实生产执行 Evidence。未修改实现、02/06、08/09/10或RC7.2冻结合同。
 
 未发现 PostgreSQL 增量新增 E 职责 W0 P0/P1 设计阻断。E01 真实 B06/Host principal/API/R1 联验、E03 正式命令持久幂等、E04 SSE恢复、E05 实际并发/租约、E06 Evidence/N10 仍未完成。F 必须检查最终联合精确 HEAD，E 本签署不授权 W0 冻结、主线合并或银行交付。
