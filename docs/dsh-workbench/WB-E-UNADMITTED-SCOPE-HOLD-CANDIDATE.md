@@ -33,6 +33,36 @@
 
 只读/pure私有函数 `_mission_row`、`_open_gap_rows`、`_gap`、`_gap_from_row`、`_validate_new_gap`、`_require_*` 本身不append，不扩成全局查询策略；snapshot:463只是旧内部快照读，不授Workbench身份读取。__init__ guard可能让新Control实例连snapshot也无法构造；如需独立治理只读查询，另用既有受控投影，不以跳过guard创建可写Control。不能把这次HOLD改为接受typed reader。
 
+### 2.1 实际写目标域修订：本节优先于上表的“当前row”简写
+
+D214/898098d2（含其a934初报告）及F213/6d3cf649对ce6add35真实TemporaryDirectory R1反例已确认：self M1无Scope，`M1._persist_mission(Mission(M2))`可覆盖M2已有project_id；`M1.start(T2)`可把Scoped M2的合法LEASED T2推进RUNNING。两例都属于本表受保入口，**不是raw/scheduler残余**。保留ce6的设计P1，不把旧报告或未实现guard记PASS。本修订不接受只查self/输入vars的实现。
+
+规范目标集T = self Mission + 本次输入/稳定ID解析的实际拟写对象所属Mission + 被覆盖旧对象所属Mission。先只读收集整个T，再逐个查询raw rc7_mission并检查三保留键，全部通过之后才允许首个transition、输入对象原地修改、scheduler/planner/append/attestation。输入Mission vars检测另外保留，不能代替目标旧row。不得在循环中边guard边写，也不得仅在后续_persist兜底；例如先改无Scope gap A再发现Scoped gap B应整体零写拒绝。
+
+| 受保路径 | 除self之外必须收集/核验的实际目标（输入与旧row并集） |
+|---|---|
+| bootstrap | 输入Mission.mission_id及vars；已有同ID raw Mission若存在必须核。唯一例外：明确bootstrap新建分支该ID恰无row且输入无reserved，可按旧legacy创建；不推广给普通persist |
+| register_task | input.task.mission_id；同task_id旧row若存在取其mission_id；既有TASK_MISSION_MISMATCH可在零副作用前先报，不新增“跨Mission一概拒绝”规则 |
+| start(task_id) | 只读获取确切task旧row.mission_id并查询目标raw Mission，早于scheduler.start；因此M1→Scoped M2.T2统一HOLD |
+| submit_worker_output(output) | output.task_id旧task所属；所有待append evidence/artifact的input.mission_id，以及同evidence_id/artifact_id将覆盖的旧row所属；producer_task_id/已有归属错误仍保留。必须首个evidence写入前全预检，不到第二个artifact才发现Scope |
+| lease_next / refresh_ready | 实际会改的候选Task所属及其稳定ID旧row；lease的REPAIR/QUALIFY_DEFECT涉及所有gap_refs旧Gap所属；可能触发ready扫描的所有拟写task先收集。capabilities若为一次性iterable应只读物化一次供计划与执行复用，不消费两次改变选中任务 |
+| accept_evaluation | task_id旧task、evaluation.mission_id及同evaluation_id旧row；输入gaps各mission_id与同gap_id旧row；task.gap_refs涉及的旧Gap；source-reactivation将改的旧Task、其gap_refs目标；planner分支确定性派生新任务所属及将覆盖旧对象所属。输入和旧row都核，不从self补猜 |
+| accept_defect_resolution | task_id旧task、其gap_refs旧Gap、input defect/evaluation.mission_id及同defect_id/evaluation_id旧row；任何被覆盖对象旧所属。全部先核再evaluation/defect/gap/task写 |
+| converge_mission | input evaluation.mission_id及其既存同ID旧row、input/重建Mission真实目标；保留已有充分性/active-task/open-gap/身份拒绝，不在Scope检查里读无关Attempt明细 |
+| _persist_mission / _sync_mission | 输入mission.mission_id的**目标旧raw Mission**与self旧row及input vars；_sync还须在改传入lists前完成。不得用self版本行替代目标Scope检查，不在本单顺带修复版本算法或允许跨release |
+| _persist_gap | input gap.mission_id、同gap_id既有raw Gap.mission_id与各自raw Mission；不能只读gap版本或self Mission后append |
+| _resolve_source_gaps | task/evaluation输入身份、所有gap_refs实际Gap所属与同ID旧对象，以及后续self Mission写；先把所有拟改Gap收集完，不在第一个resolved后才核第二个 |
+| _reactivate_source_tasks | repaired_gap_ids可达旧Gap、拟恢复旧Task的mission_id及其全部gap_refs实际Gap所属、后续self Mission；计划全部拟写集合后再重置task对象/append |
+| bank / N1 dispatch | bank稳定mission_id对应旧raw Mission；dispatch canonical batch的mission_id及将使用/覆盖WorkItem旧Task所属，现有rc7 Mission真实row；首个bootstrap/register/N1 transition/receipt之前全预检，existing receipt RESUMED仍不得漏目标Scope |
+
+当前Control/TaskScheduler本次列内调用链没有直接Attempt append，WorkerOutput类型只有task_id/worker_ref/artifacts/evidence（control_plane.py:42）；不能编造attempt_id→Mission映射或查询全部Attempt来声称覆盖。外部执行/Attempt服务不在本单受保入口，但若实施时发现列内可达Attempt写入，必须按正式workitem/task lineage只读解析其实际Mission纳入T，不能以“self已核”跳过；不能解析就HOLD并把路径回报评审。相同规则用于未来新增列内写分支，不允许未知目标降legacy。
+
+最小身份解析只读稳定ID/mission_id及必要的现有资格字段，不调用tools/PG/Host、不向用户输出明细。不要求新增跨Mission硬拒绝：所有实际目标完整且完全unbound时，保留原可达行为和原有identity/lease/state错误。原先能在零副作用前决定的missing task、owner mismatch、register_task mission mismatch等错误优先保留；不能以无效fixture的旧错误代替Scope保护测试。输入引用矛盾时若既有身份错误可在首写前证明，沿该错误拒绝；否则本增量明确新增 `MISSION_SCOPE_TARGET_UNRESOLVED` HOLD，禁止猜成self/legacy。目标ID无效、row不唯一、缺所属Mission或无法无副作用确定整个拟写集合，同样新增该HOLD。**这个fail-closed是显式新增行为**，只针对无法确定写目标的路径，需本精确增量签署，不顺便更改有效unbound跨目标语义；缺raw Mission的合法例外仅上述新bootstrap。
+
+若某planner/scheduler分支当前不能在首写前列出其写目标，实现必须增加同一runtime内只读目标收集/计划步骤或在Control边界复用确定性ID规则；不能因为底层planner尚未改造就先写gap再检查。scope集合须对本次已物化输入与确定性候选固定；若执行遇未计划新目标，必须在执行前拒绝整次调用而不是已有部分写后HOLD。无封闭writer下外进程竞态仍按§3残余披露，此计划不授跨进程原子性。
+
+新增退出强制项：保留上述M1._persist(M2)及M1.start(T2)两个原本成功的真实临时R1反例；再覆盖output跨目标、_sync、_persist_gap的input/旧row不同所属、evaluation多Gap最后一个Scoped目标、source-reactivate多Task、planner派生目标。所有受保测试首写前全目标HOLD，R1字节/每个相关Mission及Task/Gap/Evaluation/Defect/Artifact/Evidence/输入对象不变。对照有效跨目标全部unbound和旧missing/lease/identity错误保持，目标不可解析新增HOLD单列；新bootstrap absent-row正例保留。不能把这些列内目标反例挪进残余绕过验收。
+
 ## 3. 明确不能由这些方法保证的范围
 
 **并发限制**：guard基于当前TruthRuntime投影的Mission row；实例可能未看见另一个进程raw append。不存在统一writer/CAS时，不能保证“检查后外部加scope，再由旧实例写回”竞态被阻断。本增量保障的是入口当前可见row已含保留字段、无并发绕过writer介入的调用；不得用这个检查宣称跨进程线性化。后续V3封闭writer/重读CAS/Host/factory门禁仍必需，任何bound生产写继续不准入。
