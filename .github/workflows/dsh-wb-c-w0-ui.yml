@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax, nine adversarial scope tests and 50 feature contract tests
+      - name: Syntax, fourteen multi-select Scope and six feature reconciliation Node tests
         run: |
           node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
           node --check tools/dsh_workbench/ui_w0_prototype/app.mjs

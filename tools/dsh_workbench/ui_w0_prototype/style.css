@@ -15,3 +15,15 @@ h2{font-size:21px;margin:12px 0}h3{font-size:17px;margin:3px 0}.detail-content{m
 body.dark{color-scheme:dark;--bg:#141a22;--surface:#202a35;--text:#edf2f6;--muted:#bdc9d7;--line:#394858;--accent:#82b8ff}
 @media(max-width:840px){.shell{grid-template-columns:1fr}#navigation{display:flex;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}#navigation button{font-size:13px}.shell.collapsed{grid-template-columns:1fr}.cards,.stages{grid-template-columns:1fr 1fr}.detail-layout{grid-template-columns:1fr}.detail-layout nav{flex-direction:row;flex-wrap:wrap}main{padding:14px}}
 @media(max-width:540px){.cards,.stages{grid-template-columns:1fr}.toolbar{align-items:stretch;flex-direction:column}.toolbar h1{margin:0}.detail-head{align-items:flex-start;gap:8px}.filters label{width:100%;justify-content:space-between}.filters select{width:65%}}
+
+.filters select[multiple]{min-width:180px;min-height:88px;padding:6px}
+.filter-hint{font-size:13px;color:var(--muted);margin:0 0 10px}
+#section-form{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+#section-demo-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#section-demo-form h4{grid-column:1/-1;margin:0}
+.form-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.form-field input,.form-field textarea{width:100%;min-width:0}
+.form-field textarea{min-height:76px}
+#section-demo-form button{justify-self:start}
+#section-form-error{padding:8px 10px;border-left:3px solid #bd8b19;background:var(--surface)}
+@media(max-width:540px){#section-demo-form{grid-template-columns:1fr}.filters select[multiple]{width:65%;min-height:104px}}

@@ -42,14 +42,16 @@ def _source_ref(row: Mapping[str, Any], key: str, source_revision_key: str) -> s
 
 
 def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
-                        batch_id: str, mission_id: str) -> Dict[str, Any]:
+                        batch_id: str) -> Dict[str, Any]:
     """Validate a B06-like response without making it authoritative.
 
     This is a DTO/protocol check, NOT a permission check or B06 implementation.
     Must only be called after a trusted service has independently authenticated
-    principal and authorized project, batch, mission, and query scope.
+    principal and authorized project, batch, and query scope. B06 does not own
+    Mission membership; that binding is checked against explicit R1 fields below.
     """
     _expect(isinstance(scope, Mapping), "SCOPE_SOURCE_UNAVAILABLE")
+    _expect(_nonempty(project_id) and _nonempty(batch_id), "INVALID_SCOPE")
     _expect(scope.get("project_id") == project_id, "FORBIDDEN")
     _expect(scope.get("batch_id") == batch_id, "ILLEGAL_ASSOCIATION")
     _expect(_nonempty(scope.get("release_date")) and
@@ -64,11 +66,28 @@ def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
     _expect(_positive_int(scope.get("relation_revision")) and
             _positive_int(scope.get("access_scope_revision")),
             "SCOPE_REVISION_UNAVAILABLE")
-    bound = scope.get("authorized_mission_ids")
-    _expect(isinstance(bound, (tuple, list)) and mission_id in bound,
-            "FORBIDDEN")
+    # B06 is a project+batch business-scope service, not the Mission registry.
+    # An empty relation set is not a successful empty scope; B must return 422.
     raw = scope.get("records")
     _expect(isinstance(raw, (tuple, list)), "SOURCE_VERIFIED_RELATIONS_REQUIRED")
+    _expect(len(raw) > 0, "ILLEGAL_ASSOCIATION")
+    source_refs = scope.get("source_refs")
+    _expect(isinstance(source_refs, (tuple, list)) and len(source_refs) > 0
+            and all(_nonempty(item) for item in source_refs),
+            "SOURCE_REFS_REQUIRED")
+    source_refs = [str(item) for item in source_refs]
+    _expect(len(set(source_refs)) == len(source_refs), "SOURCE_REFS_DUPLICATE")
+    warnings = scope.get("warnings", [])
+    gaps = scope.get("gap_indicators", [])
+    _expect(isinstance(warnings, (tuple, list))
+            and all(_nonempty(item) for item in warnings)
+            and isinstance(gaps, (tuple, list))
+            and all(_nonempty(item) for item in gaps),
+            "SCOPE_DIAGNOSTICS_INVALID")
+    next_cursor = scope.get("next_page_cursor")
+    _expect(next_cursor is None or _nonempty(next_cursor),
+            "PAGINATION_CURSOR_INVALID")
+    pagination_complete = ("next_page_cursor" in scope and next_cursor is None)
     relations = []
     seen = set()
     for row in raw:
@@ -81,6 +100,7 @@ def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
         _expect(_nonempty(req) and _nonempty(ver), "INVALID_RELATION_ID")
         rv_ref = _source_ref(row, "source_verified_requirement_version",
                              "source_revision")
+        _expect(rv_ref in source_refs, "SOURCE_REFERENCE_NOT_IN_SCOPE")
         split = row.get("split_state")
         _expect(split in {"SPLIT", "UNSPLIT"}, "INVALID_SPLIT_STATE")
         if split == "UNSPLIT":
@@ -91,6 +111,7 @@ def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
             _expect(_nonempty(sst), "SPLIT_REQUIRES_SST")
             sst_ref = _source_ref(row, "source_verified_link",
                                   "verified_source_revision")
+            _expect(sst_ref in source_refs, "SOURCE_REFERENCE_NOT_IN_SCOPE")
         identity = (project_id, batch_id, req, ver, sst)
         _expect(identity not in seen, "DUPLICATE_RELATION")
         seen.add(identity)
@@ -106,6 +127,11 @@ def normalize_b06_scope(scope: Mapping[str, Any], *, project_id: str,
         "release_date": scope["release_date"],
         "relation_revision": scope["relation_revision"],
         "access_scope_revision": scope["access_scope_revision"],
+        "source_refs": source_refs,
+        "warnings": [str(item) for item in warnings],
+        "gap_indicators": [str(item) for item in gaps],
+        "next_page_cursor": next_cursor,
+        "pagination_complete": pagination_complete,
         "records": relations,
     }
 
@@ -120,8 +146,7 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
     from task status, model text, a screenshot or test case counts.
     """
     scope = normalize_b06_scope(b06_authorized_scope,
-                                project_id=project_id, batch_id=batch_id,
-                                mission_id=mission_id)
+                                project_id=project_id, batch_id=batch_id)
     _expect(isinstance(r1_mission_overview, Mapping), "TRUTH_SOURCE_UNAVAILABLE")
     mission = r1_mission_overview.get("mission")
     _expect(isinstance(mission, Mapping), "TRUTH_SOURCE_UNAVAILABLE")
@@ -163,19 +188,27 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
             else:
                 item["status"] = "READ_ONLY_UNQUALIFIED"
             sink.append(item)
+    r1_source_ref = "rc7_admin:mission_overview:%s" % mission_id
+    combined_source_refs = list(scope["source_refs"])
+    if r1_source_ref not in combined_source_refs:
+        combined_source_refs.append(r1_source_ref)
+    gap_indicators = list(scope["gap_indicators"])
+    if not scope["pagination_complete"]:
+        gap_indicators.append("B06_SCOPE_PAGINATION_INCOMPLETE")
     return {
         **deepcopy(scope),
         "mission_id": mission_id,
         "truth_revision": None,
         "as_of": None,
-        "source_refs": ["rc7_admin:mission_overview:%s" % mission_id],
+        "source_refs": combined_source_refs,
+        "scope_complete": scope["pagination_complete"],
         "workitems": workitems,
         "attempts": attempts,
         "evidence": evidence,
         "nodegate": {"decision": "UNKNOWN_NOT_READ_FROM_CANONICAL_NODEGATE"},
         "release_decision": "HOLD",
         "data_quality": "PROTOTYPE_UNQUALIFIED",
-        "gap_indicators": [
+        "gap_indicators": gap_indicators + [
             "B06_IMPLEMENTATION_QA_REQUIRED",
             "HOST_PRINCIPAL_AUTHORIZATION_REQUIRED",
             "R1_TRUTH_REVISION_AND_CANONICAL_NODEGATE_UNAVAILABLE",
@@ -186,22 +219,24 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
 
 
 def r1_preview_from_legacy_admin(
-    authorized_b06_fetch: Callable[[str, str, str, str], Mapping[str, Any]],
+    authorized_b06_fetch: Callable[[str, str], Mapping[str, Any]],
     legacy_admin: Any, *,
-    trusted_principal_id: str, project_id: str, batch_id: str, mission_id: str,
+    project_id: str, batch_id: str, mission_id: str,
 ) -> Dict[str, Any]:
     """Integration seam only; requires real B06/Host before ever exposing.
 
-    The first call MUST be an independently trusted B06 authorization+join.
-    The next call reads the old AdminProjection; no dispatch_post or R1 append.
-    A fixture can verify the call order, but not authenticate production users.
+    The injected B06 port MUST be bound by server-side DSH Host middleware to the
+    authenticated request context; it accepts project+batch only, never a principal
+    from a browser/body argument. B06 is not passed mission_id: after authorization
+    and source-verified join, the explicit R1 Mission project_id+batch_id binding is
+    checked. The next call reads old AdminProjection; no dispatch_post or R1 append.
+    A fixture cannot authenticate production users or prove Host middleware wiring.
     """
-    _expect(_nonempty(trusted_principal_id), "UNAUTHENTICATED")
+    _expect(callable(authorized_b06_fetch), "SCOPE_SOURCE_UNAVAILABLE")
     _expect(_nonempty(project_id) and _nonempty(batch_id)
             and _nonempty(mission_id), "INVALID_SCOPE")
-    b06 = authorized_b06_fetch(trusted_principal_id, project_id, batch_id, mission_id)
-    normalize_b06_scope(b06, project_id=project_id, batch_id=batch_id,
-                        mission_id=mission_id)
+    b06 = authorized_b06_fetch(project_id, batch_id)
+    normalize_b06_scope(b06, project_id=project_id, batch_id=batch_id)
     # Do not invoke /api/missions/{id} over an unprotected network endpoint:
     # direct in-process R1-derived read only, after B06 confirms authorization.
     projection = getattr(legacy_admin, "projection", None)

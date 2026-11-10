@@ -47,3 +47,49 @@ test('需求变更清除失效版本与 SST，合法关系才保留',()=>{
 test('业务日期保持 YYYY-MM-DD 字面值，不经过 Date/UTC 换算',()=>{
   const c=new ScopeController();c.setBatch('B12');assert.equal(c.query().release_date,'2026-11-12');
 });
+
+test('一个需求可同时选多个系统版本，版本下可同时选多个合法 SST',()=>{
+  const c=new ScopeController();c.setBatch('B12');
+  c.setFilter('requirement_ids',['R1','R2']);
+  assert.deepEqual(c.options('system_version_ids').map(x=>x.id),['V1','V2']);
+  c.setFilter('system_version_ids',['V1','V2']);
+  assert.deepEqual(c.options('sst_ids').map(x=>x.id),['S1','S2','S3','S4']);
+  c.setFilter('sst_ids',['S1','S3','S4','S1']);
+  assert.deepEqual(c.query().sst_ids,['S1','S3','S4']);
+  assert.deepEqual(c.getRows().map(x=>x.sst_id),['S1','S3','S4']);
+  assert.equal(c.assertLegalTuple('R1','V1','S1'),true);
+  assert.equal(c.assertLegalTuple('R1','V2','S3'),true);
+  assert.equal(c.assertLegalTuple('R2','V1','S4'),true);
+});
+test('多选非法 SST 拒绝时整次操作原子回滚，不留下部分选择',()=>{
+  const c=new ScopeController();c.setBatch('B12');c.setFilter('requirement_ids',['R1']);c.setFilter('system_version_ids',['V1']);
+  c.setFilter('sst_ids',['S1']);
+  assert.throws(()=>c.setFilter('sst_ids',['S2','S3']),/关联不存在/);
+  assert.deepEqual(c.query().sst_ids,['S1']);
+});
+test('需求多选缩小后，失效版本和 SST 一起级联清理',()=>{
+  const c=new ScopeController();c.setBatch('B12');
+  c.setFilter('requirement_ids',['R1','R2']);c.setFilter('system_version_ids',['V1','V2']);c.setFilter('sst_ids',['S1','S3','S4']);
+  c.setFilter('requirement_ids',['R2']);
+  assert.deepEqual(c.query().system_version_ids,['V1']);
+  assert.deepEqual(c.query().sst_ids,['S4']);
+});
+test('清空上级筛选保留仍合法下级，切批后全部清空',()=>{
+  const c=new ScopeController();c.setBatch('B12');
+  c.setFilter('requirement_ids',['R1']);c.setFilter('system_version_ids',['V2']);c.setFilter('sst_ids',['S3']);
+  c.setFilter('requirement_ids',[]);
+  assert.deepEqual(c.query().system_version_ids,['V2']);
+  assert.deepEqual(c.query().sst_ids,['S3']);
+  c.setBatch('B19');
+  assert.deepEqual(c.query().requirement_ids,[]);
+  assert.deepEqual(c.query().system_version_ids,[]);
+  assert.deepEqual(c.query().sst_ids,[]);
+});
+test('query 返回冻结快照，调用方不能修改共享筛选上下文',()=>{
+  const c=new ScopeController();c.setBatch('B12');c.setFilter('requirement_ids',['R1','R2']);
+  const snapshot=c.query();
+  assert.equal(Object.isFrozen(snapshot),true);
+  assert.equal(Object.isFrozen(snapshot.requirement_ids),true);
+  assert.throws(()=>snapshot.requirement_ids.push('R3'),TypeError);
+  assert.deepEqual(c.query().requirement_ids,['R1','R2']);
+});

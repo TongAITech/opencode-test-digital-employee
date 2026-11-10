@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const a01=readFileSync(new URL('../docs/dsh-workbench/WB-A01-ATOMIC-FEATURE-REGISTER.md',import.meta.url),'utf8');
 const c=readFileSync(new URL('../docs/dsh-workbench/WB-C-W0-50-FEATURE-DELTA.md',import.meta.url),'utf8');
 const idPattern=/^(?:P0[1-6]|D(?:0[1-9]|10)|X0[1-3])-\d{2}$/;
-const allowed=new Set(['NAV_ONLY','STAGE_ONLY','SCOPE_ONLY','TAB_ONLY','DENY_ONLY','TEXT_HINT_ONLY','THEME_COLLAPSE_ONLY','NO_INTERACTION']);
+const allowed=new Set(['NAV_ONLY','STAGE_ONLY','SCOPE_MULTI_ONLY','FORM_DENY_ONLY','DENY_ONLY','TEXT_HINT_ONLY','THEME_COLLAPSE_ONLY','NO_INTERACTION']);
 const tableRows=doc=>doc.split('\n').filter(line=>/^\|\s*(?:P0[1-6]|D(?:0[1-9]|10)|X0[1-3])-\d{2}\s*\|/.test(line)).map(line=>line.split('|').slice(1,-1).map(cell=>cell.trim()));
 export function verifyInventory(source,delta) {
   const target=tableRows(source),actual=tableRows(delta);

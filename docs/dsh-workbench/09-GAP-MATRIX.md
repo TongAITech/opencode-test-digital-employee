@@ -114,3 +114,27 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+
+## C follow-up PR #97（原始 W0 对账证据保留；旧 FG 状态由下文 A 最新段覆盖）
+### C 组 W0 原型深化后状态（2026-11-10）
+| GAP | 当前状态 | 本轮进展 | 未关闭条件 |
+|---|---|---|---|
+| WB-CG01 六页面/十分区 | W0_PROTOTYPE_EXPANDED / W1_NOT_STARTED | 十区逐个增加领域字段表单与原生必填校验，提交 fail-closed；六页导航与六阶段保留 | C01 正式 Host/API 实现、全量原版交互与 F02 |
+| WB-CG02 Scope | W0_MULTISELECT_PROBE / B06_BLOCKED | 多需求/多版本/多 SST 关系联动、无效组合原子拒绝、级联清理、只读快照 | B06 真实 PostgreSQL/API/ACL/分页/SSE + C02 联调 |
+| WB-CG03 浏览器证据 | W0_PROBE_CI_PASS / F_VISUAL_REVIEW_PENDING | SHA `d4863ba` 同 HEAD 20/20 Node、真实 Chromium 逐区表单/多选、3 PNG artifact 13693719815；B→C 合并探针 15/15 | F 对新 SHA 视觉复核；正式 F02 UI/API/Host QA |
+| WB-CG04 设计/许可门禁 | BLOCKED | F 仍 W0_NOT_FROZEN；A02 BLOCKED_LICENSE；FG17/FG21 仍 OPEN | A/F 正式 W0 冻结、授权或原创来源审计；RC7.2 merge gate |
+
+## 2026-11-10 A/F 最新复验与未关闭 GAP（不覆盖历史原始失败）
+
+| GAP | 新证据 | 当前判定 | 正式关闭所需 |
+|---|---|---|---|
+| FG17 | F #101 的 b385e04：Ubuntu Py3.8 真 C09/adapter 31/31 + 五次 1/1，Py3.11 31/31 | TARGETED_BROWSER_RECHECK_PASS；过去的 F toast flaky 仍保留 | 新联合 SHA F 独立复验、Q1 Windows/Linux Py3.8 与 L2 同 SHA 完整准入 |
+| FG18 | F #94 原始跨版本 raw SST 反例 1/1；B #95 领域差量复签 | DESIGN_RECHECK_PASS / B_DESIGN_SIGNOFF_RECONFIRMED | W1 正式 PostgreSQL 迁移/来源合法 join/持久回滚/F QA |
+| FG19 | A b385e04 已融入 R4 主线，B/C/D/E 旧来源在祖先链，B #95/C #97/E #96 更新中 | SOURCE_INTEGRATION_CANDIDATE | 新 HEAD CI + F 核对差量父链/三账本完整性 |
+| FG20 | C 原版 50 项与原型扩展 20/20 Node+真实 Chromium 源 d4863ba | W0_PROTOTYPE_CI_PASS / F_FOLLOWUP_VISUAL_REVIEW_PENDING | F02 真原版全交互、DSH Host/API 和 Evidence |
+| FG21 | PR #84 `mergeable=true`，原 dirty Git 冲突消失 | SOURCE_MERGE_CONFLICT_RESOLVED / CI_UNSTABLE | 新 HEAD 所有真实 required gates、F 独立批准、合法许可 |
+| FG22 | F #101 164 项 1 FAIL；A b385e04 159 项 1 FAIL，`5bba94c` 修测试期望并添两反例 | CODE_FIX_SUBMITTED / NEW_HEAD_RECHECK_PENDING | W0 同 HEAD 完全通过 + F 独立重跑，不删真实 Q1 反例 |
+| R4-32 | F #101 源码定向 100/100 | ROSTER32_SOURCE_PASS / ACTIVE4_DEFAULT | DSH1.18.26 真实 32 名册/资源并发/断线恢复/Windows Git Bash 现场 |
+
+权限、合同门禁：B06 由 DSH Host 会话派生可信 principal；response source_refs、records、next_page_cursor 单一规范，E 仅读来源验证和 R1 拥有权。B01/B02/E01/C01/C02 **不准**以 W0 见证伪报实现 QA。BUSINESS_TZ 与真实来源映射 HOLD；A02 非商业许可与原创来源审计 BLOCKED_LICENSE；W0_NOT_FROZEN、W1–W4 NOT_RUN。

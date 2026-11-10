@@ -88,3 +88,20 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+
+## C follow-up PR #97（原始 W0 对账证据保留；旧 FG 状态由下文 A 最新段覆盖）
+### C 组 2026-11-10 W0 follow-up 检查点
+- 源基线 75fd2c64159db863cfd1319d41a887785b556d40；本轮仅新增原创 W0 原型交互，正式 C01/C02 未启动。
+- 十区领域表单、必填字段、fail-closed 提交；多选 Scope 的合法关系过滤/级联清理/原子拒绝/不可变查询快照；浏览器脚本逐区核验共享上下文。
+- 最新源 SHA d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8 已获得同 HEAD W0 probe 20/20 Node + Chromium + 3 PNG 成功（run 42662706264，artifact 13693719815），以及 B→C merge probe 15/15 成功（job 129318183968）。F 对本 follow-up 新交互的独立视觉复核仍待；不得借用上一轮 A HEAD 的 L0 结果作为本 HEAD 证据。
+- W0_NOT_FROZEN / A02 BLOCKED_LICENSE / FG17 ROOT_CAUSE_PENDING / FG21 MAINLINE_MERGE_DIRTY；无主线合并、无银行 ZIP、无 W1 QA_PASS。
+
+## 2026-11-10 A 组同源集成与 F #101 检查点（新状态优先于历史快照）
+
+- F 最新审查 A `b385e042c4543f5d918d61bff5e01be1d88afba7`：[F PR #101](https://github.com/TongAITech/opencode-test-digital-employee/pull/101) 与 [审查意见](https://github.com/TongAITech/opencode-test-digital-employee/pull/84#issuecomment-6754968337)。FG17 Python3.8/3.11 真 Chromium+adapter 31/31 各自成功、Py3.8 教学五次 0 failure；R4 100/100 源码靶向成功；**FG22 W0 159/1 FAIL、F 164/1 FAIL 仍是历史真实红灯**。
+- FG22 A 代码修复 `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1`：统一 Q1 validator 拒绝码，另验用例缺失和 Draft 假运行，不删除负向测试；**新集成 HEAD 的 CI 结果必须另验**。
+- FG21 Git 冲突已解决，RC7.2 R4 基线 `87f956f1388f58beabf7116c937fd6fda5fae2ca` 已作为 A b385e04 第二父提交合入 W0；PR #84 mergeable=true，但 CI unstable 非 release ready。R4 逻辑名册32/默认 active4，不是银行现场 32 并发。
+- 本次 B #95 领域复签 @ `67c4fc592f290710d6242aef2d4144000e7d82fd`、E #96 R1 consumer @ `c70ad0da92c5a4899a72d3096fad5e46fded74d5`、C #97 原创 UI 原型 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 纳入 A 候选，保留各组独立 PR 供 F 审查；B06 只读 Scope 使用服务端可信主体、source_refs、顶层 next_page_cursor，E 检查显式 Mission project+batch。
+- C 原型最新可重复源 d4863ba：20/20 Node、Chromium 六页十区多选及表单、3 PNG 通过，F 后续视觉独立复查和正式 F02 尚未进行；B 23/23、E 47/47 属各自源 SHA，不预填联合 HEAD 绿灯。
+- A 当前集成源码的 W0 155+/FG22 新测试/F 独立边界仍需同 SHA 运行；PR #84 继续 Draft，W0_NOT_FROZEN、A02 BLOCKED_LICENSE、B01/C01/E01 真实实现 NOT_RUN、无现场 DSH、无 Windows 离线 ZIP、不得合并运行主线。

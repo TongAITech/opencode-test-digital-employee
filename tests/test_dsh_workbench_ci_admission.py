@@ -62,6 +62,14 @@ class TestCIAdmission(unittest.TestCase):
         self.changed("n8", "  workflow_dispatch:", "  disabled_manual_gate:",
                      "N8_EXPLICIT_GATE_LOST")
 
+    def test_n5_full_matrix_never_runs_on_draft_pr(self):
+        self.changed("n5", NON_DRAFT, "if: always()",
+                     "N5_DRAFT_HEAVY_MATRIX_OR_REQUIRED_PROOF_LOST")
+
+    def test_n5_old_sha_queue_must_be_cancelled(self):
+        self.changed("n5", "rc72-n5-proof-", "rc72-n5-proof-github.sha-",
+                     "N5_DRAFT_HEAVY_MATRIX_OR_REQUIRED_PROOF_LOST")
+
     def test_q1_py38_fg17_negative_proof_is_preserved(self):
         self.changed("q1", "'tests/test_rc72_c09_real_chromium_cdp_smoke.py'",
                      "'docs/irrelevant.md'", "Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED")

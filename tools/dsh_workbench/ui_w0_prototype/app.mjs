@@ -15,29 +15,116 @@ const sectionMessages = {
   '会议纪要': '决议、责任人、行动项与日期/需求/版本/SST 关联。',
   '门禁': '人审申请、驳回、风险接受；原质量门禁不等于 RC7.2 NodeGate。'
 };
+const sectionForms = {
+  '项目概览': [['project_name','项目名称','text'],['owner','项目负责人','text']],
+  '质量任务': [['task_name','质量任务名称','text'],['acceptance','验收标准','textarea']],
+  '需求': [['requirement_title','需求标题','text'],['acceptance','验收标准','textarea']],
+  '测试用例': [['case_title','用例标题','text'],['precondition','前置条件','textarea'],['steps','测试步骤','textarea'],['expected','预期结果','textarea']],
+  '缺陷': [['defect_title','缺陷标题','text'],['expected','期望结果','textarea'],['actual','实际结果','textarea'],['reproduction','复现步骤','textarea']],
+  '里程碑': [['milestone_name','里程碑名称','text'],['planned_date','计划日期','date']],
+  '报告': [['report_title','报告名称','text'],['summary','报告摘要','textarea']],
+  '知识': [['knowledge_title','知识标题','text'],['source_ref','来源引用','text']],
+  '会议纪要': [['meeting_title','会议主题','text'],['decision','会议决议','textarea'],['owner','行动负责人','text']],
+  '门禁': [['review_target','审批对象','text'],['review_reason','审批理由','textarea']]
+};
 function setNotice(text) { $('global-message').textContent = text; }
-function populate(select, options, placeholder, selected = '') {
+function selectedValues(select) {
+  return select.multiple ? [...select.selectedOptions].map(option => option.value).filter(Boolean) : (select.value ? [select.value] : []);
+}
+function populate(select, options, placeholder, selected = []) {
   select.replaceChildren();
-  const initial = document.createElement('option'); initial.value = ''; initial.textContent = placeholder; select.append(initial);
-  for (const o of options) { const node = document.createElement('option'); node.value = o.id; node.textContent = o.label; select.append(node); }
-  select.value = selected || '';
+  const values = Array.isArray(selected) ? selected : selected ? [selected] : [];
+  if (!select.multiple) {
+    const initial = document.createElement('option');
+    initial.value = '';
+    initial.textContent = placeholder;
+    select.append(initial);
+  }
+  if (!options.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '暂无可选项';
+    empty.disabled = true;
+    empty.selected = true;
+    select.append(empty);
+  }
+  for (const option of options) {
+    const node = document.createElement('option');
+    node.value = option.id;
+    node.textContent = option.label;
+    node.selected = values.includes(option.id);
+    select.append(node);
+  }
+  if (!select.multiple) select.value = values[0] || '';
+}
+function scopeText(snapshot) {
+  return '共享筛选：' + (snapshot.release_date || '未选择投产日期')
+    + ' / ' + (snapshot.requirement_ids.join(',') || '全部需求')
+    + ' / ' + (snapshot.system_version_ids.join(',') || '全部系统版本')
+    + ' / ' + (snapshot.sst_ids.join(',') || '全部 SST')
+    + '；十个分区读取同一只读快照（W0 演示）。';
 }
 function renderScope() {
-  const s = ctrl.query();
-  populate($('batch'), ctrl.batches().map(b => ({ id: b.id, label: b.release_date })), '请选择投产日期', s.batch_id);
-  populate($('requirement'), ctrl.options('requirement_ids'), '全部需求', s.requirement_ids[0]);
-  populate($('version'), ctrl.options('system_version_ids'), '全部系统版本', s.system_version_ids[0]);
-  populate($('sst'), ctrl.options('sst_ids'), '全部 SST', s.sst_ids[0]);
-  for (const id of ['requirement','version','sst']) $(id).disabled = !s.batch_id;
+  const snapshot = ctrl.query();
+  populate($('batch'), ctrl.batches().map(batch => ({ id: batch.id, label: batch.release_date })), '请选择投产日期', snapshot.batch_id);
+  populate($('requirement'), ctrl.options('requirement_ids'), '全部需求', snapshot.requirement_ids);
+  populate($('version'), ctrl.options('system_version_ids'), '全部系统版本', snapshot.system_version_ids);
+  populate($('sst'), ctrl.options('sst_ids'), '全部 SST', snapshot.sst_ids);
+  for (const id of ['requirement','version','sst']) $(id).disabled = !snapshot.batch_id;
   $('scope-status').textContent = ctrl.status();
-  $('scope-echo').textContent = `当前上下文：${s.release_date || '未选择日期'} / ${s.requirement_ids.join(',') || '全部需求'} / ${s.system_version_ids.join(',') || '全部版本'} / ${s.sst_ids.join(',') || '全部 SST'}；所有十个分区复用此上下文。`;
+  $('scope-echo').textContent = scopeText(snapshot);
+  $('scope-echo').dataset.scopeSnapshot = JSON.stringify(snapshot);
+  for (const button of $('detail-tabs').querySelectorAll('button')) {
+    button.dataset.scopeSnapshot = JSON.stringify(snapshot);
+  }
+}
+function renderSectionForm(name) {
+  const host = $('section-form');
+  host.replaceChildren();
+  const form = document.createElement('form');
+  form.id = 'section-demo-form';
+  form.dataset.section = name;
+  const heading = document.createElement('h4');
+  heading.textContent = name + ' · 表单交互预览';
+  form.append(heading);
+  for (const [field, labelText, kind] of sectionForms[name]) {
+    const label = document.createElement('label');
+    label.className = 'form-field';
+    const caption = document.createElement('span');
+    caption.textContent = labelText;
+    const input = document.createElement(kind === 'textarea' ? 'textarea' : 'input');
+    input.name = field;
+    input.id = 'field-' + field;
+    input.required = true;
+    if (kind !== 'textarea') input.type = kind;
+    label.append(caption, input);
+    form.append(label);
+  }
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.textContent = '提交演示表单';
+  form.append(submit);
+  const error = document.createElement('p');
+  error.id = 'section-form-error';
+  error.setAttribute('role','alert');
+  error.hidden = true;
+  host.append(form,error);
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    error.textContent = '未提交：' + name + ' 尚未接入正式业务 API；没有创建、修改、执行或审批任何记录。';
+    error.hidden = false;
+    setNotice(error.textContent);
+  });
 }
 function renderPage(next) {
   if (!PAGES.includes(next)) throw new Error('未知页面');
   page = next;
   const ids = { '测试首页':'dashboard', 'DSH 测试对话':'conversation', '项目看板':'board', '日历排期':'calendar', 'QA Skill 安装':'skills', '项目详情':'detail' };
   for (const [key,id] of Object.entries(ids)) $(id).hidden = next !== key;
-  for (const button of document.querySelectorAll('[data-page]')) { button.classList.toggle('active', button.dataset.page === next); button.setAttribute('aria-current', button.dataset.page === next ? 'page' : 'false'); }
+  for (const button of document.querySelectorAll('[data-page]')) {
+    button.classList.toggle('active', button.dataset.page === next);
+    button.setAttribute('aria-current', button.dataset.page === next ? 'page' : 'false');
+  }
   $('page-title').textContent = next;
   if (next === '项目详情') renderScope();
 }
@@ -45,33 +132,85 @@ function renderSection(next) {
   if (!SECTIONS.includes(next)) throw new Error('未知项目分区');
   section = next;
   $('section-title').textContent = next;
-  $('section-content').textContent = sectionMessages[next] + '（功能目标，尚未接入正式 API）';
+  $('section-content').textContent = sectionMessages[next] + '（W0 原型：正式 API 未接入）';
   $('detail-error').hidden = true;
-  for (const btn of $('detail-tabs').querySelectorAll('button')) btn.classList.toggle('active', btn.textContent === next);
+  for (const button of $('detail-tabs').querySelectorAll('button')) {
+    button.classList.toggle('active', button.textContent === next);
+  }
+  renderSectionForm(next);
   renderScope();
 }
-function showFailure(fn) { try { fn(); setNotice('演示筛选已更新；不代表已通过服务端权限校验。'); } catch(e) { setNotice(`操作已阻断：${e.message}`); } }
+function showFailure(fn) {
+  try { fn(); setNotice('演示筛选已更新；不代表已通过服务端权限校验。'); }
+  catch (error) { setNotice('操作已阻断：' + error.message); renderScope(); }
+}
 function boot() {
-  populate($('project'), DEMO.projects.map(p => ({id:p.id,label:p.name})), '请选择项目', ctrl.state.project_id);
+  populate($('project'), DEMO.projects.map(project => ({id:project.id,label:project.name})), '请选择项目', ctrl.state.project_id);
   $('project-card').textContent = DEMO.projects[0].name;
-  for (const s of STAGES) { const tile = document.createElement('article'); tile.className='stage'; const h=document.createElement('h3'); h.textContent=s; const p=document.createElement('p'); p.textContent='演示阶段 · 无真实状态'; tile.append(h,p); $('stage-grid').append(tile); }
-  for (const s of SECTIONS) { const btn=document.createElement('button');btn.type='button';btn.textContent=s;btn.addEventListener('click',()=>renderSection(s));$('detail-tabs').append(btn); }
-  document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>renderPage(b.dataset.page)));
-  $('open-project').addEventListener('click',()=>renderPage('项目详情'));
-  $('back-board').addEventListener('click',()=>renderPage('项目看板'));
-  $('project').addEventListener('change',e=>showFailure(()=>{ctrl.setProject(e.target.value);$('project-card').textContent=DEMO.projects.find(x=>x.id===ctrl.state.project_id).name;renderScope();}));
-  $('batch').addEventListener('change',e=>showFailure(()=>{if(e.target.value)ctrl.setBatch(e.target.value);else ctrl.setProject(ctrl.state.project_id);renderScope();}));
-  for (const [id,field] of [['requirement','requirement_ids'],['version','system_version_ids'],['sst','sst_ids']]) $(id).addEventListener('change',e=>showFailure(()=>{ctrl.setFilter(field,e.target.value);renderScope();}));
-  $('detail-action').addEventListener('click',()=>{$('detail-error').hidden=false;});
-  $('board-new').addEventListener('click',()=>{$('board-error').hidden=false;});
-  $('chat-send').addEventListener('click',()=>{$('chat-error').textContent='未发送：缺少 DSH 宿主会话与授权。';});
-  $('chat-history').addEventListener('click',()=>{$('chat-error').textContent='无法读取：本原型没有 DSH 会话历史。';});
-  $('calendar-add').addEventListener('click',()=>{$('calendar-error').hidden=false;});
-  $('skill-install').addEventListener('click',()=>{$('skill-error').hidden=false;});
-  $('search').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();const count=DEMO.relations.filter(x=>x.project_id===ctrl.state.project_id&&(!ctrl.state.batch_id||x.batch_id===ctrl.state.batch_id)&&[x.requirement_name,x.sst_id,x.version_label].some(z=>String(z||'').toLowerCase().includes(v))).length;setNotice(v?`演示数据搜索：${count} 条关联匹配；非正式检索。`:'演示数据搜索已清空。');});
-  $('skill-search').addEventListener('input',e=>{setNotice(`技能目录搜索：${e.target.value || '全部'}（真实目录尚未接入）`);});
-  $('theme').addEventListener('click',()=>{const dark=document.body.classList.toggle('dark');$('theme').textContent=dark?'切换浅色主题':'切换深色主题';});
-  $('collapse').addEventListener('click',()=>{const collapsed=document.querySelector('.shell').classList.toggle('collapsed');$('collapse').textContent=collapsed?'展开侧栏':'收起侧栏';});
-  renderSection(section);renderPage(page);
+  for (const stage of STAGES) {
+    const tile = document.createElement('article');
+    tile.className = 'stage';
+    const heading = document.createElement('h3');
+    heading.textContent = stage;
+    const note = document.createElement('p');
+    note.textContent = '演示阶段 · 无真实状态';
+    tile.append(heading,note);
+    $('stage-grid').append(tile);
+  }
+  for (const name of SECTIONS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = name;
+    button.addEventListener('click', () => renderSection(name));
+    $('detail-tabs').append(button);
+  }
+  document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => renderPage(button.dataset.page)));
+  $('open-project').addEventListener('click', () => renderPage('项目详情'));
+  $('back-board').addEventListener('click', () => renderPage('项目看板'));
+  $('project').addEventListener('change', event => showFailure(() => {
+    ctrl.setProject(event.target.value);
+    $('project-card').textContent = DEMO.projects.find(project => project.id === ctrl.state.project_id).name;
+    renderScope();
+  }));
+  $('batch').addEventListener('change', event => showFailure(() => {
+    if (event.target.value) ctrl.setBatch(event.target.value);
+    else ctrl.setProject(ctrl.state.project_id);
+    renderScope();
+  }));
+  for (const [id,field] of [['requirement','requirement_ids'],['version','system_version_ids'],['sst','sst_ids']]) {
+    $(id).addEventListener('change', event => showFailure(() => {
+      ctrl.setFilter(field, selectedValues(event.target));
+      renderScope();
+    }));
+  }
+  $('detail-action').addEventListener('click', () => { $('detail-error').hidden = false; });
+  $('board-new').addEventListener('click', () => { $('board-error').hidden = false; });
+  $('chat-send').addEventListener('click', () => {
+    const message = $('chat-message').value.trim();
+    $('chat-error').textContent = message ? '未发送：缺少 DSH 宿主会话与授权，消息没有离开本地原型。' : '未发送：请输入消息；当前也未连接 DSH 宿主。';
+  });
+  $('chat-history').addEventListener('click', () => { $('chat-error').textContent = '无法读取：本原型没有 DSH 会话历史。'; });
+  $('calendar-add').addEventListener('click', () => { $('calendar-error').hidden = false; });
+  $('skill-install').addEventListener('click', () => { $('skill-error').hidden = false; });
+  $('search').addEventListener('input', event => {
+    const value = event.target.value.trim().toLowerCase();
+    const count = DEMO.relations.filter(row => row.project_id === ctrl.state.project_id
+      && (!ctrl.state.batch_id || row.batch_id === ctrl.state.batch_id)
+      && [row.requirement_name,row.sst_id,row.version_label].some(text => String(text || '').toLowerCase().includes(value))).length;
+    setNotice(value ? (count ? '演示数据搜索：' + count + ' 条关联匹配；非正式检索。' : '演示数据搜索：0 条匹配；非正式检索。') : '演示数据搜索已清空。');
+  });
+  $('skill-search').addEventListener('input', event => {
+    setNotice('技能目录搜索：' + (event.target.value || '全部') + '（真实目录尚未接入）');
+  });
+  $('theme').addEventListener('click', () => {
+    const dark = document.body.classList.toggle('dark');
+    $('theme').textContent = dark ? '切换浅色主题' : '切换深色主题';
+  });
+  $('collapse').addEventListener('click', () => {
+    const collapsed = document.querySelector('.shell').classList.toggle('collapsed');
+    $('collapse').textContent = collapsed ? '展开侧栏' : '收起侧栏';
+  });
+  renderSection(section);
+  renderPage(page);
 }
 boot();
