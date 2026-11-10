@@ -101,11 +101,11 @@ def _verify_source_root(repo, commit):
         raise LocalC12Error("C12_CHECKOUT_HAS_UNCOMMITTED_TRACKED_CHANGES")
 
 
-def _run(*args, cwd):
+def _run(*args, cwd, env=None):
     cmd = [str(v) for v in args]
     result = subprocess.run(
         cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        timeout=2400, check=False)
+        timeout=2400, check=False, env=env)
     if result.returncode:
         # Never emit runner process stdout: upstream tools can accidentally
         # include credential-bearing URLs/headers in their exception messages.
@@ -141,7 +141,8 @@ def _within(path, directory):
         return False
 
 
-def _qualify_extracted(*, python, extracted, repo, source_commit, evidence_path):
+def _qualify_extracted(*, python, extracted, repo, source_commit, evidence_path,
+                       zip_path=None, original_stage=None):
     _run(python, "-m", "rc7_release.rc72_package", "verify",
          "--package-root", extracted,
          "--expected-source-commit", source_commit, cwd=extracted)
@@ -153,9 +154,37 @@ def _qualify_extracted(*, python, extracted, repo, source_commit, evidence_path)
          "--package-root", extracted,
          "--output", evidence_path,
          "--require-pass", cwd=extracted)
+    # The official Q2 also requires a real isolated execution node, complete
+    # package-owned Python/document capability and a Windows pip mirror check.
+    # No force-PASS. The controlled Windows build host must have a verified
+    # outbound-block rule for the extracted Node executable; we do not silently
+    # alter a bank operator's host firewall.
+    _run(python, "-I", extracted / "rc7_release/python_full_capability_probe.py",
+         "--runtime-root", python.parent,
+         "--output", evidence_path.parent / "c12-full-python-offline.json",
+         cwd=extracted)
+    _run(python, "-m", "rc7_release.rc72_execution_node_qualification",
+         "--package-root", extracted,
+         "--evidence-root", evidence_path.parent / "c12-execution-node",
+         "--require-windows-outbound-block", "--require-full-text-search",
+         cwd=extracted)
     _run(sys.executable, str(repo / "tools/rc72_qa_offline_audit.py"),
          "--package-root", extracted,
          "--expected-source-commit", source_commit, cwd=repo)
+    if zip_path is None or original_stage is None:
+        raise LocalC12Error("C12_PIP_MIRROR_SOURCE_AND_ARCHIVE_REQUIRED")
+    environment = os.environ.copy()
+    environment.update({
+        "RC72_PIP_MIRROR_COMPONENT": "1",
+        "RC72_PIP_MIRROR_PACKAGE_ROOT": str(extracted),
+        "RC72_PIP_MIRROR_PACKAGE_ARCHIVE": str(zip_path),
+        "RC72_PIP_MIRROR_ORIGINAL_STAGE": str(original_stage),
+        "RC72_PIP_MIRROR_EVIDENCE": str(evidence_path.parent / "c12-pip-mirror"),
+    })
+    _run(python, "-m", "pytest",
+         repo / "tests/test_rc72_bank_pc_pip_mirror_windows.py", "-q",
+         "--junitxml=" + str(evidence_path.parent / "c12-pip-mirror.xml"),
+         cwd=repo, env=environment)
 
 
 def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
@@ -212,7 +241,8 @@ def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
                 raise LocalC12Error("C12_PACKAGE_LOCAL_PYTHON_MISSING")
             _qualify_extracted(
                 python=py, extracted=extracted, repo=repo,
-                source_commit=commit, evidence_path=out / "c12-clean-runtime.json")
+                source_commit=commit, evidence_path=out / "c12-clean-runtime.json",
+                zip_path=zip_path, original_stage=package_root)
         if _hash(approval_record) != inspection["external_approval_record_sha256"]:
             raise LocalC12Error("C12_APPROVAL_RECORD_CHANGED_DURING_BUILD")
         receipt = dict(
