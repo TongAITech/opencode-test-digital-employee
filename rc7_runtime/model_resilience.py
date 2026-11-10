@@ -16,11 +16,14 @@ consume the same shared budget.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import math
 import os
 import re
+import stat
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -156,9 +159,14 @@ class PersistentSlidingWindowGovernor:
         self.now_fn = now_fn or time.time
         self.sleep_fn = sleep_fn or time.sleep
         root = Path(state_root).expanduser().resolve() / "model-governor"
+        if root.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         root.mkdir(parents=True, exist_ok=True)
+        if root.is_symlink() or not root.is_dir():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         self.state_path = root / "shared-window.json"
         self.lock_path = root / "shared-window.lock"
+        self._lock_fd = None
 
     def reserve(self) -> RateReservation:
         self._lock()
@@ -186,12 +194,17 @@ class PersistentSlidingWindowGovernor:
         # Absence on first launch is distinct from a present but corrupt state.
         # In particular, an interrupted write, invalid JSON, wrong schema or
         # non-finite timestamp must fail closed across all RC7.2 processes.
-        if self.state_path.is_symlink():
+        if (self.state_path.is_symlink()
+                or self.state_path.parent.is_symlink()):
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         if not self.state_path.exists():
             return {"timestamps": []}
         try:
-            value = json.loads(self.state_path.read_text(encoding="utf-8"))
+            value = json.loads(
+                self.state_path.read_text(encoding="utf-8"),
+                object_pairs_hook=_unique_json_object,
+                parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+            )
         except (OSError, UnicodeError, ValueError):
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED") from None
         if (not isinstance(value, dict)
@@ -207,48 +220,125 @@ class PersistentSlidingWindowGovernor:
         return {"timestamps": stamps}
 
     def _save(self, value: Dict[str, Any]) -> None:
-        temp = self.state_path.with_suffix(".tmp")
-        temp.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(str(temp), str(self.state_path))
+        root = self.state_path.parent
+        if (root.is_symlink() or self.state_path.is_symlink()
+                or not root.is_dir()):
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="\n",
+                    prefix=".shared-window-", suffix=".tmp",
+                    dir=str(root), delete=False) as output:
+                temp = Path(output.name)
+                output.write(json.dumps(
+                    value, ensure_ascii=False, sort_keys=True) + "\n")
+                output.flush()
+                os.fsync(output.fileno())
+            if self.state_path.is_symlink():
+                raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+            os.replace(str(temp), str(self.state_path))
+            if os.name != "nt":
+                directory_fd = os.open(str(root), os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        except OSError:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_WRITE_FAILED") from None
+        finally:
+            if temp is not None and temp.exists():
+                temp.unlink()
 
     def _lock(self) -> None:
-        deadline = float(self.now_fn()) + 10.0
+        # Use an OS advisory lock instead of an O_EXCL lock-file lease. The
+        # previous stale-file deletion could evict a live process after 30s,
+        # and its later unlink could remove a successor's lock. A persistent
+        # file plus kernel-managed ownership survives process death safely.
+        if self._lock_fd is not None:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_REENTRY_FORBIDDEN")
+        if self.lock_path.is_symlink() or self.lock_path.parent.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED")
+        flags = os.O_CREAT | os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(str(self.lock_path), flags, 0o600)
+        except OSError:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED") from None
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED")
+        if os.fstat(fd).st_size == 0:
+            os.write(fd, b"0")
+            os.fsync(fd)
+        deadline = time.monotonic() + 10.0
         while True:
             try:
-                fd = os.open(str(self.lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, str(os.getpid()).encode("ascii", errors="ignore"))
-                finally:
-                    os.close(fd)
+                if os.name == "nt":
+                    import msvcrt
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._lock_fd = fd
                 return
-            except FileExistsError:
-                try:
-                    age = time.time() - self.lock_path.stat().st_mtime
-                    if age > 30.0:
-                        self.lock_path.unlink()
-                        continue
-                except OSError:
-                    pass
-                if float(self.now_fn()) >= deadline:
+            except OSError as exc:
+                contended = (
+                    exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK)
+                    or getattr(exc, "winerror", None) in (33, 36)
+                )
+                if not contended:
+                    os.close(fd)
+                    raise AgentRuntimeError(
+                        "MODEL_RATE_GOVERNOR_LOCK_UNAVAILABLE") from None
+                if time.monotonic() >= deadline:
+                    os.close(fd)
                     raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_TIMEOUT")
-                self.sleep_fn(0.02)
+                time.sleep(0.02)
 
     def _unlock(self) -> None:
+        fd = self._lock_fd
+        self._lock_fd = None
+        if fd is None:
+            return
         try:
-            self.lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            if os.name == "nt":
+                import msvcrt
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _unique_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON field")
+        value[key] = item
+    return value
 
 
 def classify_failure(text: str) -> ModelFailure:
     raw = str(text or "")
     lowered = raw.lower()
-    if "429" in lowered or "rate limit" in lowered or "too many requests" in lowered or "频率" in raw:
+    if (re.search(r"(?<![0-9])429(?![0-9])", lowered)
+            or "rate limit" in lowered or "too many requests" in lowered
+            or "频率" in raw):
         return ModelFailure("RATE_LIMIT", True, "provider throttle")
     if "sse stream ended without [done]" in lowered or "stream_closed" in lowered or "stream closed" in lowered:
         return ModelFailure("SSE_STREAM_CLOSED_BEFORE_DONE", True, "SSE ended before DONE")
-    for code in ("502", "503", "504"):
-        if ("code" in lowered or "http" in lowered or "status" in lowered) and code in lowered:
+    for code, phrases in (
+            ("502", ("bad gateway", "gateway error")),
+            ("503", ("service unavailable", "provider unavailable")),
+            ("504", ("gateway timeout", "upstream timeout"))):
+        if (re.search(r"(?<![0-9])%s(?![0-9])" % code, lowered)
+                or any(phrase in lowered for phrase in phrases)):
             return ModelFailure("HTTP_%s" % code, True, "provider HTTP %s" % code)
     if "connect timeout" in lowered or "connection timed out" in lowered:
         return ModelFailure("CONNECT_TIMEOUT", True, "connect timeout")
