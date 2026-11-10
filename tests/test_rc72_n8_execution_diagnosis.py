@@ -476,3 +476,52 @@ def test_r4_n8_replay_checks_forged_gate_and_active_delivery_before_evidence(
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("damage", [
+    "running_wrong_active_generation", "running_foreign_delivery_ref",
+])
+def test_e_qa_n8_running_cold_replay_must_not_overwrite_active_delivery(
+        tmp_path, monkeypatch, damage):
+    """E independent QA: a running N8 node must not adopt stale/cross-batch Delivery.
+
+    Source before this regression only prechecked REVIEW_PENDING/PASS and would
+    overwrite RUNNING active_delivery_version, mutating R1 Evidence first.
+    """
+    from rc7_runtime.rc72_domain import AutonomousMissionNode
+
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(
+            prep, evidence_root=tmp_path / "diagnosis")
+        assert service.run(p["preparation_id"])["failure_class"] == "TEST_DATA_GAP"
+        original_node = service.runtime.node_by_type
+
+        def incompatible_running_node(mission_id, node_type):
+            node = original_node(mission_id, node_type)
+            if node_type == AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY:
+                if damage == "running_wrong_active_generation":
+                    return dict(node, state="RUNNING",
+                                active_delivery_version=777,
+                                delivery_refs=list(node["delivery_refs"]))
+                return dict(node, state="RUNNING",
+                            delivery_refs=["N8-FOREIGN-DELIVERY"],
+                            active_delivery_version=node["active_delivery_version"])
+            return node
+
+        monkeypatch.setattr(service.runtime, "node_by_type",
+                            incompatible_running_node)
+
+        def forbid_evidence_write(*args, **kwargs):
+            raise AssertionError("E QA: forged RUNNING N8 attempted R1 Evidence write")
+
+        monkeypatch.setattr(service.evidence, "_ensure", forbid_evidence_write)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match="N8_ACTIVE_DELIVERY_CONFLICT"):
+            service.run(p["preparation_id"])
+        assert truth.store.path.read_bytes() == before
+        assert truth.query("execution_attempt")[0]["status"] == "BLOCKED"
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()

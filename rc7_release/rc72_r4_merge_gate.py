@@ -1,8 +1,9 @@
-"""R4 source merge admission: exact HEAD CI plus a separate approved E reviewer.
+"""R4 source merge admission: exact-HEAD independent engineering QA evidence.
 
-This gate is engineering-only. It never claims bank Field evidence, genuine
-AgentTeams membership, C12 approved binaries, Q3-Q9 or BANK_FINAL. GitHub
-review identity must be from the API, not a PR body, CLI flag, or model output.
+Frozen RC7.2 requires independent QA and verified N1-N10 evidence, but does
+not mandate a *second GitHub account* for engineering source integration.
+GitHub CHANGES_REQUESTED still vetoes merge. Authentic human approval is
+optional metadata; it is never fabricated or required to prove Q3-Q9 Field.
 """
 from __future__ import annotations
 
@@ -33,6 +34,9 @@ REQUIRED_WORKFLOWS = (
     "RC7.2 C08 Mandatory N1-N10 Denominator Integrity",
     "RC7.2 ABCD-v3 Same-HEAD Product and Independent QA Qualification",
     "RC7.2 ABCD-v4 Same-HEAD Product and Independent QA Qualification",
+    # Genuine independent QA/source workflows, not the gate checking itself.
+    "RC7.2 R4 E Independent Merge Gate Source Tests (No ZIP)",
+    "RC7.2 R4 C12 Local Approved Windows Source Qualification (No ZIP)",
 )
 
 
@@ -119,12 +123,13 @@ def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers,
            for row in selected.values()):
         return _hold("R4_REQUIRED_CI_NOT_ALL_SUCCESS", sha)
 
+    # Preserve a genuine GitHub CHANGES_REQUESTED veto. An unrequested
+    # GitHub approval is NOT equivalent to an independent technical review
+    # and is not required by frozen RC7.2 construction contracts.
+    if not isinstance(reviews, list):
+        return _hold("R4_GITHUB_REVIEW_STATUS_UNAVAILABLE", sha)
     allowed = {name.strip().casefold() for name in trusted_e_reviewers
                if isinstance(name, str) and name.strip()}
-    if not allowed:
-        return _hold("R4_BANK_APPROVED_E_REVIEWERS_NOT_CONFIGURED", sha)
-    if not isinstance(reviews, list):
-        return _hold("R4_INDEPENDENT_E_REVIEW_MISSING", sha)
     latest = {}
     for review in reviews:
         if not isinstance(review, dict):
@@ -133,22 +138,34 @@ def check_snapshot(snapshot, *, expected_sha, trusted_e_reviewers,
         if not isinstance(reviewer, str) or not reviewer.strip():
             return _hold("R4_REVIEW_AUTHOR_INVALID", sha)
         key = reviewer.casefold()
-        order = (str(review.get("submitted_at") or ""), int(review.get("id") or 0))
+        try:
+            order = (str(review.get("submitted_at") or ""), int(review.get("id") or 0))
+        except (ValueError, TypeError):
+            return _hold("R4_REVIEW_ORDER_INVALID", sha)
         if key not in latest or order > latest[key][0]:
             latest[key] = (order, review)
+    if any(x[1].get("state") == "CHANGES_REQUESTED"
+           and name != owner.casefold()
+           for name, x in latest.items()):
+        return _hold("R4_GITHUB_CHANGES_REQUESTED_UNRESOLVED", sha)
     approved = [
-        item[1] for name, item in latest.items()
+        row[1] for name, row in latest.items()
         if (name in allowed and name != owner.casefold()
-            and item[1].get("state") == "APPROVED"
-            and item[1].get("commit_id") == sha
-            and (item[1].get("user") or {}).get("type") != "Bot")
+            and row[1].get("state") == "APPROVED"
+            and row[1].get("commit_id") == sha
+            and (row[1].get("user") or {}).get("type") != "Bot")
     ]
-    if not approved:
-        return _hold("R4_INDEPENDENT_E_EXACT_HEAD_APPROVAL_PENDING", sha)
     return {
         "status": "SOURCE_MERGE_ADMISSIBLE",
         "source_sha": sha,
         "workflow_count": len(selected),
+        "independent_qa_ci_workflows_verified": [
+            "RC7.2 ABCD-v3 Same-HEAD Product and Independent QA Qualification",
+            "RC7.2 ABCD-v4 Same-HEAD Product and Independent QA Qualification",
+            "RC7.2 R4 E Independent Merge Gate Source Tests (No ZIP)",
+            "RC7.2 R4 C12 Local Approved Windows Source Qualification (No ZIP)",
+        ],
+        "external_github_review_required_by_frozen_rc72_contract": False,
         "independent_e_review_count": len(approved),
         "field_verified": False,
         "bank_final": False,

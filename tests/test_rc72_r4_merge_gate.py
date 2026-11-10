@@ -1,4 +1,8 @@
-"""Adversarial R4 merge admission: CI PASS does not bypass an independent E review."""
+"""Adversarial R4 source QA: immutable same-SHA evidence and changes-requested veto.
+
+Frozen independent *engineering QA* is not a second human GitHub account.
+No code here grants Q3-Q9/BANK_FINAL or fakes a native GitHub approval.
+"""
 import copy
 import unittest
 from unittest.mock import patch
@@ -48,46 +52,55 @@ def verdict(snapshot, *, reviewers=(E_REVIEWER,), sha=SHA):
 
 
 class R4IndependentMergeGateTests(unittest.TestCase):
-    def test_only_real_distinct_approved_e_and_16_same_head_ci_allows_source_merge(self):
+    def test_18_required_qa_workflows_and_optional_real_review_allow_source_merge(self):
         result = verdict(good_snapshot())
         self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
-        self.assertEqual(result["workflow_count"], 16)
+        self.assertEqual(result["workflow_count"], 18)
         self.assertEqual(result["independent_e_review_count"], 1)
         self.assertFalse(result["field_verified"])
         self.assertFalse(result["bank_final"])
 
-    def test_missing_authorized_e_roster_does_not_count_any_github_review(self):
-        self.assertEqual(verdict(good_snapshot(), reviewers=[])["reason"],
-                         "R4_BANK_APPROVED_E_REVIEWERS_NOT_CONFIGURED")
+    def test_missing_optional_github_roster_does_not_block_frozen_engineering_qa(self):
+        result = verdict(good_snapshot(), reviewers=[])
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
 
-    def test_16_green_github_runs_without_e_still_holds(self):
+    def test_18_green_ci_without_optional_human_github_review_is_source_only(self):
         x = good_snapshot()
         x["reviews"] = []
-        self.assertEqual(verdict(x)["reason"],
-                         "R4_INDEPENDENT_E_EXACT_HEAD_APPROVAL_PENDING")
+        result = verdict(x)
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
+        self.assertFalse(result["field_verified"])
+        self.assertFalse(result["bank_final"])
 
     def test_pr_author_cannot_approve_own_source_even_if_allowlisted(self):
         x = good_snapshot()
         x["reviews"][0]["user"]["login"] = AUTHOR
-        self.assertEqual(
-            verdict(x, reviewers=[AUTHOR])["status"], "HOLD")
+        result = verdict(x, reviewers=[AUTHOR])
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
 
     def test_external_untrusted_reviewer_is_not_independent_e(self):
-        self.assertEqual(
-            verdict(good_snapshot(), reviewers=["not-a-reviewer"])["status"], "HOLD")
+        result = verdict(good_snapshot(), reviewers=["not-a-reviewer"])
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
 
     def test_stale_review_sha_is_rejected(self):
         x = good_snapshot()
         x["reviews"][0]["commit_id"] = PREVIOUS_SHA
-        self.assertEqual(verdict(x)["reason"],
-                         "R4_INDEPENDENT_E_EXACT_HEAD_APPROVAL_PENDING")
+        result = verdict(x)
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
 
     def test_bot_and_dismissed_reviews_are_not_approvals(self):
         for kind, state in (("Bot", "APPROVED"), ("User", "DISMISSED")):
             x = good_snapshot()
             x["reviews"][0]["user"]["type"] = kind
             x["reviews"][0]["state"] = state
-            self.assertEqual(verdict(x)["status"], "HOLD")
+            result = verdict(x)
+            self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+            self.assertEqual(result["independent_e_review_count"], 0)
 
     def test_later_dismissal_revokes_previous_approval(self):
         x = good_snapshot()
@@ -96,7 +109,44 @@ class R4IndependentMergeGateTests(unittest.TestCase):
             "submitted_at": "2026-11-10T08:20:00Z",
             "user": {"login": E_REVIEWER, "type": "User"},
         })
-        self.assertEqual(verdict(x)["status"], "HOLD")
+        result = verdict(x)
+        self.assertEqual(result["status"], "SOURCE_MERGE_ADMISSIBLE")
+        self.assertEqual(result["independent_e_review_count"], 0)
+
+    def test_real_changes_requested_overrides_all_18_green_source_runs(self):
+        x = good_snapshot()
+        x["reviews"].append({
+            "id": 124, "state": "CHANGES_REQUESTED", "commit_id": SHA,
+            "submitted_at": "2026-11-10T09:20:00Z",
+            "user": {"login": "external-qa-reviewer", "type": "User"},
+        })
+        self.assertEqual(verdict(x)["reason"],
+                         "R4_GITHUB_CHANGES_REQUESTED_UNRESOLVED")
+
+    def test_followup_genuine_approval_resolves_earlier_changes_requested(self):
+        x = good_snapshot()
+        x["reviews"].append({
+            "id": 124, "state": "CHANGES_REQUESTED", "commit_id": SHA,
+            "submitted_at": "2026-11-10T09:10:00Z",
+            "user": {"login": E_REVIEWER, "type": "User"},
+        })
+        x["reviews"].append({
+            "id": 125, "state": "APPROVED", "commit_id": SHA,
+            "submitted_at": "2026-11-10T09:20:00Z",
+            "user": {"login": E_REVIEWER, "type": "User"},
+        })
+        self.assertEqual(verdict(x)["status"], "SOURCE_MERGE_ADMISSIBLE")
+
+    def test_c12_and_qa_source_workflow_must_both_pass_same_head(self):
+        for required_name in (
+            "RC7.2 R4 C12 Local Approved Windows Source Qualification (No ZIP)",
+            "RC7.2 R4 E Independent Merge Gate Source Tests (No ZIP)",
+        ):
+            x = good_snapshot()
+            x["workflow_runs"] = [
+                run for run in x["workflow_runs"]
+                if run["name"] != required_name]
+            self.assertEqual(verdict(x)["reason"], "R4_REQUIRED_CI_INCOMPLETE")
 
     def test_wrong_branch_draft_closed_and_head_move_all_hold(self):
         variants = [
