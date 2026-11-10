@@ -213,3 +213,12 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | E107-P1 | F_NEW_A_HEAD_RECHECK_PENDING | E 的 mission_overview_scoped 先查身份后读 details、拒绝时零关联读取，必须由 F 在最新 A 联合树独立核销，W0 合同 CI 不代替安全审查 |
 | WB-A02 | BLOCKED_LICENSE | PolyForm Noncommercial 商业权利未批准，不复制受限源码到银行交付 |
 | WB-W0 | NOT_FROZEN | 50 项正式功能 NOT_RUN；W1–W4/场景/现场/商业授权独立门禁，不得从 check-runs 的 skipped 或 W0 success 推导 QA_PASS |
+
+
+## 2026-11-10 总控接管：精确源与 PostgreSQL 增量审查
+- 远端 PR #84 接管源 `5c1a5f4e10ed9f79bb523516d340ff21f58c72f0`；RC7.2 `87f956f1388f58beabf7116c937fd6fda5fae2ca`，未修改运行主线。
+- 该源 check-runs：w0-contracts SUCCESS，14 SKIPPED；跳过不是产品 PASS。F #112 仅审查 f6aa541，不转移到本源。
+- F 独立复验 PR #114，报告提交 `58297959c401106c6f6f5f6221c8f91841c1a5c7`：本地 Python260/260、Node30/30、隔离 F scope-first9/9；未执行 PostgreSQL/Windows/浏览器；未签发 F00。
+- PostgreSQL 正式业务库增量合同正在独立分支施工；B/D/E 技术评审 PR #115 为 REVIEW_IN_PROGRESS，不能当作原组签署。增量必须绑定实际 SHA 再审，不继承历史签署。
+- BLOCKED：PostgreSQL 增量 B/E/D 审查及最新设计 HEAD 的 F00 接受；W0_NOT_FROZEN。W1 产品实现不得借本轮合同测试宣称完成。
+- A02_BLOCKED_LICENSE / 50_PRODUCT_NOT_RUN / FIELD_QA_NOT_RUN / NO_RC72_MERGE / NO_BANK_ZIP。

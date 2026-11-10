@@ -157,3 +157,12 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 核实旧源：PR #84 OPEN/DRAFT、HEAD f6aa541a7c82b74bcd1937754637d8341111fb70；target 87f956f1388f58beabf7116c937fd6fda5fae2ca，ahead=167/behind=0，GitHub check-runs 15 条仅 w0-contracts success、另外 14 skipped。旧 job https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42754283361/job/129624916743 只属于 f6aa541a。
 - A 新增标准化只读检查工具 tools/dsh_workbench/w0_checkrun_evidence.py，严格按完整 JSON snapshot 和 40 位源 SHA、required status=completed/conclusion=success 核对；14 个 skipped 不可计 PASS。纯函数结果一律 product_qa_pass=false、f_independent_approval=false、license_release_approved=false。tests/test_dsh_workbench_w0_checkrun_evidence.py 提供敌意输入反例。
 - 新提交后必须查新 HEAD 实际 GitHub Actions checks，原始 f6a 的成功不自动转移；F 对 E107 P1 和 W0 全局冻结仍需独立复核。A02 BLOCKED_LICENSE、W1–W4/50项产品 NOT_RUN、PR DRAFT、不可合 RC7.2，不得构建或银行交付 ZIP。
+
+
+## 2026-11-10 总控接管：精确源与 PostgreSQL 增量审查
+- 远端 PR #84 接管源 `5c1a5f4e10ed9f79bb523516d340ff21f58c72f0`；RC7.2 `87f956f1388f58beabf7116c937fd6fda5fae2ca`，未修改运行主线。
+- 该源 check-runs：w0-contracts SUCCESS，14 SKIPPED；跳过不是产品 PASS。F #112 仅审查 f6aa541，不转移到本源。
+- F 独立复验 PR #114，报告提交 `58297959c401106c6f6f5f6221c8f91841c1a5c7`：本地 Python260/260、Node30/30、隔离 F scope-first9/9；未执行 PostgreSQL/Windows/浏览器；未签发 F00。
+- PostgreSQL 正式业务库增量合同正在独立分支施工；B/D/E 技术评审 PR #115 为 REVIEW_IN_PROGRESS，不能当作原组签署。增量必须绑定实际 SHA 再审，不继承历史签署。
+- BLOCKED：PostgreSQL 增量 B/E/D 审查及最新设计 HEAD 的 F00 接受；W0_NOT_FROZEN。W1 产品实现不得借本轮合同测试宣称完成。
+- A02_BLOCKED_LICENSE / 50_PRODUCT_NOT_RUN / FIELD_QA_NOT_RUN / NO_RC72_MERGE / NO_BANK_ZIP。

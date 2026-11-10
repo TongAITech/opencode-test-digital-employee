@@ -251,3 +251,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A 在 tools/dsh_workbench/w0_checkrun_evidence.py 建立完全离线的同 SHA check-runs JSON 核验；tests/test_dsh_workbench_w0_checkrun_evidence.py 提供负向证据，拒绝旧 SHA、required 被跳过/取消/失败/未完成、缺失/同名重复、分页不完整。W0 workflow 通过 test_dsh_workbench*.py 自动收集；本提交在合并后必须以新 HEAD GitHub CI 核实，不能沿用 f6aa541a 的成功。
 - 状态：WB-A00_CONTRACT_EVIDENCE_HARDENING_SUBMITTED / SAME_HEAD_CI_PENDING / F_RECHECK_REQUIRED。仅证明选择的 check 成功，永远不会签发 product_qa_pass、F approval 或 license_release；正式 L1/L2 仍要在非 Draft/人工 pin 下完整执行。
 - 当前门禁严格维持 W0_NOT_FROZEN、PR84_DRAFT、WB-A02_BLOCKED_LICENSE、50/50_PRODUCT_NOT_RUN、E107_P1_F_RECHECK_PENDING、NO_RC72_MERGE、NO_BANK_ZIP。
+
+
+## 2026-11-10 总控接管：精确源与 PostgreSQL 增量审查
+- 远端 PR #84 接管源 `5c1a5f4e10ed9f79bb523516d340ff21f58c72f0`；RC7.2 `87f956f1388f58beabf7116c937fd6fda5fae2ca`，未修改运行主线。
+- 该源 check-runs：w0-contracts SUCCESS，14 SKIPPED；跳过不是产品 PASS。F #112 仅审查 f6aa541，不转移到本源。
+- F 独立复验 PR #114，报告提交 `58297959c401106c6f6f5f6221c8f91841c1a5c7`：本地 Python260/260、Node30/30、隔离 F scope-first9/9；未执行 PostgreSQL/Windows/浏览器；未签发 F00。
+- PostgreSQL 正式业务库增量合同正在独立分支施工；B/D/E 技术评审 PR #115 为 REVIEW_IN_PROGRESS，不能当作原组签署。增量必须绑定实际 SHA 再审，不继承历史签署。
+- BLOCKED：PostgreSQL 增量 B/E/D 审查及最新设计 HEAD 的 F00 接受；W0_NOT_FROZEN。W1 产品实现不得借本轮合同测试宣称完成。
+- A02_BLOCKED_LICENSE / 50_PRODUCT_NOT_RUN / FIELD_QA_NOT_RUN / NO_RC72_MERGE / NO_BANK_ZIP。
