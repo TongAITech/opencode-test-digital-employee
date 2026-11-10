@@ -1,7 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })"
+SCRIPT_DIR_POSIX="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+_is_rc72_package_root() {
+  local candidate="$1"
+  [[ -d "$candidate" ]] || return 1
+  [[ -f "$candidate/SOURCE_COMMIT" ]] || return 1
+  [[ -f "$candidate/PACKAGE_MANIFEST.json" ]] || return 1
+  [[ -f "$candidate/RC72_RELEASE_IDENTITY.json" ]] || return 1
+  [[ -f "$candidate/workspace-template/runtime/python/python.exe" ]] || return 1
+  [[ -f "$candidate/packaging/rc7.2/AITEST.sh" ]] || return 1
+  return 0
+}
+
+# Resolve from the launcher location, not the caller's working directory.
+# This supports a normal extraction and an additional outer folder created
+# when the ZIP is unpacked into a directory with the same package name.
+ROOT_POSIX=""
+candidate="$SCRIPT_DIR_POSIX"
+for _depth in 0 1 2 3 4 5 6 7 8 9 10; do
+  if _is_rc72_package_root "$candidate"; then
+    ROOT_POSIX="$(cd -- "$candidate" && pwd -P)"
+    break
+  fi
+  parent="$(dirname -- "$candidate")"
+  [[ "$parent" == "$candidate" ]] && break
+  candidate="$parent"
+done
+
+if [[ -z "$ROOT_POSIX" ]]; then
+  nested_roots=()
+  while IFS= read -r -d '' identity_file; do
+    candidate="$(dirname -- "$identity_file")"
+    if _is_rc72_package_root "$candidate"; then
+      nested_roots+=("$(cd -- "$candidate" && pwd -P)")
+    fi
+  done < <(find "$SCRIPT_DIR_POSIX" -mindepth 1 -maxdepth 4 -type f -name "RC72_RELEASE_IDENTITY.json" -print0 2>/dev/null || true)
+  if [[ "${#nested_roots[@]}" -ne 1 ]]; then
+    echo "[RC7.2] package root not uniquely identifiable from launcher path (matches=${#nested_roots[@]})" >&2
+    exit 2
+  fi
+  ROOT_POSIX="${nested_roots[0]}"
+fi
+
+ROOT="$(cd -- "$ROOT_POSIX" && { pwd -W 2>/dev/null || pwd; })"
+
+# A narrow, non-mutating hook used by Windows Git Bash and Linux shell CI to
+# verify path canonicalization before package-local Python is required.
+if [[ "${PFC_RC72_ROOT_PROBE_ONLY:-0}" == "1" ]]; then
+  printf 'RC72_PACKAGE_ROOT=%s\n' "$ROOT"
+  printf 'RC72_PACKAGE_ROOT_POSIX=%s\n' "$ROOT_POSIX"
+  exit 0
+fi
+
 PY="$ROOT/workspace-template/runtime/python/python.exe"
 [[ -f "$PY" ]] || { echo "[RC7.2] package-local Python missing: $PY" >&2; exit 2; }
 
