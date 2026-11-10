@@ -1,0 +1,49 @@
+name: RC7.2 R4 C12 Local Approved Windows Source Qualification (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2-r4-consolidated-1to5-20261110, work/rc7.2]
+    paths:
+      - 'rc7_release/rc72_c12_local_portable.py'
+      - 'tests/test_rc72_c12_local_portable.py'
+      - 'docs/rc7.2/R4-C12-LOCAL-APPROVED-WINDOWS-BUILD.md'
+      - '.github/workflows/rc7.2-r4-c12-local-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-r4-c12-local-source-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  q2-source-boundary:
+    name: c12-local-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Pinned test harness
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Real source compile and adversarial preflight (no fake bank ZIP)
+        run: |
+          python -m compileall -q rc7_release/rc72_c12_local_portable.py tests/test_rc72_c12_local_portable.py
+          python -m pytest -q tests/test_rc72_c12_local_portable.py tests/test_rc72_dsh_main_payload.py --junitxml=rc72-c12-local-source.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rc72-c12-local-source-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-c12-local-source.xml
+          retention-days: 14
+          if-no-files-found: warn
