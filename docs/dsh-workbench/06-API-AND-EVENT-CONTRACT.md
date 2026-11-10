@@ -58,3 +58,24 @@ Scope 的 BRV 不只是 BR 与 BV 均在批次内，**还必须有 authoritative
 ## WB-FG18 跨系统版本 SST 原始来源 ID 复用语义
 
 同一 raw source_object_id 在不同 system_version_id 下可对应独立内部 sst_id，接口返回稳定内部身份以及版本限定的原始 source_ref、source_revision。Scope 及关系写入必须校验 project、batch、requirement、system_version、sst_id、source_verified_link 完整链路；误把 raw ID 相同当作关联即 422，且本事务不能有部分副作用。来源唯一约束不再是全项目的 raw ID 唯一。正式 API/真实来源审计仍属 W1+。
+
+
+## B06 专属 Scope 响应契约（覆盖本文件通用 pagination 描述）
+
+本节仅约束 B 组 GET /api/workbench/v1/projects/{project_id}/release-dates/{yyyy-mm-dd}/scope；该接口的响应不采用上文泛化的外层 pagination envelope，也不返回 R1 truth 字段。
+
+**请求：** DSH Host middleware 从已认证宿主会话派生 principal 并绑定到服务端 request context；principal 不是 query/body 字段，也不是 E adapter 可自报/传入的参数。业务查询参数为 project_id；batch_id 或 project_id+release_date；可选 requirement_ids[]、system_version_ids[]、sst_ids[]；page_size、page_cursor。B06 不接受 mission_id，也不维护 authorized_mission_ids。
+
+**响应固定字段：**
+- project_id、batch_id、release_date、relation_revision、access_scope_revision；
+- source_refs：去重后的非空字符串数组，必须覆盖本页每条 BRV 的 source_verified_requirement_version.source_link_ref，以及每条 SPLIT SST 的 source_verified_link.source_link_ref；
+- records：真实 BRV LEFT JOIN BRVS 记录；每行包含 requirement_id、system_version_id、split_state、sst_id，以及 source_verified_requirement_version 来源对象；SPLIT 行另含 source_verified_link 来源对象；UNSPLIT 行 sst_id=null 且 source_verified_link=null；
+- warnings、gap_indicators：始终为数组，无内容时为空数组；
+- next_page_cursor：**固定顶层字段且必须存在**；null 表示最后一页，非 null 表示仍有后续页。
+
+B06 不返回外层 pagination object，不同时返回 cursor/page_cursor 两种响应字段。请求游标名为 page_cursor，响应游标名为 next_page_cursor。游标必须绑定服务端 principal、project、batch、过滤集合、relation_revision、access_scope_revision 和稳定排序位置；若真实查询依赖 R1，则另绑定对应 truth_revision。关联/权限修订后返回 409 STALE_CURSOR，要求从新快照重新查询。只有消费完所有页直到 next_page_cursor=null 才能宣称 Scope 完整。
+
+B06 的 source_refs 只表示 B 领域的权威关系来源。B06 不生成 truth_revision 或 as_of；E 在读取 R1 后负责补充 R1 的 truth_revision/as_of 和 R1 source ref。B06 只授权 project+batch+relation query，不负责 Mission allow-list；E 必须在 R1 读取后验证 Mission 显式 project_id、batch_id 与 B06 Scope 完全一致，缺失/不匹配均 HOLD，不得从 release_id、名称或版本标签推断 batch_id。
+
+上述是 W0 API 设计契约，当前 /api/workbench/v1 尚不存在；真实 PostgreSQL、HTTP ACL、游标持久性、跨页快照一致性、403/404/409/422/503 仍须 W1+ 实施验证。
+
