@@ -282,3 +282,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - WB-B01/B02 PR #124 源617636424877f24a582d1c55e374553131c3d85a：真实PG本地12/12自测，远端同SHA w0-contracts PASS但postgres-identity FAIL（run42781440846/job129712176958）。状态CODE_COMPLETE/CI_BLOCKED，B正修复，F独立验收中；本地绿不能覆盖远端红。
 - W0冻结源a73ed52d的设计签署保持；本轮实现尚未通过集成门禁，不能转移旧设计PASS。B06未实施，C02/E01 BLOCKED_DEPENDENCY_B06；D01 BLOCKED_FIELD；50功能/F01-F04/Windows/现场/许可证发布门禁未完成。
 - 下一步：核销两组真实失败→F精确源接受→A唯一集成→同HEAD回归；不合RC7.2，不出银行ZIP。
+
+
+## W1 B01/B02+C01 联合集成回归检查点（2026-11-10）
+- 精确联合源cf11501866d7538167463f2c9e9c2951b67f57e0，真实父源B175efda6、C785c5a3c及F128/0ec59f7b独立复验报告已集成。F接受B01/B02数据库组件与C01导航骨架组件，不代表整个C01实施资格、50功能或F01/F02/现场通过。
+- 原C路由/焦点缺陷已F复验关闭；B原外层BEGIN身份残留P1经真实PG反例关闭。旧CI认证与浏览器依赖失败保留，未删除反例。
+- 本联合HEAD真实本地PG13/13、Node C01 3/3、Chromium1/1通过；通用合同276发现/263执行/13无DSN明确跳过，单独PG结果不得与skip混计。
+- 同源远端：postgres-identity SUCCESS run42784572619/job129722479349；w0-contracts SUCCESS run42784572885/job129722480157；手动正式浏览器 SUCCESS run42784606902，headSha精确cf115018。不是历史源PASS转移。
+- B01/B02 COMPONENT_QA_ACCEPTED / MERGED；C01 NAVIGATION_COMPONENT_ACCEPTED / MERGED。B03/B04依赖已满足启动真实关联施工，B05/B06顺序依赖；C02/E01仍BLOCKED_B06。C03/C04需业务资产HTTP合同/API，先补接口评审，禁止占位数据冒充实现。
+- D01 BLOCKED_FIELD；真实DSH1.18.26、Windows/离线/实际AgentTeams并发/恢复、F01-F04、A02许可证发布门禁仍未满足。NO_RC72_MAINLINE_MERGE / NO_BANK_ZIP。
