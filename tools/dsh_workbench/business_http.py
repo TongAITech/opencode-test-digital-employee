@@ -1,0 +1,65 @@
+"""B06 real HTTP adapter. Trusted Host identity provider is injected server-side.
+
+No body/query/header principal fallback exists. Missing Host integration fails
+closed. The adapter neither writes R1 nor invokes an unscoped legacy API.
+"""
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+import json
+import re
+from urllib.parse import parse_qs,unquote,urlsplit
+from .business_scope import ScopeStore
+from .business_store import BusinessError
+
+@dataclass(frozen=True)
+class HostIdentity:
+    principal: str
+
+
+def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args): pass
+
+        def respond(self,status,value):
+            data=json.dumps(value,ensure_ascii=False).encode()
+            self.send_response(status)
+            self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Length',str(len(data)))
+            self.end_headers();self.wfile.write(data)
+
+        def do_GET(self):
+            try:
+                if host_identity_provider is None:
+                    raise BusinessError(503,'HOST_IDENTITY_UNAVAILABLE')
+                identity=host_identity_provider(self)
+                if not isinstance(identity,HostIdentity) or not isinstance(identity.principal,str) or not identity.principal.strip():
+                    raise BusinessError(403,'FORBIDDEN')
+                if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
+                url=urlsplit(self.path)
+                match=re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/release-dates/(\d{4}-\d{2}-\d{2})/scope',url.path)
+                if match is None:raise BusinessError(404,'RESOURCE_NOT_FOUND')
+                project=unquote(match[1])
+                if not project or '/' in project:raise BusinessError(400,'INVALID_SCOPE')
+                try:q=parse_qs(url.query,keep_blank_values=True,max_num_fields=400,strict_parsing=True) if url.query else {}
+                except ValueError:raise BusinessError(400,'INVALID_SCOPE')
+                allowed={'batch_id','requirement_ids','system_version_ids','sst_ids','page_size','page_cursor'}
+                if set(q)-allowed or any(len(q[k])!=1 for k in ('batch_id','page_size','page_cursor') if k in q):
+                    raise BusinessError(400,'INVALID_SCOPE')
+                try:page_size=int(q.get('page_size',['100'])[0])
+                except ValueError:raise BusinessError(400,'INVALID_PAGE_SIZE')
+                # The connection belongs to this request; identity cannot leak to
+                # another request or be supplied by the browser's query/body.
+                with connection_factory() as connection:
+                    value=ScopeStore(connection,cursor_key).scope(identity.principal,project,batch_id=q.get('batch_id',[None])[0],release_date=match[2],requirement_ids=q.get('requirement_ids'),system_version_ids=q.get('system_version_ids'),sst_ids=q.get('sst_ids'),page_size=page_size,page_cursor=q.get('page_cursor',[None])[0])
+                self.respond(200,value)
+            except BusinessError as error:
+                self.respond(error.status,{'error':{'code':error.code}})
+            except Exception:
+                # Do not leak database, credential or resource-existence details.
+                self.respond(503,{'error':{'code':'SCOPE_SOURCE_UNAVAILABLE'}})
+
+        def do_POST(self):self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
+        do_PUT=do_POST
+        do_DELETE=do_POST
+    return ThreadingHTTPServer(address,Handler)
