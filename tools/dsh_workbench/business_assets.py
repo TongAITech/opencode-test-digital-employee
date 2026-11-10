@@ -94,7 +94,7 @@ class AssetStore(ScopeStore):
                 self.db.execute('UPDATE wb.asset_root SET current_revision=%s WHERE project_id=%s AND batch_id=%s AND asset_id=%s AND current_revision=%s',(revision,project,batch,asset,body['expected_asset_revision']))
             self._validate(record)
             payload=record['payload']
-            self.db.execute('''INSERT INTO wb.asset_revision(project_id,batch_id,asset_id,revision,kind,title,due_date,description,owner_display,state,scope_level,created_release_date,actor,reason) VALUES(%s,%s,%s,%s,'milestone',%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(project,batch,asset,revision,record['title'],payload['due_date'],payload.get('description',''),payload.get('owner_display',''),record['state'],record['scope_level'],context['release_date'],principal,body.get('reason','created')))
+            self.db.execute('''INSERT INTO wb.asset_revision(project_id,batch_id,asset_id,revision,kind,title,due_date,description,owner_display,state,scope_level,created_release_date,scope_link_count,actor,reason) VALUES(%s,%s,%s,%s,'milestone',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(project,batch,asset,revision,record['title'],payload['due_date'],payload.get('description',''),payload.get('owner_display',''),record['state'],record['scope_level'],context['release_date'],len(record.get('brv_links',[]))+len(record.get('brvs_links',[])),principal,body.get('reason','created')))
             for key,table,columns in [('brv_links','asset_brv_link',['requirement_id','system_version_id']),('brvs_links','asset_brvs_link',['requirement_id','system_version_id','sst_id'])]:
                 for link in record.get(key,[]):
                     values=[project,batch,asset,revision]+[link[c] for c in columns]

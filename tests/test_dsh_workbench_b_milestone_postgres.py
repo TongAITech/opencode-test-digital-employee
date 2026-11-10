@@ -155,3 +155,11 @@ class Milestone(prior.Scope):
         self.assertEqual(self.owner.execute('SELECT count(*) FROM wb.asset_root').fetchone()[0],0)
         self.assets.mutate('alice','P1','B1','create',self.body())
         self.assertEqual(self.owner.execute('SELECT count(*) FROM wb.asset_outbox').fetchone()[0],1)
+
+    def test_committed_asset_scope_cannot_gain_new_links_by_insert(self):
+        self.scope_seed()
+        created=self.assets.mutate('alice','P1','B1','create',self.body(scope_level='EXACT_RELATIONS',brv_links=[{'requirement_id':'R2','system_version_id':'V1'}]))
+        asset=created['record']['asset_id']
+        with self.assertRaises(infra.psycopg.Error):
+            self.owner.execute("INSERT INTO wb.asset_brv_link VALUES('P1','B1',%s,1,'R1','V1')",(asset,))
+        self.assertEqual(self.assets.get('alice','P1','B1',asset)['record']['brv_links'],[{'requirement_id':'R2','system_version_id':'V1'}])

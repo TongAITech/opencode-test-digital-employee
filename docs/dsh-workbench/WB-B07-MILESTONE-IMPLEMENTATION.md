@@ -37,3 +37,5 @@ WB_PG_TEST_DSN='host=/tmp/dsh-pg-371f43f0 port=55432 dbname=postgres' ../pg-envi
 milestone测试独立真实PG数据库/nonowner角色与loopback HTTP，覆盖详情创建→日历同ID→改due范围→退役/历史/恢复；CAS并发、幂等原响应、错误日期/嵌套正式字段、非法共享版本SST/UNSPLIT、撤权读历史/重放拒绝、CSRF/Origin/伪字段、audit和outbox分别故障回滚、backend终止提交前回滚并重连同键恢复、分页水位、append-only及空/非空迁移回退。继承B01–B06负向与恢复，不用SQLite或截图代替Oracle。
 
 首轮milestone真实38/38通过，加入audit独立故障/断连后40/40通过；后续DB约束与输入边界加固须最终同SHA再验。专属CI通配已覆盖milestone测试；无PG/driver的轻量检查仅明确SKIP，不当PG验收。最终源必须交F独立验收与C真实UI纵向联调。
+
+首片自查修复：初源1d862a4c虽禁止历史Scope行改删，但仍可向已提交版本INSERT新合法连边，可能静默扩Scope。修复为不可变revision保存scope_link_count，版本及两种link表均有延迟完整性约束，创建必须同事务完整提交，后续补边拒绝。新增真实PG攻击与CRUD/降级定向3例均通过；新源全量CI/F须独立核实，不继承旧140数字。
