@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -211,9 +212,27 @@ class PersistentSlidingWindowGovernor:
         return {"timestamps": stamps}
 
     def _save(self, value: Dict[str, Any]) -> None:
-        temp = self.state_path.with_suffix(".tmp")
-        temp.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(str(temp), str(self.state_path))
+        # The model quota directory is shared by worker processes. Never write
+        # through a predictable .tmp path: a stale/malicious symlink there
+        # could overwrite another file *before* atomic replace is reached.
+        if self.state_path.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="\n",
+                    prefix=".shared-window-", suffix=".tmp",
+                    dir=str(self.state_path.parent), delete=False) as output:
+                temp = Path(output.name)
+                output.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+                output.flush()
+                os.fsync(output.fileno())
+            if self.state_path.is_symlink():
+                raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+            os.replace(str(temp), str(self.state_path))
+        finally:
+            if temp is not None and temp.exists():
+                temp.unlink()
 
     def _lock(self) -> None:
         # A lockfile age is NOT evidence that its owner died. Previously the
