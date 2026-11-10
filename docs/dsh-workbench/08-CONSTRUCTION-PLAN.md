@@ -313,3 +313,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A联合e901b2d8bda2e53f12a3c90028deeb54071f6741本地真实PG/HTTP100/100通过并推送，远端联合检查须另核；B06 COMPONENT_QA_ACCEPTED/MERGED，仅PG/HTTP Scope组件，不代表真实DSH认证或W1整体通过。
 - C02正式日期/需求/版本/SST十区Scope联动与E01 R1只读适配已按组件依赖准入，隔离worktree/PR施工中。Host provider缺失默认503；测试provider明确fixture，不可替真实宿主现场。
 - R1 Mission/Attempt/Evidence/NodeGate仍唯一运行事实，E01必须最小Mission身份校验先于明细，不可回写正式事实。50完整产品、F01-F04、DSH现场、Windows离线及许可发布门禁仍未满足，不合RC7.2、不出银行ZIP。
+
+
+## C02/E01 与统一产品入口集成（2026-11-10）
+- C139/cdfeb458获F141/3619b2e2组件接受：真PG/HTTP/Chromium1/1+Node24；E140/c00ca464获F142/b5e6f747组件接受：真PG/HTTP/持久R1 35/35+旧E82+F2。不改正式R1，Evidence只读校验，NodeGate UNKNOWN/发布HOLD。
+- A联合574b54e1754c2c7b6de876ce4feb3c0f2870a12c本地E35/35、真浏览器1/1，远端PG/W0 PASS及专属E01 run42807484469、浏览器run42807492097精确同SHA均SUCCESS。首次PG venv缺playwright未执行保留，复用有效环境后重跑通过，未作产品失败或假PASS。
+- 统一入口144/66a57fab获F148/905d036b接受：同源真PG/HTTP/Chromium1、E35、路由隔离攻击1通过，同源5CI成功。product_server静态界面与B/E校验handler同源，缺Host provider默认503、无旧API回退；旧admin兼容。
+- A最新联合97917526bb875c276ee5541d0fb377c11f0d9580同源真PG/HTTP/Chromium1/1、通用合同398发现/264执行/134未配置PG明确skip；远端联合检查另核，不继承旧源数字。
+- B07增量合同143/22fc88ff及D39e7bccd/E44828bf0职责签署已集成，里程碑真库/HTTP首slice独立施工中，尚无CRUD通过声明。
+- C02/E01/统一入口仅COMPONENT_QA_ACCEPTED/MERGED，F01整体、真实Host认证/DSH1.18.26、Windows/离线、实际并发恢复、50完整产品及许可发布门禁未完成，不合RC7.2、不出银行ZIP。
