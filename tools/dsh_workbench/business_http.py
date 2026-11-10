@@ -24,11 +24,17 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
 
         def respond(self,status,value):
             data=json.dumps(value,ensure_ascii=False).encode()
-            self.send_response(status)
-            self.send_header('Content-Type','application/json; charset=utf-8')
-            self.send_header('Cache-Control','no-store')
-            self.send_header('Content-Length',str(len(data)))
-            self.end_headers();self.wfile.write(data)
+            try:
+                self.send_response(status)
+                self.send_header('Content-Type','application/json; charset=utf-8')
+                self.send_header('Cache-Control','no-store')
+                self.send_header('Content-Length',str(len(data)))
+                self.end_headers();self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # A disconnected peer cannot receive an error response either.
+                # Do not re-enter the business-error path or retry a committed
+                # mutation merely because its receipt could not be delivered.
+                self.close_connection = True
 
         def do_GET(self):
             try:
