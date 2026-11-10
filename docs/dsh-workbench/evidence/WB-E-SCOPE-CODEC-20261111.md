@@ -13,3 +13,5 @@
 在首轮源 c4facd2c 上实际执行 `sst_id=[]` 和 `sst_id={}`，两者均抛原始 `TypeError: unhashable type`，不是 ScopeStructureError；首轮9/9未覆盖此反例，不能当它已通过。修复将 nullable SST 的非null text 检查移到任何 tuple/hash/set 使用之前。新增ID、nullable来源、filter元素和K主体的不可哈希/错误类型矩阵及每次失败后的输入不变断言。当前本地10/10通过，diff检查通过。
 
 新增定向workflow dsh-wb-scope-codec：workflow_dispatch及PR paths触发，ubuntu-22.04上的真实Python3.8/3.11，stdlib测试，无DB、业务网络或离线包构建。运行结果待推送后核实；定义工作流不计两版本实际通过。
+
+推送后真实CI已核实：[run42871479907](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42871479907)，被测完整代码源 `41d2ec560a6d7bffdc275600b316c62a5521dcb0`。日志明确 Python3.8.18：10/10、0.073s；Python3.11.18：10/10、0.059s；两job均success。此为实际解释器执行，替代先前只有AST语法的兼容性证据；不把首轮TypeError反例改记PASS。后续本记录提交仅追加证据，不改被测模块/测试/workflow。
