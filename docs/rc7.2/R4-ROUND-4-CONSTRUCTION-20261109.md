@@ -110,3 +110,8 @@
 - 增加 4 平台（Windows/Linux × Python3.8/3.11）独立专项 CI；不重复构建 ZIP。此轮仅更新 Q3–Q6 的安全准入，不宣称 R4-01～07 Field、C12 或 Bank Final 通过。
 
 当前：FIELD_APPROVAL_SIGNATURE_HARDENING_PR / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO.
+
+### PR #99 完整 Chromium 继承回归失败分析与修复
+- 两个完整 Chromium 继承 job 均执行 `2938 passed, 4 skipped`，仅有 2 个失败，定位在 `tests/test_rc72_q7_admission.py` 的 Q7 正向准入 fixture：测试仍使用原先无签章 `provider://` / `human://` 字符串模拟 Q3–Q6 PASS，触发新安全门禁后正确 HOLD。该失败不是通过放松生产校验解决。
+- 已修正 Q7 admission 测试夹具：每个 Gate 使用隔离的测试 Host authority，先对 Gate/Batch/source SHA/平台/Evidence 全字段签章，再调用 FieldQualificationService；保留 Q7 对 `field_verified=false` / `bank_final=false` 的原有断言。无签章与伪造场景的拒绝测试仍保留。
+- 修复 commit `3b167018415f3a9e651e8d3e1538fb025ba38f0a`，触发 PR #99 同 HEAD 新 CI；在同 HEAD 全部回归通过前不合并。测试 key 仅用于测试，不能代表真实银行 Host 授权。
