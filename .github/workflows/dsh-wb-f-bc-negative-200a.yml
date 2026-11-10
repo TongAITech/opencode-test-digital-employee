@@ -1,0 +1,49 @@
+name: F W0 independent ABCDE unaffected negative gates
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths: ['.github/workflows/dsh-wb-f-bc-negative-200a.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  F_A: '200a96ac2ce3b69f2bd76a98517444699c8fbe92'
+  F_B: '50bd16d9e2c321eb5eaa21e96f663e89ae377b34'
+  F_C: 'a36421ef0ddc0f4034e4f284e8074502af7ec0eb'
+jobs:
+  f-bc-independent-negatives:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Merge exact A+B95+C97 locally without remote writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "F independent QA"
+          git config user.email "qa@example.invalid"
+          git checkout -B f-negative-audit "$F_A"
+          git merge --no-ff --no-edit "$F_B"
+          git merge --no-ff --no-edit "$F_C"
+          echo "F_A_B_C_SOURCES=$F_A,$F_B,$F_C"
+      - name: Run all 30 C source fence, composite Scope and 50 source mapping cases
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: Run B source identity and new link trace design negatives
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_a03_design.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+      - name: Run E B06 read-only consumer and fail-closed Scope tests
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e*.py' -v
+      - name: F release DAG independent tests
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+      - name: No bank final
+        run: echo 'F W0 prototype and contract only; production B06, R1, Host, legal release and field not verified'

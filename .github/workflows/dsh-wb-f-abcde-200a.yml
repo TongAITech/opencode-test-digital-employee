@@ -1,0 +1,96 @@
+name: F W0 independent A+ B95 + C97 pinned merge qualification
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-abcde-200a.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  F_BASE_SHA: '200a96ac2ce3b69f2bd76a98517444699c8fbe92'
+  F_B95_SHA: '50bd16d9e2c321eb5eaa21e96f663e89ae377b34'
+  F_C97_SHA: 'a36421ef0ddc0f4034e4f284e8074502af7ec0eb'
+
+jobs:
+  f-abcde-synthetic-integrated-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build isolated pinned candidate without writing remote A/B/C branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'F independent workbench QA'
+          git config user.email 'f-qa@example.invalid'
+          git merge-base --is-ancestor "$F_BASE_SHA" HEAD
+          git checkout -B f-independent-synthetic "$F_BASE_SHA"
+          git merge --no-edit --no-ff "$F_B95_SHA"
+          git merge --no-edit --no-ff "$F_C97_SHA"
+          echo "F_A_BASE=$F_BASE_SHA"
+          echo "F_B95_SOURCE=$F_B95_SHA"
+          echo "F_C97_SOURCE=$F_C97_SHA"
+          echo "F_SYNTHETIC_HEAD=$(git rev-parse HEAD)"
+      - name: B plus C plus D plus E complete W0 Python contracts, no exclusions
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: C thirty original feature, Scope and source-fence adversarial Node tests
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: F-owned SST identity and release DAG independent negatives
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+      - name: L0-L2 admission remains conservative
+        run: python tools/dsh_workbench/ci_admission.py
+      - name: No bank QA attribution
+        run: echo 'W0 source and synthetic merge only; A02 license BLOCKED; W1-W4 FIELD_NOT_RUN'
+
+  f-abcde-actual-chromium-prototype:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build same pinned A plus B95 plus C97 content
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'F independent workbench QA'
+          git config user.email 'f-qa@example.invalid'
+          git checkout -B f-independent-browser "$F_BASE_SHA"
+          git merge --no-edit --no-ff "$F_B95_SHA"
+          git merge --no-edit --no-ff "$F_C97_SHA"
+          echo "F_BROWSER_SYNTHETIC_HEAD=$(git rev-parse HEAD)"
+      - name: Install C W0 real-browser harness
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Run actual Chromium ten-section forms, denied writes and scope selection
+        run: python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "${{ runner.temp }}/f-w0-abcde-browser-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-abcde-200a-browser-${{ github.sha }}
+          path: ${{ runner.temp }}/f-w0-abcde-browser-evidence/*.png
+          retention-days: 14
+          if-no-files-found: error
