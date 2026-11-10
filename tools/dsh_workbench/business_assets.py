@@ -1,9 +1,10 @@
-"""B07 milestone drafts only. Never writes canonical R1 or execution results."""
+"""B07 typed business drafts. Never writes canonical R1 or execution results."""
 import datetime
 import json
 import uuid
 from .business_scope import ScopeStore
 from .business_store import BusinessError
+from .draft_payloads import SCHEMAS, validate_payload
 
 
 class AssetStore(ScopeStore):
@@ -22,23 +23,25 @@ class AssetStore(ScopeStore):
         row=self.db.execute('''SELECT v.asset_id,v.revision,v.kind,v.title,v.due_date,v.description,v.owner_display,v.state,v.scope_level,v.created_release_date FROM wb.asset_root r JOIN wb.asset_revision v ON v.project_id=r.project_id AND v.batch_id=r.batch_id AND v.asset_id=r.asset_id AND v.revision=COALESCE(%s,r.current_revision) WHERE r.project_id=%s AND r.batch_id=%s AND r.asset_id=%s''',(revision,project,batch,asset)).fetchone()
         if row is None or (row[7]=='RETIRED' and not include_retired):raise BusinessError(404,'RESOURCE_NOT_FOUND')
         record=dict(zip(['asset_id','revision','kind','title','due_date','description','owner_display','state','scope_level','created_release_date'],row))
-        record['payload']={'due_date':str(record.pop('due_date')),'description':record.pop('description'),'owner_display':record.pop('owner_display')}
+        legacy={'due_date':str(record.pop('due_date')),'description':record.pop('description'),'owner_display':record.pop('owner_display')}
+        if record['kind']=='milestone':record['payload']=legacy
+        else:
+            content=self.db.execute('SELECT kind,payload FROM wb.asset_payload WHERE project_id=%s AND batch_id=%s AND asset_id=%s AND revision=%s',(project,batch,asset,row[1])).fetchone()
+            if content is None or content[0]!=record['kind']:raise BusinessError(503,'ASSET_PAYLOAD_UNAVAILABLE')
+            record['payload']=content[1]
         record['created_release_date']=str(record['created_release_date'])
         for key,table,columns in [('brv_links','asset_brv_link',['requirement_id','version_id']),('brvs_links','asset_brvs_link',['requirement_id','version_id','sst_id'])]:
             rows=self.db.execute('SELECT '+','.join(columns)+' FROM wb.'+table+' WHERE project_id=%s AND batch_id=%s AND asset_id=%s AND revision=%s ORDER BY '+','.join(columns),(project,batch,asset,row[1])).fetchall()
             record[key]=[dict(zip(['system_version_id' if c=='version_id' else c for c in columns],values)) for values in rows]
-        record['r1_reference_state']='NOT_LINKED'
+        record['r1_reference_state']='NOT_LINKED' if record['kind']=='milestone' else 'UNRESOLVED'
         return record
 
     def _validate(self,record):
-        if record.get('kind')!='milestone':raise BusinessError(400,'UNSUPPORTED_ASSET_KIND')
+        if record.get('kind') not in SCHEMAS:raise BusinessError(400,'UNSUPPORTED_ASSET_KIND')
+        if record['kind']!='milestone' and self.db.execute("SELECT to_regclass('wb.asset_payload')").fetchone()[0] is None:raise BusinessError(400,'UNSUPPORTED_ASSET_KIND')
         title=record.get('title')
         if not isinstance(title,str) or not title.strip() or '\x00' in title or len(title)>500:raise BusinessError(400,'INVALID_TITLE')
-        payload=record.get('payload')
-        if not isinstance(payload,dict) or set(payload)-{'due_date','description','owner_display'}:raise BusinessError(400,'INVALID_PAYLOAD')
-        self._date(payload.get('due_date'))
-        for key,limit in [('description',8192),('owner_display',256)]:
-            if not isinstance(payload.get(key,''),str) or '\x00' in payload.get(key,'') or len(payload.get(key,''))>limit:raise BusinessError(400,'INVALID_PAYLOAD')
+        validate_payload(record['kind'],record.get('payload'),self._date)
         level=record.get('scope_level')
         if level not in ('BATCH_WIDE','EXACT_RELATIONS'):raise BusinessError(400,'INVALID_ASSET_SCOPE')
         total=0
@@ -94,7 +97,11 @@ class AssetStore(ScopeStore):
                 self.db.execute('UPDATE wb.asset_root SET current_revision=%s WHERE project_id=%s AND batch_id=%s AND asset_id=%s AND current_revision=%s',(revision,project,batch,asset,body['expected_asset_revision']))
             self._validate(record)
             payload=record['payload']
-            self.db.execute('''INSERT INTO wb.asset_revision(project_id,batch_id,asset_id,revision,kind,title,due_date,description,owner_display,state,scope_level,created_release_date,scope_link_count,actor,reason) VALUES(%s,%s,%s,%s,'milestone',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(project,batch,asset,revision,record['title'],payload['due_date'],payload.get('description',''),payload.get('owner_display',''),record['state'],record['scope_level'],context['release_date'],len(record.get('brv_links',[]))+len(record.get('brvs_links',[])),principal,body.get('reason','created')))
+            columns='project_id,batch_id,asset_id,revision,kind,title,due_date,description,owner_display,state,scope_level,created_release_date,scope_link_count,actor,reason'
+            values=(project,batch,asset,revision,record['kind'],record['title'],payload['due_date'] if record['kind']=='milestone' else None,payload.get('description',''),payload.get('owner_display',''),record['state'],record['scope_level'],context['release_date'],len(record.get('brv_links',[]))+len(record.get('brvs_links',[])),principal,body.get('reason','created'))
+            self.db.execute('INSERT INTO wb.asset_revision('+columns+') VALUES('+','.join(['%s']*len(values))+')',values)
+            if record['kind']!='milestone':
+                self.db.execute('INSERT INTO wb.asset_payload VALUES(%s,%s,%s,%s,%s,%s::jsonb)',(project,batch,asset,revision,record['kind'],json.dumps(payload)))
             for key,table,columns in [('brv_links','asset_brv_link',['requirement_id','system_version_id']),('brvs_links','asset_brvs_link',['requirement_id','system_version_id','sst_id'])]:
                 for link in record.get(key,[]):
                     values=[project,batch,asset,revision]+[link[c] for c in columns]
@@ -111,8 +118,11 @@ class AssetStore(ScopeStore):
         with self._scope(principal,project,False,isolation='repeatable read'):
             return dict(self._batch(project,batch),record=self._record(project,batch,asset,revision,include_retired))
 
-    def list(self,principal,project,batch,kind='milestone',requirement_ids=None,system_version_ids=None,sst_ids=None,due_from=None,due_to=None,include_retired=False,page_size=100,page_cursor=None):
-        if kind!='milestone':raise BusinessError(400,'UNSUPPORTED_ASSET_KIND')
+    def list(self,principal,project,batch,kind=None,requirement_ids=None,system_version_ids=None,sst_ids=None,due_from=None,due_to=None,include_retired=False,page_size=100,page_cursor=None):
+        if kind is not None and kind not in SCHEMAS:raise BusinessError(400,'UNSUPPORTED_ASSET_KIND')
+        if due_from is not None or due_to is not None:
+            if kind is None:kind='milestone'
+            if kind!='milestone':raise BusinessError(400,'INVALID_ASSET_QUERY')
         if type(include_retired) is not bool or type(page_size) is not int or not 1<=page_size<=100:raise BusinessError(400,'INVALID_ASSET_QUERY')
         filters=[self._ids(x) for x in (requirement_ids,system_version_ids,sst_ids)]
         dates=[str(self._date(x)) if x is not None else None for x in (due_from,due_to)]
@@ -134,6 +144,7 @@ class AssetStore(ScopeStore):
                 if cursor!=binding or type(offset) is not int or offset<1:raise BusinessError(409,'STALE_CURSOR')
             query=''' FROM wb.asset_root r JOIN wb.asset_revision v ON v.project_id=r.project_id AND v.batch_id=r.batch_id AND v.asset_id=r.asset_id AND v.revision=r.current_revision WHERE r.project_id=%s AND r.batch_id=%s'''
             args=[project,batch]
+            if kind is not None:query+=' AND v.kind=%s';args.append(kind)
             if not include_retired:query+=" AND v.state='ACTIVE'"
             for date,op in zip(dates,['>=','<=']):
                 if date:query+=' AND v.due_date'+op+'%s';args.append(date)
