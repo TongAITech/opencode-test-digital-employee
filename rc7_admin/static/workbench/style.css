@@ -3,3 +3,5 @@
 #business-scope label{display:inline-flex;flex-direction:column;margin:8px;gap:6px}#business-scope input{font:inherit;padding:8px;max-width:200px}#business-scope select{min-width:150px;min-height:90px}
 
 #milestones label{display:inline-flex;flex-direction:column;margin:8px;gap:6px}#milestones article{border:1px solid #9bb1b8;padding:12px;margin:10px 0}#milestones input,#milestones textarea{font:inherit;padding:8px;max-width:220px}#milestones button{margin:5px}
+
+#milestones [hidden]{display:none!important}

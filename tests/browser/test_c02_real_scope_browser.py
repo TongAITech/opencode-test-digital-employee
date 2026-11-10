@@ -31,7 +31,7 @@ class BrowserScope(unittest.TestCase):
                         self.send_response(200);self.send_header('Content-Type','text/html' if self.path=='/' else 'application/javascript');self.end_headers();self.wfile.write(data)
                     elif self.path.startswith('/workbench/'):
                         name=self.path.removeprefix('/workbench/') or 'index.html'
-                        if name not in ('index.html','app.mjs','state.mjs','scope-client.mjs','scope-panel.mjs','milestone-panel.mjs','style.css'):
+                        if name not in ('index.html','app.mjs','state.mjs','scope-client.mjs','scope-panel.mjs','milestone-panel.mjs','asset-forms.mjs','style.css'):
                             self.send_error(404);return
                         data=(pathlib.Path(__file__).resolve().parents[2]/'rc7_admin/static/workbench'/name).read_bytes()
                         self.send_response(200);self.send_header('Content-Type','application/javascript' if name.endswith('.mjs') else 'text/css' if name.endswith('.css') else 'text/html');self.end_headers();self.wfile.write(data)
