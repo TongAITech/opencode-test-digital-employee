@@ -67,3 +67,6 @@ R1 继续是 Mission、Attempt、Evidence、NodeGate 正式运行事实来源。
 W1 验收必须在真实 PostgreSQL 执行：迁移与回滚、同需求多版本多SST、共享版本不共享SST、跨项目/批次复合FK拒绝、并发修订冲突、幂等重放/异负载、事务中断零部分写、连接池身份串用、撤权、重启、outbox重复/故障恢复、R1不可用和证据缺失。记录服务器版本、源SHA、命令、日志与数据Oracle；当前均 NOT_RUN。
 
 本增量状态 PG_INCREMENT_REVIEW_PENDING；历史 B/D/E 设计签署不覆盖本增量，须分别绑定完整提交 SHA 提供意见；F 接受最新设计 HEAD 前禁止 W0_DESIGN_FROZEN。
+
+## B07 业务草稿资产增量（待职责评审，不改变R1边界）
+新增草稿Case/Obligation、缺陷说明、报告草稿、知识、会议纪要和里程碑的统一合法Scope/版本化资产设计，见[WB-B07-DRAFT-ASSET-API-CONTRACT.md](WB-B07-DRAFT-ASSET-API-CONTRACT.md)。业务保存/退役/恢复不能形成正式Case、Defect、报告或R1执行结论；精确源B/E/D评审后才实现新增CRUD。
