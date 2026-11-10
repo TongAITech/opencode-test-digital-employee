@@ -1,0 +1,154 @@
+name: F independent ABCDE round-1 review on exact A head
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-abcde-r1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  F_A_SHA: 'f870ad5efb7f3eda669703291900ce49e0a1d36f'
+  F_B_SHA: 'b801c25bbec361e6a791c561d5a7dd0ec9440aaf'
+  F_E_SHA: '917f597d11daa1ae0bfc0caa07066bd45ad64ffa'
+  F_B95_SHA: '50bd16d9e2c321eb5eaa21e96f663e89ae377b34'
+  F_C97_SHA: 'b2a64df65661880808510d0486f6aefc70ca23df'
+  F_D90_SHA: 'a332e6c575cac9d2b6ef0b2038615b276dcfa602'
+  F_E102_SHA: '26b2deaf5485193133e418da81982291c8056d64'
+  F_A103_SHA: 'd082e71f7eb9260afe450203bd160f8cd9e65948'
+  F_A110_MERGE: 'afcda9a5737e181a1d1d5e08f926943664c594d5'
+
+jobs:
+  f-current-a-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_A_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin current A HEAD and verify already integrated A/B/C/D/E sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$F_A_SHA"
+          for source in "$F_B95_SHA" "$F_C97_SHA" "$F_D90_SHA" "$F_E102_SHA" "$F_A103_SHA" "$F_A110_MERGE"; do
+            git merge-base --is-ancestor "$source" "$F_A_SHA"
+          done
+          if git merge-base --is-ancestor "$F_B_SHA" "$F_A_SHA"; then
+            echo "B108 incremental PR already integrated; update review manifest"
+            exit 1
+          fi
+          if git merge-base --is-ancestor "$F_E_SHA" "$F_A_SHA"; then
+            echo "E107 incremental PR already integrated; update review manifest"
+            exit 1
+          fi
+          echo "F_EXACT_A_HEAD=$F_A_SHA"
+          echo "F_BASELINE_GROUP_SOURCES=B95,C97,D90,E102,A103,A110"
+          echo "F_INCREMENTAL_B108_PENDING=$F_B_SHA"
+          echo "F_INCREMENTAL_E107_PENDING=$F_E_SHA"
+      - name: Full W0 Python contract suite including A01 locale, FG16 and FG18
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: C 30 Scope, SourceFence and 50-feature reconciliation contracts
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: A01 bilingual source provenance and CI topology
+        run: |
+          python tools/dsh_workbench/a01_locale_scope.py
+          python tools/dsh_workbench/ci_admission.py
+      - name: Real Chromium against the exact current A prototype source
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+          python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "${{ runner.temp }}/f-a870-browser-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-a870-browser-${{ env.F_A_SHA }}
+          path: ${{ runner.temp }}/f-a870-browser-evidence/*.png
+          retention-days: 14
+          if-no-files-found: error
+
+  f-b108-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_B_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact B108 source and original FG18 plus B W0 design witness
+        run: |
+          test "$(git rev-parse HEAD)" = "$F_B_SHA"
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_a03_design.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+
+  f-e107-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_E_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact E107 source, all E protocol fixtures and W0 contracts
+        run: |
+          test "$(git rev-parse HEAD)" = "$F_E_SHA"
+          python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+
+  f-temporary-b-e-overlay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_A_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Merge B108 and E107 on latest A in an isolated CI workspace only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "F Independent QA"
+          git config user.email "f-independent-qa@users.noreply.github.com"
+          test "$(git rev-parse HEAD)" = "$F_A_SHA"
+          git fetch origin "$F_B_SHA"
+          git merge --no-ff --no-edit FETCH_HEAD
+          git fetch origin "$F_E_SHA"
+          git merge --no-ff --no-edit FETCH_HEAD
+          echo "F_TEMPORARY_OVERLAY_HEAD=$(git rev-parse HEAD)"
+          git status --short
+      - name: Full cross-group W0 contracts after B/E overlay
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+          python tools/dsh_workbench/a01_locale_scope.py
+          python tools/dsh_workbench/ci_admission.py
