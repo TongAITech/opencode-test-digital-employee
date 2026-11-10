@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -9,6 +12,10 @@ from rc7_release.rc72_package_root import (
     PackageRootResolutionError,
     resolve_package_root,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+AITEST_SOURCE = REPO_ROOT / "packaging" / "rc7.2" / "AITEST.sh"
+START_SOURCE = REPO_ROOT / "packaging" / "rc7.2" / "start-rc7.2.cmd"
 
 
 def _package(root: Path, source: str = "a" * 40) -> Path:
@@ -22,8 +29,12 @@ def _package(root: Path, source: str = "a" * 40) -> Path:
         json.dumps({"source_commit": source}), encoding="utf-8"
     )
     (root / "workspace-template/runtime/python/python.exe").write_bytes(b"test")
-    (root / "packaging/rc7.2/AITEST.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    shutil.copy2(str(AITEST_SOURCE), str(root / "packaging/rc7.2/AITEST.sh"))
     return root
+
+
+def _normalize_path(value: str) -> str:
+    return os.path.normcase(os.path.normpath(value.strip().strip('"')))
 
 
 def test_exact_package_root_is_preserved(tmp_path: Path) -> None:
@@ -75,3 +86,66 @@ def test_symlinked_required_marker_is_rejected(tmp_path: Path) -> None:
         pytest.skip("file symlinks are not available on this runner")
     with pytest.raises(PackageRootResolutionError, match="RC72_PACKAGE_ROOT_NOT_FOUND"):
         resolve_package_root(root)
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+def test_real_git_bash_launcher_reports_inner_root_after_nested_extraction(
+    tmp_path: Path, depth: int
+) -> None:
+    bash = shutil.which("bash.exe") or shutil.which("bash")
+    if not bash:
+        pytest.skip("Git Bash/bash is not installed on this runner")
+    outer = tmp_path / "outer extraction with spaces"
+    nested = outer
+    for index in range(depth):
+        nested = nested / ("nested %d" % index)
+    root = _package(nested / "PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10")
+    env = dict(os.environ)
+    env["PFC_RC72_ROOT_PROBE_ONLY"] = "1"
+    result = subprocess.run(
+        [bash, str(root / "packaging/rc7.2/AITEST.sh")],
+        cwd=str(outer),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+    reported = next(
+        (line.split("=", 1)[1] for line in result.stdout.splitlines()
+         if line.startswith("RC72_PACKAGE_ROOT=")),
+        None,
+    )
+    assert reported is not None, result.stdout
+    assert _normalize_path(reported) == _normalize_path(str(root.resolve()))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CMD launcher is Windows-only")
+def test_windows_cmd_launcher_finds_nested_package_root(tmp_path: Path) -> None:
+    outer = tmp_path / "outer extraction with spaces"
+    outer.mkdir()
+    root = _package(outer / "inner package with spaces")
+    launcher = outer / "start-rc7.2.cmd"
+    shutil.copy2(str(START_SOURCE), str(launcher))
+    env = dict(os.environ)
+    env["PFC_RC72_ROOT_PROBE_ONLY"] = "1"
+    result = subprocess.run(
+        ["cmd.exe", "/c", str(launcher)],
+        cwd=str(outer),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=45,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+    reported = next(
+        (line.split("=", 1)[1] for line in result.stdout.splitlines()
+         if line.startswith("RC72_PACKAGE_ROOT=")),
+        None,
+    )
+    assert reported is not None, result.stdout
+    assert _normalize_path(reported) == _normalize_path(str(root.resolve()))
