@@ -633,25 +633,29 @@ def test_trusted_local_agentteams_factory_probes_dsh_before_real_captain_binding
     server = _local_server()
     try:
         host, membership_key = _host(server)
-        provider = ModuleType('bank_agentteams_control_plane_provider')
-        def observe(**kwargs):
-            assert kwargs['truth'] is truth
-            assert kwargs['release_batch_id'] == BATCH
-            return CaptainProviderWiring(
-                proof=_proof(membership_key),
-                membership_authority=membership_key,
-                host_authority=host.host_authority,
-                role_profiles={'L3_EXECUTE': ('api_http',)},
-                approved_capabilities=('api_http',))
-        provider.create_captain_observation_provider = observe
-        monkeypatch.setitem(sys.modules, provider.__name__, provider)
+        import hashlib
+        provider_name = 'bank_agentteams_control_plane_provider'
+        provider_path = tmp_path / (provider_name + '.py')
+        provider_source = (
+            'from test_rc72_dsh_agentteams_host import _proof\\n'
+            'from rc7_release.rc72_dsh_agentteams_factory import CaptainProviderWiring\\n'
+            'def create_captain_observation_provider(**kwargs):\\n'
+            '    return CaptainProviderWiring(\\n'
+            '        proof=_proof(kwargs["membership_authority"]),\\n'
+            '        membership_authority=kwargs["membership_authority"],\\n'
+            '        host_authority=kwargs["host_authority"],\\n'
+            '        role_profiles={"L3_EXECUTE": ("api_http",)},\\n'
+            '        approved_capabilities=("api_http",))\\n')
+        provider_path.write_text(provider_source, encoding='utf-8')
+        provider_digest = hashlib.sha256(provider_path.read_bytes()).hexdigest()
         bound = configured_agentteams_host_bindings(
             truth, release_id=RELEASE, source_commit=COMMIT,
             release_batch_id=BATCH, config_path=path,
-            provider_module=provider.__name__,
+            provider_module=provider_name,
             dsh_base_url='http://127.0.0.1:%d' % server.server_port,
             bank_trust_roots=BankCaptainTrustRoots(
-                provider.__name__, membership_key, host.host_authority))
+                provider_name, str(provider_path), provider_digest,
+                membership_key, host.host_authority))
         assert bound.captain_binding is not None
         assert bound.captain_binding.captain_session_id == 'session-real-dsh-captain-001'
         assert len(truth.query('rc72_captain_dispatch_lease')) == 1
