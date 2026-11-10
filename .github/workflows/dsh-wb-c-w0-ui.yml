@@ -11,9 +11,6 @@ on:
       - 'docs/dsh-workbench/WB-C-W0-50-FEATURE-DELTA.md'
       - 'docs/dsh-workbench/WB-C-W0-ORIGINAL-UI-AUDIT.md'
       - 'docs/dsh-workbench/WB-C-W0-TEST-EVIDENCE.md'
-      - 'docs/dsh-workbench/08-CONSTRUCTION-PLAN.md'
-      - 'docs/dsh-workbench/09-GAP-MATRIX.md'
-      - 'docs/dsh-workbench/10-RELEASE-CHECKPOINT.md'
       - '.github/workflows/dsh-wb-c-w0-ui.yml'
   workflow_dispatch:
 
