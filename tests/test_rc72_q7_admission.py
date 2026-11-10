@@ -7,8 +7,10 @@ from rc7_runtime.rc72_domain import TestObligation
 from rc7_runtime.rc72_field_qualification import (
     QUALIFICATION_PROOF_KIND,
     FieldQualificationService,
+    field_attestation_fields,
     install_rc72_field_qualification_overlay,
 )
+from rc7_runtime.rc72_authority import RC72AuthorityRuntime
 from rc7_runtime.rc72_q7_admission import Q7AdmissionService, install_rc72_q7_admission_overlay
 from rc7_runtime.rc72_release_provenance import (
     FIELD_EVIDENCE_KIND,
@@ -69,22 +71,23 @@ def _evidence(
     kind: str,
     source_ref: str,
     subject_refs,
+    field_attestation_signature=None,
 ) -> None:
-    truth.append_atomic(
-        "RC7_EVIDENCE_UPSERTED",
-        {
-            "evidence_id": evidence_id,
-            "release_id": RELEASE,
-            "mission_id": MISSION,
-            "kind": kind,
-            "source_ref": source_ref,
-            "content_ref": "state://q7/%s.json" % evidence_id,
-            "subject_refs": list(subject_refs),
-            "content_hash": "sha256:" + evidence_id,
-            "created_at": 1,
-            "artifact_version": 1,
-        },
-    )
+    evidence = {
+        "evidence_id": evidence_id,
+        "release_id": RELEASE,
+        "mission_id": MISSION,
+        "kind": kind,
+        "source_ref": source_ref,
+        "content_ref": "state://q7/%s.json" % evidence_id,
+        "subject_refs": list(subject_refs),
+        "content_hash": "sha256:" + evidence_id,
+        "created_at": 1,
+        "artifact_version": 1,
+    }
+    if field_attestation_signature is not None:
+        evidence["field_attestation_signature"] = field_attestation_signature
+    truth.append_atomic("RC7_EVIDENCE_UPSERTED", evidence)
 
 
 def _scope(truth: TruthRuntime, *, complete: bool = True):
@@ -139,7 +142,14 @@ def _provenance(truth: TruthRuntime, *, field: bool = True):
 
 
 def _qualifications(truth: TruthRuntime, *, gates=LEVELS[:0] + ["Q3", "Q4", "Q5", "Q6"], source_commit: str = COMMIT):
-    service = FieldQualificationService(truth, release_id=RELEASE)
+    # Q7 admission tests exercise the admission algorithm using explicitly
+    # signed test fixtures. URI labels alone are intentionally insufficient.
+    authorities = {
+        gate: RC72AuthorityRuntime(("isolated-q7-test-host-key-" + gate).encode("ascii"))
+        for gate in gates
+    }
+    service = FieldQualificationService(
+        truth, release_id=RELEASE, trusted_gate_authorities=authorities)
     receipts = []
     for gate in gates:
         evidence_id = "EVD-%s" % gate
@@ -149,13 +159,27 @@ def _qualifications(truth: TruthRuntime, *, gates=LEVELS[:0] + ["Q3", "Q4", "Q5"
         else:
             kind = QUALIFICATION_PROOF_KIND
             source = "provider://field-qualifier/%s" % gate.lower()
+        evidence = {
+            "evidence_id": evidence_id,
+            "release_id": RELEASE,
+            "mission_id": MISSION,
+            "kind": kind,
+            "source_ref": source,
+            "content_ref": "state://q7/%s.json" % evidence_id,
+            "subject_refs": [BATCH, gate, source_commit],
+            "content_hash": "sha256:" + evidence_id,
+            "created_at": 1,
+            "artifact_version": 1,
+        }
+        signature = authorities[gate]._sign(field_attestation_fields(
+            evidence, gate=gate, release_batch_id=BATCH,
+            source_commit=source_commit, platform_family="BANK_FIELD",
+            platform_release="TARGET", architecture="x86_64",
+            python_version="3.8.10"))
         _evidence(
-            truth,
-            evidence_id=evidence_id,
-            kind=kind,
-            source_ref=source,
+            truth, evidence_id=evidence_id, kind=kind, source_ref=source,
             subject_refs=[BATCH, gate, source_commit],
-        )
+            field_attestation_signature=signature)
         receipts.append(
             service.record(
                 release_batch_id=BATCH,
