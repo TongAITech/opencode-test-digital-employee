@@ -1,0 +1,32 @@
+"""Transactional migration runner for a dedicated PostgreSQL migration owner."""
+import hashlib
+from pathlib import Path
+
+ROOT = Path(__file__).with_name('migrations')
+
+
+def migrate(connection):
+    content = (ROOT/'001_identity.up.sql').read_text()
+    digest = hashlib.sha256(content.encode()).hexdigest()
+    with connection.transaction():
+        connection.execute("SELECT pg_advisory_xact_lock(684091210)")
+        connection.execute('CREATE TABLE IF NOT EXISTS public.wb_schema_migration(version integer PRIMARY KEY, checksum text NOT NULL)')
+        row = connection.execute('SELECT checksum FROM public.wb_schema_migration WHERE version=1').fetchone()
+        if row:
+            if row[0] != digest:
+                raise RuntimeError('MIGRATION_CHECKSUM_CONFLICT')
+            return False
+        connection.execute(content)
+        connection.execute('INSERT INTO public.wb_schema_migration VALUES(1,%s)',(digest,))
+        return True
+
+
+def rollback(connection):
+    """Only empty schemas roll back automatically. Accepted writes require restore plan."""
+    with connection.transaction():
+        connection.execute('SELECT pg_advisory_xact_lock(684091210)')
+        for table in ['project','release_batch','system_identity','system_version','audit','batch_date_history','request_log']:
+            if connection.execute('SELECT EXISTS(SELECT 1 FROM wb.'+table+')').fetchone()[0]:
+                raise RuntimeError('ROLLBACK_REQUIRES_BACKUP_AND_RECONCILIATION')
+        connection.execute((ROOT/'001_identity.down.sql').read_text())
+        connection.execute('DELETE FROM public.wb_schema_migration WHERE version=1')
