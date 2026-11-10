@@ -15,7 +15,7 @@ export class DirectoryClient {
     const response=await this.fetcher(path+'?'+params,{credentials:'same-origin',redirect:'error',signal:this.abort.signal,headers:{Accept:'application/json'}});
     if(!response.ok)throw Error('HTTP_'+response.status);
     const value=await response.json();if(generation!==this.generation)return false;
-    if(value.schema!=='dsh-workbench/business-directory/v1'||!Array.isArray(value.records)||!/^[a-f0-9]{64}$/.test(value.directory_revision)||!Object.hasOwn(value,'next_page_cursor'))throw Error('INVALID_DIRECTORY');
+    if(value.schema!=='dsh-workbench/business-directory/v1'||!Array.isArray(value.records)||typeof value.directory_revision!=='string'||!/^[a-f0-9]{64}$/.test(value.directory_revision)||!Object.hasOwn(value,'next_page_cursor'))throw Error('INVALID_DIRECTORY');
     if(revision!==null&&revision!==value.directory_revision)throw Error('STALE_DIRECTORY');revision=value.directory_revision;
     if(project!==null){if(value.project_id!==project||!Number.isSafeInteger(value.access_scope_revision)||value.access_scope_revision<1)throw Error('INVALID_DIRECTORY');if(access!==null&&access!==value.access_scope_revision)throw Error('STALE_DIRECTORY');access=value.access_scope_revision;}
     for(const record of value.records){
@@ -32,4 +32,4 @@ export class DirectoryClient {
   }catch(error){if(generation===this.generation)this.#state=freeze({status:'ERROR',error:error.message,records:[]});return false;}
  }
 }
-function validDate(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const d=new Date(value+'T00:00:00Z');return !Number.isNaN(d.valueOf())&&d.toISOString().slice(0,10)===value;}
+function validDate(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||value.startsWith('0000-'))return false;const d=new Date(value+'T00:00:00Z');return !Number.isNaN(d.valueOf())&&d.toISOString().slice(0,10)===value;}
