@@ -33,10 +33,28 @@ _ACTIVE = frozenset(("idle", "working"))
 _STATES = _ACTIVE | frozenset(("removed",))
 
 
+def _absolute_path(path):
+    """Normalize lexically without following links, preserving link evidence."""
+    return Path(os.path.abspath(str(Path(path).expanduser())))
+
+
+def _reject_symlink_components(path, reason):
+    """Reject links at every existing component, not only the leaf directory."""
+    absolute = _absolute_path(path)
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        if current.is_symlink():
+            raise TeamRosterAuditError(reason)
+    return absolute
+
+
 def _read_team(path, expected_team):
-    if (not _TEAM_ID.fullmatch(expected_team) or path.name != "team.json"
-            or path.parent.name != expected_team or path.is_symlink()
-            or path.parent.is_symlink() or not path.is_file()):
+    path = _reject_symlink_components(
+        path, "R4_TEAM_STATE_PATH_SYMLINK_FORBIDDEN")
+    if (not isinstance(expected_team, str)
+            or not _TEAM_ID.fullmatch(expected_team) or path.name != "team.json"
+            or path.parent.name != expected_team or not path.is_file()):
         raise TeamRosterAuditError("R4_TEAM_STATE_FILE_NOT_TRUSTED")
     try:
         raw = path.read_bytes()
@@ -166,16 +184,20 @@ def _safe_output_path(*, team_state_file, output):
     symlinked path component. Even a caller passing team.json as --output
     must not be able to turn observation into an in-place Team mutation.
     """
-    source = Path(team_state_file).expanduser().resolve()
-    target = Path(output).expanduser().absolute()
+    # Do not resolve source before checking it: resolve() would erase the
+    # evidence that a workspace/stateDir ancestor is a symlink.
+    source = _reject_symlink_components(
+        team_state_file, "R4_TEAM_STATE_PATH_SYMLINK_FORBIDDEN")
+    target = _absolute_path(output)
     if not target.name or target.exists() and not target.is_file():
         raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_PATH_UNSAFE")
-    if any(item.is_symlink() for item in (target,) + tuple(target.parents)):
-        raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
-    # Source layout: <workspace>/<stateDir>/<teamId>/team.json
+    target = _reject_symlink_components(
+        target, "R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
+    # Source layout: <workspace>/<stateDir>/<teamId>/team.json.  Compare
+    # normalized lexical paths after rejecting links on both sides.
     native_state_root = source.parent.parent
     try:
-        target.resolve().relative_to(native_state_root)
+        target.relative_to(native_state_root)
     except ValueError:
         pass
     else:
@@ -185,7 +207,14 @@ def _safe_output_path(*, team_state_file, output):
 
 def _write_observation_atomic(out, report):
     """Do not leave a half-written summary after a process interruption."""
+    out = _reject_symlink_components(
+        out, "R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Re-check after creating parent directories to catch a replaced path.
+    out = _reject_symlink_components(
+        out, "R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
+    if out.exists() and not out.is_file():
+        raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_PATH_UNSAFE")
     temp = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -195,6 +224,10 @@ def _write_observation_atomic(out, report):
             fh.write(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
+        _reject_symlink_components(
+            out, "R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
+        if out.is_symlink():
+            raise TeamRosterAuditError("R4_OBSERVATION_OUTPUT_SYMLINK_FORBIDDEN")
         os.replace(str(temp), str(out))
     finally:
         if temp is not None and temp.exists():
