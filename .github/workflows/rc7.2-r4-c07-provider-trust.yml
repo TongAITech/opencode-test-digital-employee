@@ -5,6 +5,8 @@ on:
     branches: [work/rc7.2]
     paths:
       - 'rc7_release/rc72_dsh_agentteams_factory.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_configured_mission.py'
       - 'tests/test_rc72_r4_c07_bank_provider_trust.py'
       - '.github/workflows/rc7.2-r4-c07-provider-trust.yml'
   workflow_dispatch:
@@ -38,7 +40,7 @@ jobs:
       - name: Verify no provider may self-attest bank Captain identity
         run: |
           python -m compileall -q rc7_release rc7_runtime tests
-          python -m pytest -q tests/test_rc72_r4_c07_bank_provider_trust.py tests/test_rc72_dsh_agentteams_host.py --junitxml=rc72-r4-c07-trust.xml
+          python -m pytest -q tests/test_rc72_r4_c07_bank_provider_trust.py tests/test_rc72_dsh_agentteams_host.py tests/test_rc72_configured_mission.py --junitxml=rc72-r4-c07-trust.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
