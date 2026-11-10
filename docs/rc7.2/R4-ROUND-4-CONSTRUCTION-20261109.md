@@ -101,3 +101,10 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-07 路径安全补强：容量配置工具不能通过路径重定向触碰银行配置（2026-11-10）
+- 新增源码审计缺口：`apply_cloned_profile_capacity` 直接调用时只检查 base/target 最末级是否 symlink，未拒绝 `DSH_HOME/profiles` symlink 及 clone 下 `node_modules/@nanmicoder/dsh-agent-teams` 中间目录 symlink；可能把插件身份读取重定向到 clone 外部路径。
+- 原 CLI `--output` 直接 `write_text`，若目标指向 `~/.dsh/profiles/web/cordis.patch.yml` 或指向它的 symlink，会把 JSON 报告写入银行受保护配置，违背只改隔离 clone 的合同。
+- 修复分支 `work/rc7.2-r4-capacity-path-hardening-20261110`：拒绝 profiles root/base/target/package/config 路径上的任一 symlink；在修改 clone 前解析并拒绝任何 DSH profile 内的报告目标；报告采用同目录临时文件 + flush/fsync + atomic replace，并在替换前重新校验。
+- 新增 4 个反例：profiles root symlink、node_modules 祖先 symlink、报告直接指向 web profile、报告 symlink 指向 web profile；必须在任何 profile/config 写入前 HOLD/拒绝。现有克隆配置正向、原配置保留、幂等与 Windows/Linux Python3.8/3.11 四平台合同继续保留。
+- 本修复只证明路径/文件写入隔离，不证明 DSH 运行进程已加载 32 成员配置，更不证明 32 名真实 Agent/第 33 名拒绝。`SOURCE_PENDING_CI / FIELD_PENDING / BANK_FINAL=NO`。
