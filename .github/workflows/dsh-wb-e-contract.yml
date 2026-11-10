@@ -10,15 +10,6 @@ on:
       - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
       - 'tools/dsh_workbench/e_b06_page_consumer.py'
       - '.github/workflows/dsh-wb-e-contract.yml'
-  pull_request:
-    branches: [work/dsh-wb-w0]
-    paths:
-      - 'docs/dsh-workbench/**'
-      - 'tools/dsh_workbench/e_contract_oracle.py'
-      - 'tests/test_dsh_workbench_e_*.py'
-      - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
-      - 'tools/dsh_workbench/e_b06_page_consumer.py'
-      - '.github/workflows/dsh-wb-e-contract.yml'
   workflow_dispatch:
 
 jobs:
@@ -31,8 +22,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
+          python-version: '3.8'
+      - name: E Python 3.8 consumer protocol + negative R1 fixtures
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
+      - uses: actions/setup-python@v5
+        with:
           python-version: '3.11'
-      - name: E A03 W0 positive/negative protocol oracle
+      - name: E Python 3.11 consumer protocol + negative R1 fixtures
         run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
       - name: No product acceptance or license implied
         run: echo 'W0 DESIGN ONLY; E01 BLOCKED by B06; not HTTP/R1/SSE/Bank/F QA'
