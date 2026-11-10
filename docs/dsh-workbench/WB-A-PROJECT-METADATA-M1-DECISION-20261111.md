@@ -1,0 +1,15 @@
+# A：M1既有根项目改名施工决策
+
+审查D211精确`1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2`与B230精确`a21b82fe805926a22b5d90babec5670dd912c6aa`。本决策只给A的范围及产品选择，不冒充D/E/F或SQL权限签署，不修改R1事实边界。
+
+A接受M1最小范围：经行政完整治理并激活的命名域内，已有根PROJECT按可信主体的当前can_write、Host mutation、CSRF/Origin及原主体context改名。采用B230的`project-name/utf8-exact-v1`固定字节规则、128标量/512字节上限；ASCII首尾空格规范化，其余大小写、组合字符及Unicode空白保持精确，界面应明确该规则。此选择保留同域重复名称拒绝，禁止可见列表判重。
+
+namespace_ref来自受管服务器行政清单；至少一个域的完整成员及其他legacy排除依据须可核对。未知潜在成员、旧冲突或未批准清单保持GOVERNANCE_HOLD，不能给每个项目分配私有域规避去重。行政fixture可用于真实PG组件测试，但不证明生产治理来源。M1不引入项目创建、iteration创建/重挂、成员管理、目录/会话或正式运行副作用。
+
+采用单一project.name及独立metadata_revision，binding只维护规范字节；全事务原结果、CAS、历史/审计/outbox及原主体未知提交恢复是必要条件。NO_CHANGE持久回执不伪造改名历史。有限名称不可用信息为交互唯一命名的明确产品选择；响应不得携其他项目身份/成员详情，也不设任意namespace名称探测端点。Directory digest必须包括metadata_revision以拒绝ABA旧cursor；已有批次/DATE/关系/合法Scope不因改名伪造修订或失效。
+
+A批准009_project_metadata作为候选编号，008继续留E正式Scope绑定。使用显式受审迁移依赖清单：009依赖001–007，不依赖不存在的008；禁止空008、跳过checksum或将009伪称连续008。具体runner兼容、up/down、有历史拒绝破坏性回滚及profile新批准模板仍须B/E/F审实现。009的项目列/权限/触发器变化不能自动放宽现有来源profile；未批准新profile时明确UNQUALIFIED，不准默认学习部署。
+
+看板卡片按(project_id,batch_id)，前五阶段仅业务计划；RELEASED不能由普通计划写入，当前E02 HOLD及Human UNKNOWN继续拒绝。M2/M3/M4独立工单，不核销完整项目管理或投产纵向链。
+
+下一施工条件：D核当前动作和恢复边界，E核迁移/R1/项目级事件增量，C核revision与目录交互，F核精确协议；随后B实现隔离PG候选、C实现同源双语界面，F独立测试精确源。真实Host现场仍FIELD_NEEDS_BANK_TRANSFER；本决策无新增产品PASS。
