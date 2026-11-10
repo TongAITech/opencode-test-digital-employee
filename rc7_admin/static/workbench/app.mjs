@@ -1,3 +1,4 @@
+import {mountRequirements} from './requirements-panel.mjs';
 import {mountRuntime} from './runtime-panel.mjs';
 import {mountDirectory} from './directory-panel.mjs';
 import {mountMilestones} from './milestone-panel.mjs';
@@ -20,3 +21,5 @@ mountRuntime(document.getElementById('runtime-facts'),{getScope:()=>({...scopePa
 
 function refreshReadiness(){const t=labels[state.locale];$('readiness').textContent=scopePanel?.client.state.status==='READY'?t.ready:t.unready;}
 document.addEventListener('workbench-scope-changed',refreshReadiness);refreshReadiness();
+
+mountRequirements(document.getElementById('requirement-relations'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
