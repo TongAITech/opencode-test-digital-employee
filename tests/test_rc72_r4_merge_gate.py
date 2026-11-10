@@ -17,14 +17,17 @@ E_REVIEWER = "independent-qa-reviewer"
 def good_snapshot():
     return {
         "pull_request": {
-            "state": "open", "draft": False,
+            "number": 113, "state": "open", "draft": False,
             "user": {"login": AUTHOR, "type": "User"},
-            "head": {"sha": SHA}, "base": {"ref": "work/rc7.2"},
+            "head": {"sha": SHA, "ref": "work/rc7.2-r4-consolidated-1to5-20261110"},
+            "base": {"ref": "work/rc7.2"},
         },
         "workflow_runs": [
             {
                 "id": i + 10, "name": workflow,
                 "head_sha": SHA, "event": "pull_request",
+                "head_branch": "work/rc7.2-r4-consolidated-1to5-20261110",
+                "pull_requests": [{"number": 113}],
                 "status": "completed", "conclusion": "success",
             }
             for i, workflow in enumerate(REQUIRED_WORKFLOWS)
@@ -155,6 +158,44 @@ class R4IndependentMergeGateTests(unittest.TestCase):
         self.assertEqual(out["status"], "SOURCE_MERGE_ADMISSIBLE")
         self.assertFalse(out["field_verified"])
         self.assertFalse(out["bank_final"])
+
+
+    def test_pr_number_must_be_exactly_int_and_match_github_request(self):
+        x = good_snapshot()
+        self.assertEqual(
+            check_snapshot(x, expected_sha=SHA, trusted_e_reviewers=[E_REVIEWER],
+                           expected_pr_number=114)["reason"],
+            "R4_PR_NUMBER_MISMATCH")
+        for value in (True, "113", None, 0):
+            y = good_snapshot()
+            y["pull_request"]["number"] = value
+            self.assertEqual(verdict(y)["reason"], "R4_PR_NUMBER_MISMATCH")
+
+    def test_github_sha_reuse_by_different_pr_fails_closed(self):
+        x = good_snapshot()
+        x["workflow_runs"][0]["pull_requests"] = [{"number": 999}]
+        self.assertEqual(
+            verdict(x)["reason"], "R4_CI_PULL_REQUEST_ASSOCIATION_UNVERIFIED")
+
+    def test_missing_or_empty_native_pr_workflow_association_fails_closed(self):
+        for value in (None, [], "PR #113"):
+            x = good_snapshot()
+            if value is None:
+                x["workflow_runs"][0].pop("pull_requests")
+            else:
+                x["workflow_runs"][0]["pull_requests"] = value
+            self.assertEqual(
+                verdict(x)["reason"], "R4_CI_PULL_REQUEST_ASSOCIATION_UNVERIFIED")
+
+    def test_workflow_run_source_branch_must_match_current_pr(self):
+        x = good_snapshot()
+        x["workflow_runs"][0]["head_branch"] = "work/unrelated-feature"
+        self.assertEqual(verdict(x)["reason"], "R4_CI_HEAD_BRANCH_MISMATCH")
+
+    def test_github_pr_head_ref_required_for_association(self):
+        x = good_snapshot()
+        x["pull_request"]["head"].pop("ref")
+        self.assertEqual(verdict(x)["reason"], "R4_PR_HEAD_BRANCH_UNVERIFIED")
 
     def test_git_api_pagination_malformed_or_more_than_20_full_pages_holds(self):
         with patch(
