@@ -1,3 +1,3 @@
-# Psycopg: LGPL-3.0-or-later; libpq/PostgreSQL: PostgreSQL License.
+# Psycopg 3.2.13 distribution metadata: LGPL-3.0-only; libpq/PostgreSQL: PostgreSQL License.
 # Pure Python driver can use separately provisioned libpq; binary extra is optional.
-psycopg>=3.2.13,<3.3
+psycopg==3.2.13

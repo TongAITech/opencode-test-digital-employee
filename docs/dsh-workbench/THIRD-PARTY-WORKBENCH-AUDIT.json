@@ -1,0 +1,52 @@
+{
+  "schema": "dsh-workbench-dependency-audit/v1",
+  "audited_source_sha": "76d6d9c8583df1ed74e44a40b16b4f0d6351a1b5",
+  "status": "AUDIT_RECORD_NOT_LICENSE_RELEASE_APPROVAL",
+  "entries": [
+    {
+      "name": "psycopg",
+      "version": "3.2.13",
+      "license_spdx_from_distribution_metadata": "LGPL-3.0-only",
+      "requires_python": ">=3.8",
+      "role": "runtime_driver",
+      "license_files": [
+        {
+          "distribution_path": "psycopg-3.2.13.dist-info/licenses/LICENSE.txt",
+          "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+        }
+      ],
+      "packaged_for_windows": false
+    },
+    {
+      "name": "psycopg-binary",
+      "version": "3.2.13",
+      "license_spdx_from_distribution_metadata": "LGPL-3.0-only",
+      "requires_python": ">=3.8",
+      "role": "optional_binary_extra_used_in_component_tests",
+      "license_files": [
+        {
+          "distribution_path": "psycopg_binary-3.2.13.dist-info/licenses/LICENSE.txt",
+          "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+        }
+      ],
+      "packaged_for_windows": false
+    },
+    {
+      "name": "PostgreSQL",
+      "version": "17.6",
+      "license_spdx": "PostgreSQL",
+      "upstream_source": "https://github.com/postgres/postgres",
+      "source_commit": "7885b94dd81b98bbab9ed878680d156df7bf857f",
+      "license_file": "COPYRIGHT",
+      "license_sha256": "5ed3ce5c9373dff7f98b1fae7a6c7ccd98df7d734d46d24c1bcebf1240be8307",
+      "role": "local_component_test_database",
+      "packaged_for_windows": false
+    }
+  ],
+  "limits": [
+    "Installed distributions and local PostgreSQL only; not a complete offline delivery SBOM.",
+    "Binary-extra transitive shared-library notices and Windows runtime payload hashes require artifact-level audit before packaging.",
+    "Historical LGPL-3.0-or-later wording for Psycopg 3.2.13 is corrected to actual distribution metadata LGPL-3.0-only.",
+    "No naodeng/dsh-qa restricted source copied; upstream reference does not confer a commercial licence."
+  ]
+}

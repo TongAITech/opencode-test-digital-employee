@@ -1,7 +1,17 @@
 # DSH 工作台 — 施工总账与依赖计划
-状态：W0-IN_PROGRESS / F_INITIAL_REVIEWED_WITH_BLOCKERS / W0_NOT_FROZEN；状态必须随 GitHub 新 HEAD 重验
+状态：W0_DESIGN_FROZEN_AT_A73ED52D / W1_COMPONENTS_INTEGRATED / PRODUCT_AND_FIELD_QA_PENDING；状态必须随 GitHub 新 HEAD 重验
 首次基线 RC7.2 work/rc7.2 @ 3de74c2bf3a0f3a555ccd979edd2832f26c9963a
 本次分支 work/dsh-wb-w0（文档施工独立分支，等待 PR 评审）
+
+
+## 当前权威状态（2026-11-10）
+
+- 当前已集成检查点：`76d6d9c8`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
+- W0 设计冻结源 `a73ed52d`，F 正式签署 #121；B01–B06、C01/C02、E01 与同源入口已分别独立组件验收并集成，来源见下文各工单证据。组件接受不等于 F01/F02/现场或全部产品完成。
+- 正在施工：B07其余草稿资产、C03/C04里程碑界面独立验收；E02只读Mission图已组件集成。E03缺正式控制面BLOCKED；B08、E04–E06与完整界面仍未完成。
+- 仍然阻断：D01 真实 DSH 宿主/SSO 与现场资格、D02/D03、Windows 离线交付、Agent Teams 实际并发及资源恢复、F01–F04、LICENSE_RELEASE_APPROVED。测试 fixture Host 不是现场认证。
+- RELEASE=NOT_APPROVED；PR #84 保持 Draft；不合并 `work/rc7.2`，不生成银行交付 ZIP。
+
 
 ## 六组施工责任
 A 总集成 work/dsh-wb-integration：设计冻结、PR 集成、依赖与合同；不可包揽全组业务编码。
@@ -22,44 +32,44 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 ## W0 — 设计冻结与前置调查
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-A00 | A | 本目录合同首次提交、建立 W0 PR | 无 | CODE_COMPLETE / PR_VERIFIED / F_PENDING（不关闭） |
-| WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | CODE_COMPLETE_CANDIDATE / F_PENDING（未冻结） |
+| WB-A00 | A | 本目录合同首次提交、建立 W0 PR | 无 | DESIGN_ACCEPTED / PR_VERIFIED（F #121；非产品完成） |
+| WB-A01 | A | 原版能力范围对账并冻结功能清单 | WB-A00 | DESIGN_SIGNED（F #121；50项完整产品仍待F02） |
 | WB-A02 | A | 许可证/商业授权与源码复用方式确认 | WB-A00 | BLOCKED_LICENSE（仍需权利人书面授权或独立实现） |
-| WB-A03 | A | W0 DESIGN_SIGNOFF：字段/状态机/负向合同、跨组可实现性评审（不得要求 W1 实库证据） | WB-A00 | CONTRACT_DRAFT / B-D-E_DESIGN_SIGNOFF_PENDING |
-| WB-F00 | F | W0 独立 DESIGN_REVIEW（不是 W1 产品 QA） | WB-A01_DESIGN_SIGNED, WB-A03_CONTRACT_SIGNED | REVIEWED_WITH_BLOCKERS / WB-FG15_DESIGN_FIX_ACCEPTED / WB-FG16_FIX_PENDING_F_REVIEW |
+| WB-A03 | A | W0 DESIGN_SIGNOFF：字段/状态机/负向合同、跨组可实现性评审（不得要求 W1 实库证据） | WB-A00 | CONTRACT_SIGNED（B/D/E与F #121；后续增量独立审查） |
+| WB-F00 | F | W0 独立 DESIGN_REVIEW（不是 W1 产品 QA） | WB-A01_DESIGN_SIGNED, WB-A03_CONTRACT_SIGNED | DESIGN_ACCEPTED_AT_A73ED52D（F #121） |
 
 ## W1 — 最小真实业务纵向链路
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-B01 | B | 投产日期与唯一性/变更历史，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | TODO |
-| WB-B02 | B | 系统/系统版本规范对象，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | TODO |
-| WB-B03 | B | 批次-需求/批次-版本关系 | B01,B02 | TODO |
-| WB-B04 | B | 需求-版本多对多合法关系 | B03 | TODO |
-| WB-B05 | B | 需求-版本-SST 关联及错误阻断 | B04 | TODO |
-| WB-B06 | B | 跨分区 Scope 关联查询与分页 | B05 | TODO |
-| WB-C01 | C | 六页面/十分区不缺失的导航骨架，真实 UI IMPLEMENTATION_QA | A01_DESIGN_SIGNED, W0_DESIGN_FROZEN | TODO |
-| WB-C02 | C | 项目详情投产日期/需求/版本/SST 联动 | B06,C01 | TODO |
-| WB-D01 | D | DSH 宿主版本/面板真实兼容性探测 | A00 | TODO |
-| WB-E01 | E | RC7.2 R1 只读 Scope 与 Evidence 适配 | B06 | TODO |
-| WB-F01 | F | 真实日期、跨版本、多 SST 纵向核验，独立 INTEGRATION_QA | C02_IMPLEMENTATION_QA, D01_IMPLEMENTATION_QA, E01_IMPLEMENTATION_QA | TODO |
+| WB-B01 | B | 投产日期与唯一性/变更历史，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | COMPONENT_QA_ACCEPTED / MERGED（F #128） |
+| WB-B02 | B | 系统/系统版本规范对象，真实数据库 IMPLEMENTATION_QA | A03_CONTRACT_SIGNED, W0_DESIGN_FROZEN | COMPONENT_QA_ACCEPTED / MERGED（F #128） |
+| WB-B03 | B | 批次-需求/批次-版本关系 | B01,B02 | COMPONENT_QA_ACCEPTED / MERGED（F #130） |
+| WB-B04 | B | 需求-版本多对多合法关系 | B03 | COMPONENT_QA_ACCEPTED / MERGED（F #130） |
+| WB-B05 | B | 需求-版本-SST 关联及错误阻断 | B04 | COMPONENT_QA_ACCEPTED / MERGED（F #135） |
+| WB-B06 | B | 跨分区 Scope 关联查询与分页 | B05 | COMPONENT_QA_ACCEPTED / MERGED（F #138；真实Host未验） |
+| WB-C01 | C | 六页面/十分区不缺失的导航骨架，真实 UI IMPLEMENTATION_QA | A01_DESIGN_SIGNED, W0_DESIGN_FROZEN | NAVIGATION_COMPONENT_ACCEPTED / MERGED（F #128） |
+| WB-C02 | C | 项目详情投产日期/需求/版本/SST 联动 | B06,C01 | SCOPE_UI_COMPONENT_ACCEPTED / MERGED（F #141；非整体资格） |
+| WB-D01 | D | DSH 宿主版本/面板真实兼容性探测 | A00 | COMPONENT_TESTED / FIELD_NEEDS_BANK_TRANSFER（用户确认行外不可达） |
+| WB-E01 | E | RC7.2 R1 只读 Scope 与 Evidence 适配 | B06 | READONLY_COMPONENT_ACCEPTED / MERGED（F #142） |
+| WB-F01 | F | 真实日期、跨版本、多 SST 纵向核验，独立 INTEGRATION_QA | C02_IMPLEMENTATION_QA, D01_IMPLEMENTATION_QA, E01_IMPLEMENTATION_QA | BLOCKED_FIELD_AND_FULL_IMPLEMENTATION（未签整体通过） |
 
 ## W2 — 保留原能力与资产增强
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-C03 | C | 首页/看板/日历/技能页面完整对账 | C01 | TODO |
-| WB-C04 | C | 十分区信息与资产表单完整对账 | C01 | TODO |
+| WB-C03 | C | 首页/看板/日历/技能页面完整对账 | C01 | PARTIAL_NAVIGATION / WAITING_MILESTONE_API |
+| WB-C04 | C | 十分区信息与资产表单完整对账 | C01 | PARTIAL_SCOPE / WAITING_ASSET_API |
 | WB-C05 | C | 中文/主题/搜索/响应式/可访问性 | C03,C04 | TODO |
-| WB-B07 | B | 用例/义务/缺陷/报告追踪规范化 | B05 | TODO |
+| WB-B07 | B | 用例/义务/缺陷/报告追踪规范化 | B05 | IN_PROGRESS（首milestone切片；其余kind未实现） |
 | WB-B08 | B | 历史数据兼容和可逆迁移 | B07 | TODO |
-| WB-D02 | D | DSH 原生模型/Skills/Commands/附件 | D01 | TODO |
-| WB-D03 | D | 项目会话+批次 Mission 绑定与恢复 | D02,B01 | TODO |
+| WB-D02 | D | DSH 原生模型/Skills/Commands/附件 | D01 | BLOCKED_D01_HOST_INTERFACE |
+| WB-D03 | D | 项目会话+批次 Mission 绑定与恢复 | D02,B01 | BLOCKED_D02_HOST_INTERFACE |
 | WB-F02 | F | 原版能力矩阵逐项回归与反例核销 | C05,B08,D03 | TODO |
 
 ## W3 — 自主测试闭环
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-E02 | E | Mission 查询、N1–N10 可视状态 | E01 | TODO |
-| WB-E03 | E | 带幂等键和权限门禁的正式控制 API | E02 | TODO |
+| WB-E02 | E | Mission 查询、N1–N10 可视状态 | E01 | READONLY_COMPONENT_ACCEPTED / MERGED（F #154） |
+| WB-E03 | E | 带幂等键和权限门禁的正式控制 API | E02 | BLOCKED_FORMAL_CONTROL_API（提案 #155；无伪accepted） |
 | WB-E04 | E | ETU/WorkItem/Attempt 实时执行监控 | E03 | TODO |
 | WB-E05 | E | Agent Teams/租约/并发上限探测和恢复 | E04,D03 | TODO |
 | WB-E06 | E | Evidence/缺陷回归/N10 收敛事实映射 | E04,B07 | TODO |
@@ -322,3 +332,18 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A最新联合97917526bb875c276ee5541d0fb377c11f0d9580同源真PG/HTTP/Chromium1/1、通用合同398发现/264执行/134未配置PG明确skip；远端联合检查另核，不继承旧源数字。
 - B07增量合同143/22fc88ff及D39e7bccd/E44828bf0职责签署已集成，里程碑真库/HTTP首slice独立施工中，尚无CRUD通过声明。
 - C02/E01/统一入口仅COMPONENT_QA_ACCEPTED/MERGED，F01整体、真实Host认证/DSH1.18.26、Windows/离线、实际并发恢复、50完整产品及许可发布门禁未完成，不合RC7.2、不出银行ZIP。
+
+
+## 现场环境访问约束（用户确认，2026-11-10）
+
+用户确认行外无法访问真实DSH/Windows，必须搬运行内。现场状态统一 FIELD_NEEDS_BANK_TRANSFER；停止行外尝试真实现场访问，fixture仍只是组件测试。接续操作和证据字段见 BANK-TRANSFER-ACCEPTANCE.md。只在集中回归候选点准备搬运材料，不提前生成最终银行交付ZIP，不跳过D01/D04/F04或许可证门禁。
+
+
+## 里程碑 API 与正式 Mission 图联合集成（2026-11-10）
+- B07首milestone PR152/49063661获F153/072694aa接受：真实PG/HTTP141/141+F2。初源历史Scope可追加连边缺陷已加不可变link_count/延迟约束并复验；其余六kind尚在独立施工，B07整体不关闭。
+- E02旧72dd3f9f由F150真实发现同批次跨Mission NodeGate引用P1；新1136bea2完整node/delivery/gate/ETU/workitem/attempt谱系校验，获F154/161398b4复验关闭，真PG/HTTP/R1 35/35及谱系攻击通过，原失败保留。
+- A精确联合76d6d9c8583df1ed74e44a40b16b4f0d6351a1b5解决business_http共同路由冲突，保留资产与Mission查询：本地真PG141/141、E02 35/35、同源浏览器1/1、Node24；轻量475发现/265执行/210明确未配置PGskip，不混作真库结果。
+- 同联合源远端：PG SUCCESS42815706578/job129828136986、W0 SUCCESS42815706397/job129828135567、专属E01/E02 SUCCESS42815837222、正式浏览器 SUCCESS42815845374。SHA均核实76d6d9c8。
+- C里程碑UI PR156/a7fd0827正在F独立验收，未集成或记C03/C04整体通过。E03调查确认缺通用正式控制面，BLOCKED_FORMAL_CONTROL_API；依赖提案PR155，未写R1或伪accepted。E04–E06继续按正式依赖受控。
+- 新增第三方实物审计THIRD-PARTY-WORKBENCH-AUDIT.json：Psycopg3.2.13安装元数据为LGPL-3.0-only（纠正旧or-later表述），依赖固定本次已验版本并记录许可证哈希；不是最终Windows包SBOM或LICENSE_RELEASE_APPROVED。
+- 真实宿主与Windows FIELD_NEEDS_BANK_TRANSFER，接续见BANK-TRANSFER-ACCEPTANCE.md；不合RC7.2、不出最终银行ZIP。

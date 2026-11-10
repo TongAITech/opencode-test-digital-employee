@@ -10,6 +10,7 @@ import re
 from urllib.parse import parse_qs,unquote,urlsplit
 from .business_scope import ScopeStore
 from .business_store import BusinessError
+from .write_context import SCHEMA,subject_write_context
 
 @dataclass(frozen=True)
 class HostIdentity:
@@ -38,10 +39,26 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
                 url=urlsplit(self.path)
+                if url.path=='/api/workbench/v1/write-context':
+                    if url.query:raise BusinessError(400,'INVALID_WRITE_CONTEXT_REQUEST')
+                    self.respond(200,{'schema':SCHEMA,'write_context':subject_write_context(cursor_key,identity.principal)})
+                    return
                 if '/batches/' in url.path:
                     from .business_asset_http import asset_request
                     status,value=asset_request(self,identity,connection_factory,cursor_key)
                     self.respond(status,value)
+                    return
+                graph_match=re.fullmatch(r'/api/workbench/v1/missions/([^/]+)/(graph|workitems)',url.path)
+                if graph_match:
+                    try:q=parse_qs(url.query,keep_blank_values=True,strict_parsing=True,max_num_fields=4)
+                    except ValueError:raise BusinessError(400,'INVALID_SCOPE')
+                    if set(q)!={'project_id','batch_id','release_date'} or any(len(v)!=1 or not v[0] for v in q.values()):raise BusinessError(400,'INVALID_SCOPE')
+                    if quality_service_factory is None:raise BusinessError(503,'TRUTH_SOURCE_UNAVAILABLE')
+                    with connection_factory() as connection:
+                        service=quality_service_factory(ScopeStore(connection,cursor_key))
+                        if not callable(getattr(service,'graph',None)):raise BusinessError(503,'TRUTH_SOURCE_UNAVAILABLE')
+                        value=service.graph(identity.principal,q['project_id'][0],q['batch_id'][0],q['release_date'][0],unquote(graph_match[1]),graph_match[2])
+                    self.respond(200,value)
                     return
                 match=re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/release-dates/(\d{4}-\d{2}-\d{2})/(scope|quality)',url.path)
                 if match is None:raise BusinessError(404,'RESOURCE_NOT_FOUND')

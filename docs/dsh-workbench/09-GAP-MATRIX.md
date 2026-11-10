@@ -1,4 +1,15 @@
-# W0 缺口账本
+# 工程缺口账本
+
+## 当前权威状态（2026-11-10）
+
+- 当前已集成检查点：`76d6d9c8`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
+- W0 设计冻结源 `a73ed52d`，F 正式签署 #121；B01–B06、C01/C02、E01 与同源入口已分别独立组件验收并集成，来源见下文各工单证据。组件接受不等于 F01/F02/现场或全部产品完成。
+- 正在施工：B07其余草稿资产、C03/C04里程碑界面独立验收；E02只读Mission图已组件集成。E03缺正式控制面BLOCKED；B08、E04–E06与完整界面仍未完成。
+- 仍然阻断：D01 真实 DSH 宿主/SSO 与现场资格、D02/D03、Windows 离线交付、Agent Teams 实际并发及资源恢复、F01–F04、LICENSE_RELEASE_APPROVED。测试 fixture Host 不是现场认证。
+- RELEASE=NOT_APPROVED；PR #84 保持 Draft；不合并 `work/rc7.2`，不生成银行交付 ZIP。
+
+## 初始与历史检查点（仅追溯，以当前状态和最新同SHA证据为准）
+
 按真实结果更新，不得把未做的任务写已完成。
 
 | GAP | 级别 | 现状 | 下一动作 | 负责人 |
@@ -284,3 +295,18 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - A最新联合97917526bb875c276ee5541d0fb377c11f0d9580同源真PG/HTTP/Chromium1/1、通用合同398发现/264执行/134未配置PG明确skip；远端联合检查另核，不继承旧源数字。
 - B07增量合同143/22fc88ff及D39e7bccd/E44828bf0职责签署已集成，里程碑真库/HTTP首slice独立施工中，尚无CRUD通过声明。
 - C02/E01/统一入口仅COMPONENT_QA_ACCEPTED/MERGED，F01整体、真实Host认证/DSH1.18.26、Windows/离线、实际并发恢复、50完整产品及许可发布门禁未完成，不合RC7.2、不出银行ZIP。
+
+
+## 现场环境访问约束（用户确认，2026-11-10）
+
+用户确认行外无法访问真实DSH/Windows，必须搬运行内。现场状态统一 FIELD_NEEDS_BANK_TRANSFER；停止行外尝试真实现场访问，fixture仍只是组件测试。接续操作和证据字段见 BANK-TRANSFER-ACCEPTANCE.md。只在集中回归候选点准备搬运材料，不提前生成最终银行交付ZIP，不跳过D01/D04/F04或许可证门禁。
+
+
+## 里程碑 API 与正式 Mission 图联合集成（2026-11-10）
+- B07首milestone PR152/49063661获F153/072694aa接受：真实PG/HTTP141/141+F2。初源历史Scope可追加连边缺陷已加不可变link_count/延迟约束并复验；其余六kind尚在独立施工，B07整体不关闭。
+- E02旧72dd3f9f由F150真实发现同批次跨Mission NodeGate引用P1；新1136bea2完整node/delivery/gate/ETU/workitem/attempt谱系校验，获F154/161398b4复验关闭，真PG/HTTP/R1 35/35及谱系攻击通过，原失败保留。
+- A精确联合76d6d9c8583df1ed74e44a40b16b4f0d6351a1b5解决business_http共同路由冲突，保留资产与Mission查询：本地真PG141/141、E02 35/35、同源浏览器1/1、Node24；轻量475发现/265执行/210明确未配置PGskip，不混作真库结果。
+- 同联合源远端：PG SUCCESS42815706578/job129828136986、W0 SUCCESS42815706397/job129828135567、专属E01/E02 SUCCESS42815837222、正式浏览器 SUCCESS42815845374。SHA均核实76d6d9c8。
+- C里程碑UI PR156/a7fd0827正在F独立验收，未集成或记C03/C04整体通过。E03调查确认缺通用正式控制面，BLOCKED_FORMAL_CONTROL_API；依赖提案PR155，未写R1或伪accepted。E04–E06继续按正式依赖受控。
+- 新增第三方实物审计THIRD-PARTY-WORKBENCH-AUDIT.json：Psycopg3.2.13安装元数据为LGPL-3.0-only（纠正旧or-later表述），依赖固定本次已验版本并记录许可证哈希；不是最终Windows包SBOM或LICENSE_RELEASE_APPROVED。
+- 真实宿主与Windows FIELD_NEEDS_BANK_TRANSFER，接续见BANK-TRANSFER-ACCEPTANCE.md；不合RC7.2、不出最终银行ZIP。

@@ -4,6 +4,10 @@ on:
     branches: [work/dsh-wb-w0]
     paths:
       - 'tools/dsh_workbench/e01_service.py'
+      - 'tools/dsh_workbench/e02_service.py'
+      - 'tools/dsh_workbench/e02_lineage.py'
+      - 'tests/test_dsh_workbench_e02_lineage.py'
+      - 'tests/test_dsh_workbench_e02_postgres.py'
       - 'tools/dsh_workbench/business_http.py'
       - 'tests/test_dsh_workbench_e01_postgres.py'
       - '.github/workflows/dsh-wb-e01-postgres.yml'
@@ -26,9 +30,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install 'psycopg[binary]>=3.2.13,<3.3'
+      - run: pip install 'psycopg[binary]==3.2.13'
       - name: Real PostgreSQL, loopback HTTP and immutable persistent R1 fixture
         env:
           WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
         run: python -m unittest discover -s tests -p 'test_dsh_workbench_e01_postgres.py' -v
+      - name: E02 canonical graph with persistent R1 and real PostgreSQL
+        env:
+          WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_postgres.py'
       - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py'
+      - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_lineage.py'

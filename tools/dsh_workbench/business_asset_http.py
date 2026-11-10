@@ -4,6 +4,7 @@ import re
 from urllib.parse import parse_qs,unquote,urlsplit
 from .business_assets import AssetStore
 from .business_store import BusinessError
+from .write_context import require_write_context
 
 
 def asset_request(handler,identity,connection_factory,cursor_key):
@@ -14,6 +15,7 @@ def asset_request(handler,identity,connection_factory,cursor_key):
     if any(x is not None and (not x or '/' in x) for x in (project,batch,asset)):raise BusinessError(400,'INVALID_ASSET_REQUEST')
     writing=handler.command!='GET'
     if writing and getattr(identity,'mutation_authorized',False) is not True:raise BusinessError(403,'MUTATION_AUTH_REQUIRED')
+    if writing:require_write_context(handler.headers,cursor_key,identity.principal)
     with connection_factory() as connection:
         store=AssetStore(connection,cursor_key)
         # Do not parse an object's body or query before current project permission.
@@ -30,7 +32,7 @@ def asset_request(handler,identity,connection_factory,cursor_key):
                 if asset:
                     result=store.get(identity.principal,project,batch,asset,revision=int(q['revision'][0]) if 'revision' in q else None,include_retired=retired=='true')
                 else:
-                    result=store.list(identity.principal,project,batch,kind=q.get('kind',['milestone'])[0],requirement_ids=q.get('requirement_ids'),system_version_ids=q.get('system_version_ids'),sst_ids=q.get('sst_ids'),due_from=q.get('due_from',[None])[0],due_to=q.get('due_to',[None])[0],include_retired=retired=='true',page_size=int(q.get('page_size',['100'])[0]),page_cursor=q.get('page_cursor',[None])[0])
+                    result=store.list(identity.principal,project,batch,kind=q.get('kind',[None])[0],requirement_ids=q.get('requirement_ids'),system_version_ids=q.get('system_version_ids'),sst_ids=q.get('sst_ids'),due_from=q.get('due_from',[None])[0],due_to=q.get('due_to',[None])[0],include_retired=retired=='true',page_size=int(q.get('page_size',['100'])[0]),page_cursor=q.get('page_cursor',[None])[0])
             except ValueError:raise BusinessError(400,'INVALID_ASSET_QUERY')
             return 200,result
         if url.query:raise BusinessError(400,'INVALID_ASSET_REQUEST')
@@ -42,6 +44,8 @@ def asset_request(handler,identity,connection_factory,cursor_key):
         def unique_object(pairs):
             value={}
             for key,item in pairs:
+                key.encode('utf-8')
+                if isinstance(item,str):item.encode('utf-8')
                 if key in value:raise ValueError('DUPLICATE_JSON_KEY')
                 value[key]=item
             return value
@@ -50,7 +54,7 @@ def asset_request(handler,identity,connection_factory,cursor_key):
             raw=handler.rfile.read(length)
             if len(raw)!=length:raise ValueError('INCOMPLETE_BODY')
             body=json.loads(raw.decode('utf-8'),object_pairs_hook=unique_object)
-        except (ValueError,UnicodeError):raise BusinessError(400,'INVALID_BODY')
+        except (ValueError,UnicodeError,RecursionError):raise BusinessError(400,'INVALID_BODY')
         action=None
         if handler.command=='POST' and asset is None:action='create'
         elif handler.command=='POST' and asset and match[4]:action='restore'
