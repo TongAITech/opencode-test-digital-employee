@@ -4,7 +4,7 @@
 
 精确输入：D211 `1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2`；B230 `a21b82fe805926a22b5d90babec5670dd912c6aa`；A-M1决定 `9a41b1456ceed0a0efb66ab662e1d3e3dff136aa`。另完整读取E233 `bfd96c0b`、F234含跨动作锁补充 `a776640e`、D后续动作/恢复签署 `96600655`。这些报告未被移写为C的功能测试。
 
-结论：**C_M1_GOVERNED_ROOT_RENAME_DESIGN_ACCEPTED_FOR_ISOLATED_IMPLEMENTATION / NO_NEW_C_P0_P1 / SQL_API_UI_NOT_IMPLEMENTED_OR_ACCEPTED**。接受A限定的NAMING_ACTIVE完整治理域内已有根PROJECT改名；允许开展同源双语组件实现，但具体新wire、SQL/profile和实现SHA仍须各组精确审查，不给未实现候选产品PASS。M2创建/迭代/成员、M3计划卡及M4发布/SSE不包含在本签署。
+结论：**C_M1_GOVERNED_ROOT_RENAME_DESIGN_ACCEPTED_FOR_ISOLATED_IMPLEMENTATION / NO_NEW_C_P0_P1 / SQL_API_UI_NOT_IMPLEMENTED_OR_ACCEPTED**。接受A限定的NAMING_ACTIVE完整治理域内已有根PROJECT改名；允许开展同源双语组件实现，但具体metadata新wire、目录内部摘要兼容、SQL/profile和实现SHA仍须各组精确审查，不给未实现候选产品PASS。M2创建/迭代/成员、M3计划卡及M4发布/SSE不包含在本签署。
 
 ## 1. 单一名称事实、稳定身份及只读legacy
 
@@ -33,9 +33,9 @@ GET响应、原始PATCH负载和历史receipt必须身份及schema核验；metad
 
 ## 4. Directory防ABA与rename专用刷新
 
-实际源码：DirectoryStore现在对project_id/name/数字access_scope_revision做digest，DirectoryClient只接受`business-directory/v1`且验证数字access epoch；当前并无metadata_revision。B/A要求新投影schema和metaRev参与全部当前授权项目的稳定排序编码，A→B→A后旧cursor也必须409；不能只hash可见单页name、以当前name相同恢复旧token、或静默在v1混改cursor含义。
+实际源码：DirectoryStore现在对project_id/name/数字access_scope_revision做digest，DirectoryClient只接受`business-directory/v1`且验证数字access epoch；当前并无metadata_revision。B/A要求内部快照投影版本和metaRev参与全部当前授权项目的稳定排序编码，A→B→A后旧cursor也必须409；不能只hash可见单页name或以当前name相同恢复旧token。内部摘要投影版本不等于HTTP records/schema必须升版。
 
-实施wire必须精确定义新的**项目目录投影**schema/version、字符串metaRev与所采用的access revision编码、digest确定性序列化及旧cursor fail-closed。新增revision不能先转JS number；若项目目录access也改字符串，DirectoryClient要按明确schema分支验证，与仍采用旧协议的批次目录/Scope分层，不能全局字符串/数字混收。最终字段名、schema常量和兼容矩阵随B实际HTTP增量再精确审定；本报告不擅改既有v1合同，也不以尚未冻结的response shape当已兼容。
+按A补充采用最小兼容审点：**server内部digest快照加入metadata_revision与明确snapshot投影版本，cursor绑定该内部版本/新digest，旧cursor拒绝；现有目录响应records及`business-directory/v1`可以保持不变。** 不要求给records增加metadata_revision，也不要求把旧目录access_scope_revision数字改字符串；现有DirectoryClient仍验证其原wire，批次目录/Scope协议不被改写。metadata新GET/PATCH的两revision独立严格用规范bigint字符串，并从该端点读取当前CAS，不从旧目录数字epoch反推。C审的是旧cursor失效和旧client可消费的精确退出，不指定未经实现评审的最终SQL/序列化常量。若B后续确需新目录wire/字段，则必须另交project-only route/schema兼容矩阵（包括旧client、批次v1与未知schema失败关闭）并重新审核，不能把“新增字段”或“内部版本”当自动兼容证明；本次没有这项扩展需求或实现。
 
 C核对到当前DirectoryPanel.load会清project/batch、调用scopePanel.setContext({})；chooseProject同样清batch/Scope。这是普通目录导航现有行为，**不得直接拿来作为rename后刷新**。新M1需专用元数据/项目目录重读路径：保持原project_id、batch_id、DATE和合法Scope/relation/access revisions；只用当前授权新快照更新名称与metadata水位。更新完整分页目录时先不呈现部分新旧名称，409旧cursor从头重新读，代次拒绝迟到响应。纯rename不得伪造Scope修订、清空十区数据或触发执行。若重读证明项目已不可读/ACL变化、batch/date真变更，则按对应现有授权/Scope失效规则清旧；不能用“rename不清Scope”保留撤权后的私密数据。
 
@@ -58,7 +58,7 @@ NO_CHANGE无metadata/changed事件增长，必要手刷当前名称即可；不�
 | 范围 | 必须真实Oracle/负向/恢复 |
 |---|---|
 | 名称 | ASCII trim/NO_CHANGE、Unicode其他空白/大小写/组合序列精确保留、1/128/129标量、512/513字节、代理/控制拒绝；两语/键盘/长名375px完整可访问 |
-| wire与目录 | metadata字符串revision跨2^53及bigint上界/溢出；拒数字/前导零；项目全分页一致metaRev；旧schema/cursor和ABA拒绝；普通日期目录与Scope不被错误重编码 |
+| wire与目录 | metadata字符串revision跨2^53及bigint上界/溢出；拒数字/前导零；内部全授权快照含metaRev及投影版本；旧cursor和ABA拒绝；现有目录v1 records/批次Scope协议保持兼容，只有metadata新wire用字符串revision |
 | 当前值与unknown | commit后丢响应、后来别人改名、原receipt重放不回滚新值；NO_CHANGE重放；Alice未知→Bob→Alice恢复；撤权/服务503/context失效HOLD；切页/语言/项目不换原K负载 |
 | Scope连续性 | rename成功/NO_CHANGE/冲突/旧cursor重读后，同project/batch/DATE/relation/access及十区合法数据不被清空；真正撤权/改期失效仍清旧；迟到metadata/目录响应拒绝 |
 | 权限与DB | 完整治理域/不可见同名Oracle、legacy只读、当前mutation/context/can_write各自拒绝、跨动作同K、直接DML绕过拒绝、history/key/outbox故障原子回滚、无R1副作用 |
