@@ -64,7 +64,23 @@ class TestCIAdmission(unittest.TestCase):
 
     def test_q1_py38_fg17_negative_proof_is_preserved(self):
         self.changed("q1", "'tests/test_rc72_c09_real_chromium_cdp_smoke.py'",
-                     "'docs/irrelevant.md'", "Q1_FG17_NEGATIVE_CHECK_REMOVED")
+                     "'docs/irrelevant.md'", "Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED")
+
+    def test_q1_real_chromium_test_path_removal_fails_closed(self):
+        self.changed("q1", "tests/test_rc72_c09_real_chromium_cdp_smoke.py",
+                     "tests/empty_browser_probe.py",
+                     "Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED")
+
+    def test_q1_draft_reenablement_and_missing_browser_test_are_independent(self):
+        sample = copy.deepcopy(self.source)
+        sample["q1"] = sample["q1"].replace(
+            "if: github.event_name == 'pull_request' && github.event.pull_request.draft == false",
+            "if: github.event_name == 'pull_request'")
+        sample["q1"] = sample["q1"].replace(
+            "'tests/test_rc72_c09_real_chromium_cdp_smoke.py'",
+            "'tests/removed_real_cdp.py'")
+        self.assertIn(
+            "Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED", problems(sample))
 
     def test_q1_py38_browser_runs_only_on_non_draft_candidate(self):
         self.changed("q1", "if: github.event_name == 'pull_request' && github.event.pull_request.draft == false",
