@@ -233,8 +233,15 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
     if extension_root.exists():
         raise InstallError("ECOSYSTEM_EXTENSION_TARGET_ALREADY_EXISTS_RUN_HEALTH_OR_UNINSTALL")
     extension_root.mkdir(parents=True)
-    for row in checked["manifest"]["extensions"]:
-        _safe_copytree(root / "packages" / row["id"], package_target / row["id"])
+    try:
+        for row in checked["manifest"]["extensions"]:
+            target = package_target / row["id"]
+            _safe_copytree(root / "packages" / row["id"], target)
+            if row.get("bundle_tree_sha256") and _tree_sha256(target) != row["bundle_tree_sha256"]:
+                raise InstallError("COPIED_PACKAGE_TREE_SHA256_MISMATCH:%s" % row["id"])
+    except Exception:
+        shutil.rmtree(str(extension_root), ignore_errors=True)
+        raise
 
     native = checked["manifest"]["mnemon_native_cli"]
     native_source = root / native["path"]
