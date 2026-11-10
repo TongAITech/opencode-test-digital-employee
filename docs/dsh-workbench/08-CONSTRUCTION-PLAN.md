@@ -223,3 +223,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 本轮新增 [A01 双语设计合同](WB-A01-BILINGUAL-SCOPE.md)、[机器可读 12 项 W1 负例](WB-A01-LOCALE-SCOPE.json)、[静态门禁](../../tools/dsh_workbench/a01_locale_scope.py) 和 unittest。设计状态为 `A_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`，不是 W1 UI QA；F 可独立核验英语+技能缺译回退、日期/ID 不漂移、权限/NodeGate/Human Gate 不伪 PASS、主题偏好用户隔离、许可不绕过。
 - 同源码提交 `fc2619d6f4ef36afe50b594a3a4630057c1ae884` 的 [W0 run #42743331421](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42743331421) **Python 218/218 + Node 30/30 + CI policy13 PASS**；这是 A 的范围静态测试，不继承为 F 对新 HEAD 的签署。
 - A02 PolyForm Noncommercial `BLOCKED_LICENSE`、W0 `NOT_FROZEN`、W1–W4 真实 API/Host/Postgres/R1/Windows/Evidence/50 功能依赖照旧；PR #84 Draft，不合入 RC7.2/不构建银行 ZIP。
+
+## 2026-11-10 A01 原版中英文入口真实来源反例补强（F #106 后）
+- 主线 A 已先行施工规范单源 `WB-A01-LOCALE-SCOPE.json` + `a01_locale_scope.py` + W1 12 项设计验收合同。并行旧 PR #109 产生第二套设计合同，A 为避免双标准已将其 **CLOSED_NOT_MERGED**；现只在 A 官方 `KEEP_ZH_EN_W1_REQUIRED` 合同上增量施工。
+- P05-03 与 X01-01 的先前原版来源锚点不完整：X01-01 指向主题函数不能证明英语/中文切换；新证据固定 upstream `fc5a054` `public/i18n.js#L700-L722`、`public/app.js#L2048-L2094` 及 P05-03 语言选择 handler。仅保存来源链接、能力描述、原版许可证元数据，禁止复制受限 JS/词典。
+- 追加机器合同 `upstream_readonly_provenance`，在原 `a01_locale_scope.py` 增加准确 SHA、法律标识、未复制、语言按钮和词典来源强制校验；新增 5 项独立负向测试：主题入口冒充语言、失去来源 SHA、MIT 误标、复制源码、删除语言/Skill handler 锚点。仍以 **同源 GitHub CI 实测**核销，不以本条自报成功。
+- F #106 在 A@a3555b1 已独立接受 `C_W0_PROTOTYPE_REVIEW_PASS/FG23_CLOSED`，并真实 206 Python/30 Node/FG16/18/Chromium；A 后续 W0 b4bea 已记录双语设计，但 F **尚未对本新增源码来源门禁签署**。W0_NOT_FROZEN、A02 BLOCKED_LICENSE、W1-W4 NOT_RUN、NO_BANK_ZIP。
