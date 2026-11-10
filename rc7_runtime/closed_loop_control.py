@@ -51,6 +51,7 @@ from .state_machine import (
     transition_task,
 )
 from .truth_overlay import append_entity, install_rc7_truth_overlay
+from .unadmitted_scope_guard import protected, reject_reserved, check_missions
 
 
 class ClosedLoopControlError(ControlPlaneError):
@@ -109,10 +110,13 @@ class ClosedLoopControlPlane:
         self.gap_planner = GapRepairPlanner(truth, release_id, self.scheduler)
         self.sessions = SessionContinuityManager(truth, release_id)
         self._mission_row()
+        check_missions(truth, (mission_id,), ClosedLoopControlError)
 
     @classmethod
     def bootstrap(cls, truth: TruthRuntime, mission: Mission) -> "ClosedLoopControlPlane":
         install_rc7_truth_overlay()
+        reject_reserved(mission, ClosedLoopControlError)
+        check_missions(truth, (mission.mission_id,), ClosedLoopControlError, allow_new=(mission.mission_id,))
         if truth.query("rc7_mission", mission_id=mission.mission_id):
             raise ClosedLoopControlError("MISSION_ALREADY_REGISTERED")
         append_entity(truth, mission, release_id=mission.release_id, artifact_version=1)
@@ -123,6 +127,7 @@ class ClosedLoopControlPlane:
         )
         return cls(truth, mission.release_id, mission.mission_id)
 
+    @protected
     def register_task(self, task: Task) -> Task:
         if task.mission_id != self.mission_id:
             raise ClosedLoopControlError("TASK_MISSION_MISMATCH")
@@ -134,11 +139,13 @@ class ClosedLoopControlPlane:
         self._sync_mission(mission)
         return registered
 
+    @protected
     def refresh_ready(self) -> Tuple[Task, ...]:
         ready = self.scheduler.refresh_ready(self.mission_id)
         self._sync_mission(self._mission())
         return ready
 
+    @protected
     def lease_next(
         self,
         *,
@@ -162,16 +169,19 @@ class ClosedLoopControlPlane:
         self._sync_mission(self._mission())
         return task
 
+    @protected
     def start(self, task_id: str, *, worker_ref: str) -> Task:
         task = self.scheduler.start(task_id, worker_ref=worker_ref)
         self._sync_mission(self._mission())
         return task
 
+    @protected
     def submit_worker_output(self, output: WorkerOutput) -> Task:
         task = self.scheduler.submit_worker_output(output)
         self._sync_mission(self._mission())
         return task
 
+    @protected
     def accept_evaluation(
         self,
         task_id: str,
@@ -278,6 +288,7 @@ class ClosedLoopControlPlane:
         self._sync_mission(self._mission())
         return self.scheduler.task(task_id)
 
+    @protected
     def accept_defect_resolution(self, task_id: str, *, defect, evaluation: Evaluation) -> Task:
         """Close a PRODUCT_DEFECT handoff only with terminal Defect truth."""
         task = self.scheduler.task(task_id)
@@ -333,6 +344,7 @@ class ClosedLoopControlPlane:
         self._sync_mission(self._mission())
         return self.scheduler.task(task_id)
 
+    @protected
     def converge_mission(
         self,
         evaluation: Evaluation,
@@ -483,6 +495,7 @@ class ClosedLoopControlPlane:
         if self.truth.query("rc7_gap", gap_id=gap.gap_id):
             raise ClosedLoopControlError("GAP_ALREADY_EXISTS")
 
+    @protected
     def _resolve_source_gaps(self, task: Task, evaluation: Evaluation) -> None:
         for gap_id in task.gap_refs:
             rows = self.truth.query("rc7_gap", gap_id=gap_id)
@@ -500,6 +513,7 @@ class ClosedLoopControlPlane:
             transition_mission(mission, MissionStatus.RUNNING)
             self._persist_mission(mission)
 
+    @protected
     def _reactivate_source_tasks(self, repaired_gap_ids: Sequence[str]) -> None:
         repaired = set(repaired_gap_ids)
         rows = self.truth.query("rc7_task", mission_id=self.mission_id)
@@ -533,6 +547,7 @@ class ClosedLoopControlPlane:
             transition_mission(mission, MissionStatus.RUNNING)
             self._persist_mission(mission)
 
+    @protected
     def _sync_mission(self, mission: Mission) -> None:
         task_rows = self.truth.query("rc7_task", mission_id=self.mission_id)
         gap_rows = self.truth.query("rc7_gap", mission_id=self.mission_id)
@@ -561,6 +576,7 @@ class ClosedLoopControlPlane:
             raise ClosedLoopControlError("MISSION_PROJECTION_NOT_FOUND")
         return rows[0]
 
+    @protected
     def _mission(self) -> Mission:
         row = self._mission_row()
         return Mission(
@@ -579,6 +595,7 @@ class ClosedLoopControlPlane:
             updated_at=int(row.get("updated_at", 0)),
         )
 
+    @protected
     def _persist_mission(self, mission: Mission) -> None:
         row = self._mission_row()
         append_entity(
@@ -616,6 +633,7 @@ class ClosedLoopControlPlane:
             updated_at=int(row.get("updated_at", 0)),
         )
 
+    @protected
     def _persist_gap(self, gap: Gap) -> None:
         rows = self.truth.query("rc7_gap", gap_id=gap.gap_id)
         version = int(rows[0]["artifact_version"]) + 1 if rows else 1
