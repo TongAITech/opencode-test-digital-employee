@@ -108,7 +108,7 @@ class ScopeSourcePolicyQualification(unittest.TestCase):
         self.matched()
 
     def test_allowed_body_security_path_and_public_execute_drift_rejected(self):
-        source=self.matched()['facts']['allowed_functions'][0]['prosrc']
+        source=self.db.owner.execute("SELECT prosrc FROM pg_proc WHERE oid='wb.allowed(text,boolean)'::regprocedure").fetchone()[0]
         self.db.owner.execute("CREATE OR REPLACE FUNCTION wb.allowed(p text,writing boolean) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,wb AS $$SELECT true$$")
         try:self.denied('ALLOWED_FUNCTION_DEFINITION_DRIFT')
         finally:self.db.owner.execute(infra.sql.SQL('CREATE OR REPLACE FUNCTION wb.allowed(p text,writing boolean) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,wb AS {}').format(infra.sql.Literal(source)))

@@ -1,6 +1,8 @@
-# B：Scope project-only 来源配置只读资格快照
+# B：Scope project-only 来源配置只读资格快照（历史f93）
 
-状态：CODE_COMPLETE / B_LOCAL_REGRESSION_PASS / F_REVIEW_REQUIRED。基线`199a316334abb41c77890ed5608b989e2a7e6126`；代码、测试、固定manifest与本证据同次冻结提交，完整HEAD以本PR为准。不修改Preview/ScopeStore、迁移、权限或现有HTTP，不将profile匹配当正式admission许可证。
+历史完整源`f93e4ab17b7b4947990da3b0561d8979d6de65e4`已被F220/cb76c165明确拒绝，两项P1仍可在该源复现。以下本地通过数字只作历史记录，不表示F接受，也不指向本PR后续HEAD。当前修复见WB-B-SCOPE-PROFILE-V2-F220-FIX-EVIDENCE-20261111.md。
+
+历史状态：B_LOCAL_REGRESSION_PASS，但后续F_QA_REJECTED_EXACT_F93E4AB1；不可作为准入证据。基线`199a316334abb41c77890ed5608b989e2a7e6126`；代码、测试、固定manifest与本历史证据冻结在f93；后续PR HEAD不能沿用该结论。不修改Preview/ScopeStore、迁移、权限或现有HTTP，不将profile匹配当正式admission许可证。
 
 ## 接口、批准模板与实际边界
 

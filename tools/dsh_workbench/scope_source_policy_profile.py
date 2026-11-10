@@ -12,8 +12,8 @@ from pathlib import Path
 
 
 
-PROFILE_ID = 'dsh.scope-source.project-only.pg17.001-007.v1'
-PROFILE_CONTENT_HASH = '050442decb1813588b05f3e14c6771d1af7dfc526a4b71f5d1ededd0e72723d5'
+PROFILE_ID = 'dsh.scope-source.project-only.pg17.001-007.v2'
+PROFILE_CONTENT_HASH = '161c779c3fe956364fd381573f356fdc43fef98fbec8edb84e2706f64588d898'
 SOURCE_TABLES = (
     'project', 'release_batch', 'system_identity', 'system_version', 'requirement',
     'batch_requirement', 'batch_version', 'verified_requirement_version',
@@ -35,6 +35,22 @@ def _rows(connection, query, parameters=None):
     return [dict(zip(names, row)) for row in cursor.fetchall()]
 
 
+def _parameter_capabilities(connection):
+    # PostgreSQL resolves direct, PUBLIC and inherited effective parameter ACLs.
+    return _rows(connection, """SELECT current_setting('session_replication_role') AS mode,
+        pg_catalog.has_parameter_privilege(current_user,'session_replication_role','SET') AS can_set,
+        pg_catalog.has_parameter_privilege(current_user,'session_replication_role','ALTER SYSTEM') AS can_alter_system""")[0]
+
+
+def _public_facts(facts):
+    # Unknown function text can contain arbitrary literals. Keep only its hash.
+    value=json.loads(json.dumps(facts))
+    for key in ('allowed_functions','support_functions'):
+        for function in value[key]:
+            function['body_sha256']=hashlib.sha256(function.pop('prosrc').encode('utf-8')).hexdigest()
+    return value
+
+
 def _catalog(connection):
     """Fixed catalog SELECTs; caller owns a read-only transaction/search_path."""
     facts = {}
@@ -42,9 +58,13 @@ def _catalog(connection):
         (SELECT usename::text FROM pg_catalog.pg_stat_activity WHERE pid=pg_catalog.pg_backend_pid()) AS backend_role,
         current_database() AS database_name,current_setting('server_version_num')::integer AS server_version_num,
         current_setting('row_security') AS row_security,transaction_timestamp()::text AS as_of''')[0]
+    facts['parameter_capabilities'] = _parameter_capabilities(connection)
     facts['roles'] = _rows(connection, '''SELECT oid,rolname,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication,rolcanlogin
         FROM pg_catalog.pg_roles WHERE rolname IN(current_user,session_user) ORDER BY rolname''')
-    facts['memberships'] = _rows(connection, '''SELECT r.oid,r.rolname
+    facts['memberships'] = _rows(connection, '''SELECT r.oid,r.rolname,pg_catalog.pg_has_role(current_user,r.oid,'USAGE') AS usable_without_set,
+        pg_catalog.pg_has_role(current_user,r.oid,'SET') AS can_set_role,
+        pg_catalog.has_parameter_privilege(r.oid,'session_replication_role','SET') AS can_set_replication_mode,
+        pg_catalog.has_parameter_privilege(r.oid,'session_replication_role','ALTER SYSTEM') AS can_alter_system_replication_mode
         FROM pg_catalog.pg_roles r WHERE r.rolname<>current_user AND pg_catalog.pg_has_role(current_user,r.oid,'MEMBER') ORDER BY r.rolname''')
     schemas = _rows(connection, '''SELECT oid,nspowner,pg_catalog.pg_get_userbyid(nspowner)::text AS owner,
         pg_catalog.has_schema_privilege(current_user,oid,'USAGE') AS can_use,
@@ -80,6 +100,29 @@ def _catalog(connection):
         pg_catalog.pg_get_triggerdef(t.oid,true) AS definition
         FROM pg_catalog.pg_trigger t WHERE t.tgrelid=ANY(%s) AND NOT t.tgisinternal
         ORDER BY t.tgrelid,t.tgname''',(ids,)) if ids else []
+    facts['ri_triggers'] = _rows(connection, """SELECT ns.nspname AS source_schema,src.relname AS source_table,
+        c.conname AS constraint_name,nt.nspname AS target_schema,tgt.relname AS target_table,
+        pg_catalog.pg_get_constraintdef(c.oid) AS constraint_definition,
+        ni.nspname AS trigger_schema,ri.relname AS trigger_table,
+        no.nspname AS related_schema,other.relname AS related_table,
+        t.tgenabled::text,t.tgtype,t.tgdeferrable,t.tginitdeferred,t.tgnargs,t.tgargs,
+        nf.nspname AS function_schema,p.proname AS function_name,
+        pg_catalog.oidvectortypes(p.proargtypes) AS function_argument_types,l.lanname AS function_language,
+        pg_catalog.format_type(p.prorettype,NULL) AS function_return_type
+        FROM pg_catalog.pg_constraint c
+        JOIN pg_catalog.pg_class src ON src.oid=c.conrelid JOIN pg_catalog.pg_namespace ns ON ns.oid=src.relnamespace
+        JOIN pg_catalog.pg_class tgt ON tgt.oid=c.confrelid JOIN pg_catalog.pg_namespace nt ON nt.oid=tgt.relnamespace
+        LEFT JOIN pg_catalog.pg_trigger t ON t.tgconstraint=c.oid AND t.tgisinternal
+        LEFT JOIN pg_catalog.pg_class ri ON ri.oid=t.tgrelid LEFT JOIN pg_catalog.pg_namespace ni ON ni.oid=ri.relnamespace
+        LEFT JOIN pg_catalog.pg_class other ON other.oid=t.tgconstrrelid LEFT JOIN pg_catalog.pg_namespace no ON no.oid=other.relnamespace
+        LEFT JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid LEFT JOIN pg_catalog.pg_namespace nf ON nf.oid=p.pronamespace
+        LEFT JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+        WHERE c.contype='f' AND (c.conrelid=ANY(%s) OR c.confrelid=ANY(%s))""",(ids,ids)) if ids else []
+    for row in facts['ri_triggers']:
+        raw=row.pop('tgargs')
+        row['arguments_sha256']=hashlib.sha256(bytes(raw)).hexdigest() if raw is not None else None
+    # Deliberately exclude every per-database trigger OID/name; retain duplicates.
+    facts['ri_triggers'].sort(key=lambda row:json.dumps(row,sort_keys=True,separators=(',',':')).encode('utf-8'))
     facts['privileges'] = _rows(connection, '''SELECT c.oid AS table_oid,
         pg_catalog.has_table_privilege(current_user,c.oid,'SELECT') AS can_select,
         pg_catalog.has_table_privilege(current_user,c.oid,'INSERT') AS can_insert,
@@ -113,7 +156,7 @@ def _definition(facts):
     """Owner/OID-independent pinned definitions, never learned at probe time."""
     def grouped(key, oid, excluded):
         return [{k:v for k,v in row.items() if k not in excluded} for row in facts[key] if row['table_oid']==oid]
-    result = {'tables':{},'allowed_functions':[],'support_functions':[]}
+    result = {'tables':{},'allowed_functions':[],'support_functions':[],'ri_triggers':facts['ri_triggers']}
     for table in facts['tables']:
         oid=table['oid']
         result['tables'][table['relname']]={
@@ -123,9 +166,10 @@ def _definition(facts):
             'select_policies':grouped('policies',oid,{'table_oid','oid','applies_to_role'}),
             'triggers':grouped('triggers',oid,{'table_oid'}),
         }
-    dynamic={'oid','proowner','owner','owner_member','can_execute','public_execute'}
-    result['allowed_functions']=[{k:v for k,v in row.items() if k not in dynamic} for row in facts['allowed_functions']]
-    result['support_functions']=[{k:v for k,v in row.items() if k not in dynamic} for row in facts['support_functions']]
+    dynamic={'oid','proowner','owner','owner_member','can_execute','public_execute','prosrc'}
+    for key in ('allowed_functions','support_functions'):
+        result[key]=[{**{k:v for k,v in row.items() if k not in dynamic},
+            'body_sha256':hashlib.sha256(row['prosrc'].encode('utf-8')).hexdigest()} for row in facts[key]]
     return result
 
 
@@ -170,6 +214,13 @@ class ReadOnlyScopeSourcePolicyQualification:
         if session['current_role']!=session['session_role']:reject('SESSION_ROLE_SWITCH_NOT_QUALIFIED','role')
         if session['backend_role']!=session['session_role']:reject('AUTHENTICATED_BACKEND_ROLE_MISMATCH','role')
         if session['row_security']!='on':reject('ROW_SECURITY_SETTING_NOT_ON','session')
+        parameter=facts['parameter_capabilities']
+        if parameter['mode']!='origin':reject('SOURCE_GUARDS_REPLICATION_MODE_NOT_ORIGIN','session')
+        if parameter['can_set'] or parameter['can_alter_system']:
+            reject('SOURCE_GUARD_PARAMETER_CAPABILITY','session_replication_role')
+        for role in facts['memberships']:
+            if role['can_set_role'] and (role['can_set_replication_mode'] or role['can_alter_system_replication_mode']):
+                reject('SOURCE_GUARD_PARAMETER_CAPABILITY_VIA_SET_ROLE',role['rolname'])
         for role in facts['roles']:
             if any(role[key] for key in ('rolsuper','rolbypassrls','rolcreatedb','rolcreaterole','rolreplication')):
                 reject('ELEVATED_ROLE_CAPABILITY',role['rolname'])
@@ -200,6 +251,8 @@ class ReadOnlyScopeSourcePolicyQualification:
             else:allowed=set()
             if any(value for key,value in priv.items() if key!='table_oid' and key not in allowed):
                 reject('UNAPPROVED_SOURCE_OR_ACL_PRIVILEGE','wb.'+name)
+        if definitions['ri_triggers']!=self._profile['definitions']['ri_triggers']:
+            reject('SOURCE_RI_TRIGGER_EXECUTION_PROFILE_DRIFT','scope-touching foreign keys')
         if definitions['allowed_functions']!=self._profile['definitions']['allowed_functions']:
             reject('ALLOWED_FUNCTION_DEFINITION_DRIFT','wb.allowed')
         if definitions['support_functions']!=self._profile['definitions']['support_functions']:
@@ -212,12 +265,13 @@ class ReadOnlyScopeSourcePolicyQualification:
             if schema is not None and function['proowner']!=schema['nspowner']:reject('ALLOWED_FUNCTION_OWNER_DRIFT','wb.allowed')
             if not function['can_execute'] or function['public_execute']:reject('ALLOWED_FUNCTION_EXECUTE_GRANT_DRIFT','wb.allowed')
         # Timestamp does not create an artificial new config fingerprint each call.
-        fingerprint=json.loads(json.dumps(facts));fingerprint['session'].pop('as_of',None)
+        public_facts=_public_facts(facts)
+        fingerprint=json.loads(json.dumps(public_facts));fingerprint['session'].pop('as_of',None)
         return {
             'profile_id':PROFILE_ID,'profile_hash':_hash(self._profile),'as_of':session['as_of'],
             'as_of_source':'DATABASE_TRANSACTION_TIMESTAMP','observation_complete':True,
             'status':'MATCHED_AS_OF' if not reasons else 'UNQUALIFIED','admission_authorized':False,
-            'facts_hash':_hash(fingerprint),'reasons':reasons,'facts':facts,
+            'facts_hash':_hash(fingerprint),'reasons':reasons,'facts':public_facts,
             'limitation':'NO_DDL_OR_ROLE_FENCE; RECHECK_UNDER_SEPARATE_FORMAL_ADMISSION_PROTOCOL',
         }
 
