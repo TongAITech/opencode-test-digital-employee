@@ -167,3 +167,10 @@ class PostgresIdentity(unittest.TestCase):
             provision_project(self.runtime,'P4','fourth','dave','forged')
         self.assertEqual(self.owner.execute("SELECT count(*) FROM wb.project WHERE project_id='P4'").fetchone()[0],0)
         self.assertEqual(self.store.batches('reader','P1'),[])
+
+    def test_outer_transaction_context_and_unavailable_connection_rejected(self):
+        with psycopg.connect(**self.params) as nested:
+            with self.assertRaisesRegex(ValueError,'AUTOCOMMIT_CONNECTION_REQUIRED'):
+                BusinessStore(nested)
+        self.runtime.close()
+        self.error(503,lambda:self.store.batches('alice','P1'))

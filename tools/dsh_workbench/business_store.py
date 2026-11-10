@@ -17,6 +17,8 @@ class BusinessError(Exception):
 
 class BusinessStore:
     def __init__(self, connection):
+        if not connection.autocommit:
+            raise ValueError("AUTOCOMMIT_CONNECTION_REQUIRED_FOR_SCOPED_TRANSACTIONS")
         self.db = connection
 
     @contextmanager
@@ -32,6 +34,8 @@ class BusinessStore:
                 yield
         except Exception as error:
             code = getattr(error, 'sqlstate', None)
+            if (code and code.startswith('08')) or type(error).__name__ in ('OperationalError','InterfaceError'):
+                raise BusinessError(503, 'BUSINESS_DATABASE_UNAVAILABLE') from error
             if code == '23505':
                 raise BusinessError(409, 'IDENTITY_OR_DATE_CONFLICT') from error
             if code in ('23503','23514','23502','22007','22008'):

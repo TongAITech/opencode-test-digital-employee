@@ -19,3 +19,5 @@ WB_PG_TEST_DSN='host=/tmp/dsh-pg-371f43f0 port=55432 dbname=postgres' ../pg-envi
 回滚：空schema用rollback(connection)实测；已有业务数据时拒绝自动DROP，须管理员备份恢复并核对新增资产与引用，不能直接执行原始down SQL。无旧R1迁移或生产来源导入；缺来源/业务时区仍HOLD。本工单不记录实施QA_PASS或现场验收。
 
 GitHub `.github/workflows/dsh-wb-b-postgres.yml`用真实postgres:17服务执行同一测试；远端CI结果须以当前完整源SHA另查。缺PG/驱动时独立测试会明确SKIP，不得视为PG验收。
+
+最终本地实测：真实PG **12/12 PASS**，包含外层事务上下文拒绝与关闭连接503；使用autocommit连接，每次repository操作自建显式事务，避免嵌套事务导致身份残留。此前纯合同回归273 tests OK，其中10个明确无DSN跳过；该回归不充当PG证据。远端首提交w0-contracts已成功，postgres-identity尚运行，最终HEAD须另验。
