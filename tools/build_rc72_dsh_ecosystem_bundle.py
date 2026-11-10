@@ -214,13 +214,20 @@ def _scan_licenses(package_root):
 
 
 def _pack_plugin(npm, spec, target, work):
-    package_spec = "%s@%s" % (spec["package"], spec["version"])
+    source = Path(work) / ("source-" + spec["id"])
+    source.mkdir(parents=True, exist_ok=True)
+    _run(["git", "init"], cwd=source, timeout=60)
+    _run(["git", "remote", "add", "origin", spec["repository"]], cwd=source, timeout=60)
+    _run(["git", "fetch", "--depth", "1", "origin", spec["source_commit"]], cwd=source, timeout=900)
+    _run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=source, timeout=120)
+    if spec["id"] == "dsh-archify":
+        _run(["node", "scripts/stage-skill.mjs"], cwd=source, timeout=120)
     pack_dir = Path(work) / ("pack-" + spec["id"])
     pack_dir.mkdir(parents=True, exist_ok=True)
     output = _run([
-        npm, "pack", package_spec, "--json", "--ignore-scripts",
+        npm, "pack", ".", "--json", "--ignore-scripts",
         "--pack-destination", str(pack_dir),
-    ], timeout=600)
+    ], cwd=source, timeout=600)
     try:
         row = json.loads(output)[-1]
         archive = pack_dir / row["filename"]
@@ -228,6 +235,10 @@ def _pack_plugin(npm, spec, target, work):
         raise BundleBuildError("NPM_PACK_RESULT_INVALID:%s" % spec["id"]) from exc
     if not archive.is_file():
         raise BundleBuildError("NPM_PACK_FILE_MISSING:%s" % spec["id"])
+    import hashlib as _hashlib
+    observed_shasum = _hashlib.sha1(archive.read_bytes()).hexdigest()
+    if row.get("shasum") and observed_shasum != row["shasum"]:
+        raise BundleBuildError("NPM_TARBALL_SHASUM_MISMATCH:%s" % spec["id"])
     target = Path(target)
     _safe_extract_npm(archive, target)
     manifest_path = target / "package.json"
@@ -272,9 +283,12 @@ def _pack_plugin(npm, spec, target, work):
 
 def _extract_mnemon_cli(asset, destination, checksums_text):
     row = asset["name"]
-    matches = [line.split(None, 1) for line in checksums_text.splitlines()
-               if line.strip() and line.strip().endswith(row)]
-    if len(matches) != 1 or len(matches[0]) != 2:
+    matches = []
+    for line in checksums_text.splitlines():
+        parts = line.strip().split()
+        if len(parts) == 2 and parts[1].lstrip("*") == row:
+            matches.append(parts)
+    if len(matches) != 1:
         raise BundleBuildError("MNEMON_RELEASE_CHECKSUM_ROW_MISSING")
     if matches[0][0].lower() != asset["sha256"]:
         raise BundleBuildError("MNEMON_RELEASE_CHECKSUMS_FILE_MISMATCH")
@@ -375,6 +389,8 @@ def build(platform_id, output_dir):
             checksums_data.decode("utf-8", errors="strict"),
         )
         shutil.copy2(str(checksums_path), str(stage / "runtime" / "mnemon" / "checksums.txt"))
+        license_path = stage / "runtime" / "mnemon" / "LICENSE"
+        _download("https://raw.githubusercontent.com/mnemon-dev/mnemon/v0.2.9/LICENSE", license_path)
         for name in ("install.py", "README.md", "modlens-config.bank-template.json"):
             source = ROOT / "offline-ecosystem" / name
             if not source.is_file():
@@ -462,7 +478,7 @@ def build(platform_id, output_dir):
             "dataLicense": "CC0-1.0",
             "SPDXID": "SPDXRef-DOCUMENT",
             "name": bundle_name,
-            "documentNamespace": "https://example.invalid/spdx/rc72/" + platform_id + "/" + manifest["source_commit"],
+            "documentNamespace": "https://github.com/TongAITech/opencode-test-digital-employee/spdx/rc72/" + platform_id + "/" + manifest["source_commit"],
             "creationInfo": {"creators": ["Tool: rc72-dsh-ecosystem-builder"], "comment": "Generated from exact npm tarballs and pinned Mnemon CLI release."},
             "packages": packages,
         }
