@@ -8,11 +8,14 @@ No fake PE, source URL, self-approval, or accidental PATH DSH is accepted.
 from __future__ import annotations
 
 import argparse
+import base64
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -111,6 +114,51 @@ def _run(*args, cwd, env=None):
         # include credential-bearing URLs/headers in their exception messages.
         raise LocalC12Error("C12_OFFLINE_Q2_CHECK_FAILED")
     return result.stdout.decode("utf-8", "replace")
+
+
+def _powershell(script, *, cwd):
+    # UTF-16LE encoded command protects against PowerShell command-line
+    # quoting errors. Dynamic paths are additionally single-quote escaped.
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    return _run("powershell.exe", "-NoProfile", "-NonInteractive",
+                "-EncodedCommand", encoded, cwd=cwd)
+
+
+@contextmanager
+def _isolated_node_outbound_block(*, node, cwd):
+    """Scoped Windows Defender outbound rule, removed even on Q2 failure.
+
+    Requires an admin-authorized, ephemeral build VM with Firewall enabled.
+    Never disable a firewall or silently skip a blocked-network check.
+    """
+    executable = Path(node)
+    if not executable.is_file():
+        raise LocalC12Error("C12_EXTRACTED_NODE_EXECUTABLE_MISSING")
+    name = "RC72-C12-NODE-" + secrets.token_hex(10)
+    # No untrusted PowerShell arguments: paths are escaped as literal strings.
+    quoted = "'" + str(executable).replace("'", "''") + "'"
+    add = (
+        "$ErrorActionPreference='Stop';"
+        "$profiles=@(Get-NetFirewallProfile);"
+        "if ($profiles.Count -lt 1 -or @($profiles | Where-Object { -not $_.Enabled }).Count -gt 0)"
+        "{throw 'C12_WINDOWS_FIREWALL_DISABLED'};"
+        "New-NetFirewallRule -Name '" + name + "'"
+        " -DisplayName 'RC72 C12 temporary offline Q2 Node block'"
+        " -Program " + quoted +
+        " -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null"
+    )
+    remove = (
+        "$ErrorActionPreference='Stop';"
+        "Get-NetFirewallRule -Name '" + name + "' -ErrorAction SilentlyContinue"
+        " | Remove-NetFirewallRule -ErrorAction Stop"
+    )
+    try:
+        _powershell(add, cwd=cwd)
+        yield
+    finally:
+        # On both success/failure, do not leave a machine-wide firewall rule
+        # or claim Q2 completed if its cleanup fails.
+        _powershell(remove, cwd=cwd)
 
 
 def _safe_extract_zip(archive, destination, required_folder):
@@ -239,10 +287,16 @@ def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
             py = extracted / "workspace-template/runtime/python/python.exe"
             if not py.is_file():
                 raise LocalC12Error("C12_PACKAGE_LOCAL_PYTHON_MISSING")
-            _qualify_extracted(
-                python=py, extracted=extracted, repo=repo,
-                source_commit=commit, evidence_path=out / "c12-clean-runtime.json",
-                zip_path=zip_path, original_stage=package_root)
+            # The official CI installs a scoped outbound firewall block for
+            # the fresh package-owned Node path. Reproduce it on a controlled
+            # Windows build VM, never skip it on an ordinary operator PC.
+            with _isolated_node_outbound_block(
+                    node=extracted / "workspace-template/runtime/node/node.exe",
+                    cwd=extracted):
+                _qualify_extracted(
+                    python=py, extracted=extracted, repo=repo,
+                    source_commit=commit, evidence_path=out / "c12-clean-runtime.json",
+                    zip_path=zip_path, original_stage=package_root)
         if _hash(approval_record) != inspection["external_approval_record_sha256"]:
             raise LocalC12Error("C12_APPROVAL_RECORD_CHANGED_DURING_BUILD")
         receipt = dict(
