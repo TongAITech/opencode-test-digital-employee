@@ -158,6 +158,34 @@ class Codec(unittest.TestCase):
         bad['edges'].append(other)
         self.reject(bad)  # split and UNSPLIT cannot coexist for a BRV
 
+    def test_unhashable_id_and_nullable_inputs_stable_rejection_unchanged(self):
+        for field in ('project_id', 'batch_id'):
+            for malformed in ([], {}, [1], {'x': 1}, None, True):
+                value = snapshot(); value[field] = malformed
+                original = copy.deepcopy(value)
+                with self.subTest(field=field, malformed=malformed):
+                    self.reject(value)
+                    self.assertEqual(value, original)
+        for field in ('requirement_id', 'system_id', 'version_id', 'sst_id',
+                      'requirement_source', 'version_source', 'brv_source',
+                      'sst_source', 'brvs_source'):
+            for malformed in ([], {}, [1], {'x': 1}, True):
+                value = snapshot(); value['edges'][0][field] = malformed
+                original = copy.deepcopy(value)
+                with self.subTest(field=field, malformed=malformed):
+                    self.reject(value)
+                    self.assertEqual(value, original)
+        for field in ('requirement_ids', 'version_ids', 'sst_ids'):
+            for malformed in ([], {}, [1], {'x': 1}, None, True):
+                value = snapshot(); value['filters'][field] = [malformed]
+                original = copy.deepcopy(value)
+                with self.subTest(field=field, malformed=malformed):
+                    self.reject(value)
+                    self.assertEqual(value, original)
+        for malformed in ([], {}, [1], {'x': 1}, None, True):
+            with self.assertRaises(ScopeStructureError):
+                creation_key('a', malformed, 'p', 'k')
+
     def test_immutable_key_and_default_hold(self):
         key = creation_key('authority', 'alice', 'P', 'key')
         self.assertEqual(tuple(key), ('authority', 'alice', 'P', 'key'))

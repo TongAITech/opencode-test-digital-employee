@@ -139,6 +139,8 @@ def canonical_scope_bytes(snapshot):
         if v in versions and versions[v] != system:
             _fail()
         versions[v] = system
+        if s is not None:
+            _text(s)
         key = (r, system, v, s)
         if key in seen:
             _fail()
