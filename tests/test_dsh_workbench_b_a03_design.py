@@ -52,8 +52,9 @@ CREATE TABLE sst(
 );
 CREATE TABLE sst_source_trace(
     project_id TEXT NOT NULL, version_id TEXT NOT NULL, sst_id TEXT NOT NULL,
-    source_namespace TEXT NOT NULL, source_revision TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
+    source_namespace TEXT NOT NULL CHECK(length(trim(source_namespace)) > 0),
+    source_revision TEXT NOT NULL CHECK(length(trim(source_revision)) > 0),
+    source_ref TEXT NOT NULL CHECK(length(trim(source_ref)) > 0),
     PRIMARY KEY(project_id,version_id,sst_id),
     UNIQUE(project_id,version_id,source_ref),
     FOREIGN KEY(project_id,version_id,sst_id) REFERENCES sst(project_id,version_id,sst_id)
@@ -77,7 +78,7 @@ CREATE TABLE bv(
 CREATE TABLE authoritative_req_version(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
     requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
-    source_link_ref TEXT NOT NULL,
+    source_link_ref TEXT NOT NULL CHECK(length(trim(source_link_ref)) > 0),
     PRIMARY KEY(project_id,batch_id,requirement_id,version_id),
     UNIQUE(project_id,batch_id,source_link_ref),
     FOREIGN KEY(project_id,batch_id,requirement_id)
@@ -102,13 +103,13 @@ CREATE TABLE brv(
 CREATE TABLE authoritative_link(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
     requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
-    sst_id TEXT NOT NULL, source_link_ref TEXT NOT NULL,
+    sst_id TEXT NOT NULL, source_link_ref TEXT NOT NULL CHECK(length(trim(source_link_ref)) > 0),
     PRIMARY KEY(project_id,batch_id,requirement_id,version_id,sst_id),
     UNIQUE(project_id,batch_id,source_link_ref),
     FOREIGN KEY(project_id,batch_id,requirement_id,version_id)
       REFERENCES brv(project_id,batch_id,requirement_id,version_id),
     FOREIGN KEY(project_id,version_id,sst_id)
-      REFERENCES sst(project_id,version_id,sst_id)
+      REFERENCES sst_source_trace(project_id,version_id,sst_id)
 );
 CREATE TABLE brvs(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
@@ -204,6 +205,11 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                             [("P1",v,s,"Starlink",s) for v,s in
                              [("VA","S1"),("VA","S2"),("VB","S3"),
                               ("VA","S4"),("VC","S5"),("VC","S6"),("VC","S7")]])
+        # A source-verified SST link requires a recorded, version-scoped
+        # immutable upstream provenance row, not merely an SST identity.
+        self.db.execute("""INSERT INTO sst_source_trace
+            SELECT project_id,version_id,sst_id,'FAT1','source-rev-1',
+                   'starlink:verified:'||version_id||':'||sst_id FROM sst""")
         for b,r,v in [("B1","R1","VA"),("B1","R1","VB"),("B1","R1","VC"),
                       ("B1","R2","VA"),("B1","R2","VC"),
                       ("B2","R1","VA")]:
@@ -381,7 +387,7 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
         self.assertNotIn(("R1","VA","SST-B-100"),rows)
         self.assertNotIn(("R1","VB","SST-A-100"),rows)
         self.assertEqual(
-            self.db.execute("SELECT version_id,source_revision,source_ref FROM sst_source_trace ORDER BY version_id").fetchall(),
+            self.db.execute("SELECT version_id,source_revision,source_ref FROM sst_source_trace WHERE source_ref LIKE 'Starlink/SST-100/%' ORDER BY version_id").fetchall(),
             [("VA","8","Starlink/SST-100/VA"),("VB","9","Starlink/SST-100/VB")])
 
     def test_fg18_wrong_version_req_batch_links_rejected(self):
@@ -409,6 +415,71 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
             self.db.execute("INSERT INTO sst VALUES (?,?,?,?,?)",
                             ("P1","VC","SST-A-100","Starlink","different-raw"))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sst WHERE source_key='SST-100'").fetchone()[0],2)
+
+    def test_untraced_sst_cannot_be_promoted_to_verified_batch_link(self):
+        """A locally valid SST identity is not proof of source-verified linkage."""
+        self.db.execute(
+            "INSERT INTO sst VALUES (?,?,?,?,?)",
+            ("P1","VC","SST-UNTRACED","Starlink","RAW-UNTRACED"))
+        edge = ("P1","B1","R2","VC","SST-UNTRACED","verified-link-untraced")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",edge)
+        self.assertIsNone(self.db.execute(
+            """SELECT 1 FROM authoritative_link
+               WHERE project_id='P1' AND batch_id='B1'
+                 AND requirement_id='R2' AND version_id='VC'
+                 AND sst_id='SST-UNTRACED'""").fetchone())
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)", edge[:5])
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VC","SST-UNTRACED","FAT1","8","starlink:VC:SST-UNTRACED"))
+        self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",edge)
+        self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",edge[:5])
+        self.assertIn(("R2","VC","SST-UNTRACED"),
+                      scope_rows(self.db,{"P1"},"P1","B1"))
+
+    def test_trace_for_other_version_does_not_authorize_current_version(self):
+        """Equal upstream raw SST IDs across versions cannot share trace authority."""
+        self.db.executemany("INSERT INTO sst VALUES (?,?,?,?,?)",[
+            ("P1","VA","TRACE-VA","Starlink","RAW-TRACE-7"),
+            ("P1","VB","TRACE-VB","Starlink","RAW-TRACE-7")])
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VA","TRACE-VA","FAT1","r10","starlink:VA:RAW-TRACE-7"))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                            ("P1","B1","R1","VB","TRACE-VB","link-without-vb-trace"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM authoritative_link WHERE sst_id='TRACE-VB'"
+        ).fetchone()[0],0)
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VB","TRACE-VB","FAT1","r11","starlink:VB:RAW-TRACE-7"))
+        self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                        ("P1","B1","R1","VB","TRACE-VB","verified-vb-trace"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM authoritative_link WHERE sst_id='TRACE-VB'"
+        ).fetchone()[0],1)
+
+    def test_blank_source_lineage_fields_are_rejected(self):
+        """Empty upstream proofs must never satisfy non-null FK provenance."""
+        bad = [
+            ("UPDATE sst_source_trace SET source_ref='' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE sst_source_trace SET source_revision='  ' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE sst_source_trace SET source_namespace='' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE authoritative_req_version SET source_link_ref='  ' "
+             "WHERE project_id='P1' AND batch_id='B1' AND requirement_id='R1' AND version_id='VA'"),
+            ("UPDATE authoritative_link SET source_link_ref='' "
+             "WHERE project_id='P1' AND batch_id='B1' AND requirement_id='R1' AND version_id='VA' AND sst_id='S1'")
+        ]
+        for sql in bad:
+            with self.subTest(sql=sql):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.db.execute(sql)
+        self.assertEqual(self.db.execute(
+            "SELECT source_revision FROM sst_source_trace WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"
+        ).fetchone()[0],"source-rev-1")
 
     def test_fg18_same_raw_source_id_across_projects_allowed(self):
         self._fg18_reused_source_ids()
