@@ -5,7 +5,7 @@ on:
       - 'tools/dsh_workbench/business_*.py'
       - 'tools/dsh_workbench/migrations/**'
       - 'tools/dsh_workbench/requirements-postgres.txt'
-      - 'tests/test_dsh_workbench_b_postgres.py'
+      - 'tests/test_dsh_workbench_b*postgres.py'
       - '.github/workflows/dsh-wb-b-postgres.yml'
   workflow_dispatch:
 jobs:
@@ -27,4 +27,4 @@ jobs:
       - name: Real PostgreSQL identity negative and recovery tests
         env:
           WB_PG_TEST_DSN: host=localhost port=5432 dbname=postgres user=postgres password=local-ci-only
-        run: python -m unittest discover -s tests -p test_dsh_workbench_b_postgres.py -v
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_b*postgres.py' -v
