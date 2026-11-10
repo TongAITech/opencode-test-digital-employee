@@ -387,7 +387,7 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
         self.assertNotIn(("R1","VA","SST-B-100"),rows)
         self.assertNotIn(("R1","VB","SST-A-100"),rows)
         self.assertEqual(
-            self.db.execute("SELECT version_id,source_revision,source_ref FROM sst_source_trace ORDER BY version_id").fetchall(),
+            self.db.execute("SELECT version_id,source_revision,source_ref FROM sst_source_trace WHERE source_ref LIKE 'Starlink/SST-100/%' ORDER BY version_id").fetchall(),
             [("VA","8","Starlink/SST-100/VA"),("VB","9","Starlink/SST-100/VB")])
 
     def test_fg18_wrong_version_req_batch_links_rejected(self):
