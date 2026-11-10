@@ -143,6 +143,7 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 
 
 ### C 组 W0 来源响应栅栏与负向验收（2026-11-10）
+- **FG23 C侧整改已提交**：F #104 在 A+B+C 合并树真实复现 `C_BROWSER_RERUN_ON_LEDGER`。C 只从 `.github/workflows/dsh-wb-c-w0-ui.yml` 的 `pull_request.paths` 移除 `08-CONSTRUCTION-PLAN.md`、`09-GAP-MATRIX.md`、`10-RELEASE-CHECKPOINT.md`；保留原型代码/单测/审查资产路径、`workflow_dispatch`、非 Draft 与真实 Chromium。源 `7fa4d0c516168cde22d6d071170d449dc0ed8b77` 同 SHA [C CI](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992) 已 30/30 Node、Chromium、B→C 30/30 与 E 合同成功；F 需重新运行 A+B+C 183 项合约，未由 C 自行宣布 FG23 CLOSED。
 - 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
 - artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
 - F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。

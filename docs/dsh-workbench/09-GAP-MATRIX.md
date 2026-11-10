@@ -80,6 +80,7 @@ C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA�
 
 
 ### C 组 W0 新增反例与待核销缺口（2026-11-10）
+| WB-FG23 C Browser CI trigger | C_CODE_FIXED / EXACT_HEAD_CI_PASS / F_RECHECK_PENDING | C SHA `7fa4d0c` 删除 Chromium PR 的 08/09/10 账本触发路径，保留 30 Node、浏览器、workflow_dispatch 与非 Draft；[run 42733902992](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992) 三检查成功 | F 重新运行 A+B+C 同源 183/183 Python W0 CI 与路径策略负例，最终 A/F W0 签收 |
 - C #97 源 15d37ec 同 SHA W0 Node 30/30、真 Chromium + PNG、B→C 30/30 已 PASS；F02 真业务仍 NOT_RUN。
 | GAP | 现状 | 核销条件 |
 |---|---|---|

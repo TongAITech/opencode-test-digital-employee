@@ -65,6 +65,7 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 
 
 ### C 组新增 W0 source fence 检查点（2026-11-10）
+- FG23 C-side 修复：F #104 原真实 A+B+C 合并 CI `183/1 FAIL` 的 `C_BROWSER_RERUN_ON_LEDGER`，C 提交 `7fa4d0c`，仅移除 Chromium 工作流 08/09/10 PR 触发路径；新源同 SHA C 30/30 Node + Chromium + 3 PNG + B→C 30/30 + E W0 成功。[run 42733902992](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992)、[artifact 13725373516](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992/artifacts/13725373516)。**F 合并后全量策略复验仍未完成，不自行核销 FG23 或冻结 W0。**
 - 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
 - artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
 - F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
