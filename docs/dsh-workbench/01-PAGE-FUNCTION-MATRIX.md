@@ -66,3 +66,8 @@
 
 ## A01 原版源码行号与入口锚点追踪
 原子对账表已追加固定 fc5a054a48973d004580a3cc1de60da3f701150b 的 `public/index.html` DOM 和 `public/app.js` 具名函数行号：见 [WB-A01-ATOMIC-FEATURE-REGISTER.md](WB-A01-ATOMIC-FEATURE-REGISTER.md)。已定位 33 条 O/A 源码参考候选；14 条 N 新增无原版入口。该索引不是已验证的新工作台 UI，也不等于所有原版按钮已经按行为逐项签收。
+
+## 2026-11-10 A01 双语目标保留决定
+- A01 负责人确认：原版候选 `P05-03`（QA Skill 双语说明）与 `X01-01`（全局 zh/en 语言/主题/布局）**均保留在 50 项验收范围内**，不缩为仅中文产品，也不新增/删除 feature_id；原始入口已交叉核对上游 `public/i18n.js` 语言函数与 `public/app.js` 设置页。
+- 语言切换必须贯穿 P01–P06 六页与 D01–D10 十区，不改项目、投产日期/批次、需求/系统版本/SST、R1/Mission/Host Session 的权威身份。可见状态、报错、QA Skill 安装说明与无障碍文本需要双语正反例；缺译文有界中文回退与缺口提示，禁止伪业务 PASS。
+- 详见 [WB-A01-I18N-SCOPE-DECISION.md](WB-A01-I18N-SCOPE-DECISION.md)、[WB-A01-I18N-DECISION.json](WB-A01-I18N-DECISION.json)。仅 W0 设计目标签署；产品双语功能仍 `NOT_RUN`，F02/UI/Host 验收尚未发生，A02 BLOCKED_LICENSE。
