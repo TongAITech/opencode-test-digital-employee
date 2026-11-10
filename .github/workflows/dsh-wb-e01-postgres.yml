@@ -4,6 +4,8 @@ on:
     branches: [work/dsh-wb-w0]
     paths:
       - 'tools/dsh_workbench/e01_service.py'
+      - 'rc7_admin/product_server.py'
+      - 'tests/test_dsh_workbench_mount_auth.py'
       - 'tools/dsh_workbench/e02_service.py'
       - 'tools/dsh_workbench/e02_lineage.py'
       - 'tests/test_dsh_workbench_e02_lineage.py'
@@ -41,3 +43,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_postgres.py'
       - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py'
       - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_lineage.py'
+      - name: Mounted legacy private API authorization regression
+        env:
+          WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_mount_auth.py'

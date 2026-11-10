@@ -37,11 +37,19 @@ class ProductAdminApplication(AdminApplication):
         return super().dispatch_get(path, params)
 
 
+class WorkbenchPublicApplication:
+    """Static/meta facade: safe CLI never opens or creates an R1 store."""
+    def dispatch_get(self, path, params):
+        if path != '/api/meta':raise AdminProjectionError('FORBIDDEN')
+        return {'resources':['workbench'], 'product_surface':'DSH_WORKBENCH', 'host_identity_required':True}
+
+
 def _static_root() -> Path:
     return Path(__file__).resolve().parent / "static"
 
 
-def _handler(application: ProductAdminApplication, workbench_handler=None):
+def _handler(application: ProductAdminApplication, workbench_handler=None, *, workbench_mode=False):
+    mounted_workbench = workbench_mode or workbench_handler is not None
     if workbench_handler is None:
         from tools.dsh_workbench.business_http import scope_handler
         workbench_handler = scope_handler(None, None)
@@ -52,6 +60,9 @@ def _handler(application: ProductAdminApplication, workbench_handler=None):
             parsed = urlparse(self.path)
             if parsed.path == "/api/workbench/v1" or parsed.path.startswith("/api/workbench/v1/"):
                 workbench_handler.do_GET(self)
+                return
+            if mounted_workbench and parsed.path.startswith("/api/") and parsed.path != "/api/meta":
+                self._json(HTTPStatus.FORBIDDEN, {"error": {"code": "FORBIDDEN"}})
                 return
             if parsed.path.startswith("/api/"):
                 try:
@@ -66,6 +77,10 @@ def _handler(application: ProductAdminApplication, workbench_handler=None):
             parsed = urlparse(self.path)
             if parsed.path == "/api/workbench/v1" or parsed.path.startswith("/api/workbench/v1/"):
                 workbench_handler.do_POST(self)
+                return
+            if mounted_workbench and parsed.path.startswith("/api/"):
+                self.close_connection = True
+                self._json(HTTPStatus.FORBIDDEN, {"error": {"code": "FORBIDDEN"}})
                 return
             if not parsed.path.startswith("/api/"):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"}); return
@@ -96,8 +111,8 @@ def _handler(application: ProductAdminApplication, workbench_handler=None):
     return Handler
 
 
-def create_server(application: ProductAdminApplication, host: str = "127.0.0.1", port: int = 4097, *, workbench_handler=None) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), _handler(application, workbench_handler))
+def create_server(application: ProductAdminApplication, host: str = "127.0.0.1", port: int = 4097, *, workbench_handler=None, workbench_mode=False) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), _handler(application, workbench_handler, workbench_mode=workbench_mode))
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -105,9 +120,14 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--r1", default=os.environ.get("PFC_RC7_R1_PATH", "runtime-state/r1/event-stream.jsonl"))
     parser.add_argument("--host", default=os.environ.get("PFC_RC7_ADMIN_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PFC_RC7_ADMIN_PORT", "4097")))
+    parser.add_argument("--workbench", action="store_true", help="Disable legacy private APIs; Host integration is still required")
     args = parser.parse_args(argv)
-    app = ProductAdminApplication(args.r1); server = create_server(app, args.host, args.port)
-    print("RC7_ADMIN_PRODUCT_READY http://%s:%s r1=%s" % (args.host, server.server_address[1], app.r1_path), flush=True)
+    app = WorkbenchPublicApplication() if args.workbench else ProductAdminApplication(args.r1)
+    server = create_server(app, args.host, args.port, workbench_mode=args.workbench)
+    if args.workbench:
+        print("DSH_WORKBENCH_READY http://%s:%s HOST_INTEGRATION_REQUIRED" % (args.host, server.server_address[1]), flush=True)
+    else:
+        print("RC7_ADMIN_PRODUCT_READY http://%s:%s r1=%s" % (args.host, server.server_address[1], app.r1_path), flush=True)
     try: server.serve_forever()
     except KeyboardInterrupt: pass
     finally: server.server_close()
