@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "e7edb8a99cc48d5a30975f6f3e0689631c8b7852",
+    "last_tested_code_sha": "16ae40e8a86b5193da0a1f97b3b5f7a5f76204cc",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -48,8 +48,8 @@
       "agent": "/root/e_scope_binding",
       "worktree": "e-scope-hold-guard",
       "pr": 223,
-      "source_sha": "1b85493fabf5db4e402d77036ee58b534da575fd",
-      "state": "F_NEW_P1_CALLABLE_IDENTITY_SPOOF_BLOCKED",
+      "source_sha": "1e3776bcc1a9ad11166cc2f504da0797cf306d0e",
+      "state": "INTEGRATED_F231_LOCAL_COMPONENT",
       "historical_failure_prs": [
         213,
         214,
@@ -57,7 +57,7 @@
         227,
         229
       ],
-      "next_action": "Preserve new exact F failure; fix trusted method identity without probing unknown callable; no failed implementation merge."
+      "next_action": "Keep prior failures; full inherited formal runtime regression on 16ae running; not closed writer/admission."
     },
     {
       "ticket": "PROJECT_METADATA_BOARD_INCREMENT",
@@ -65,16 +65,18 @@
       "worktree": "d-project-board-contract",
       "pr": 211,
       "source_sha": "1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2",
-      "state": "CANDIDATE_A_B_E_REVIEW",
-      "next_action": "Freeze naming namespace/normalization and migration/API contract before writes. project+batch cards; first five phases are plan metadata, RELEASED needs canonical N10/Evidence/Human; mutation boolean cannot authorize create or members."
+      "state": "A_DECISION_D_E_F_DESIGN_REVIEW",
+      "next_action": "Governed root rename, exact byte name policy,009 explicit migration dependency001–007,Directory metadata revision; no SQL before incremental review.",
+      "b_pr": 230,
+      "b_source": "a21b82fe805926a22b5d90babec5670dd912c6aa"
     },
     {
       "ticket": "C_REQUIREMENTS_RELATIONS",
       "owner": "C",
       "pr": 225,
       "source_sha": "79ff9823fe8bdc67a1b4cbc0a69d710664ef1840",
-      "state": "FIXED_SOURCE_F_EXACT_RECHECK_RUNNING",
-      "next_action": "Fix common Scope select long ID 375px overflow; F new exact source recheck before integration."
+      "state": "INTEGRATED_F232_EXACT",
+      "next_action": "Long-ID375 P2 closed only at79ff; full C04/C05 not qualified."
     }
   ],
   "accepted_integrated_components": [
@@ -119,6 +121,28 @@
       "f_report_pr": 210,
       "report": "2c280269",
       "qualification_limit": "PURE_STRUCTURAL_ONLY; models/reader/writer not connected"
+    },
+    {
+      "pr": 223,
+      "source": "1e3776bc",
+      "f_report_pr": 231,
+      "report": "ff6ba4ee",
+      "keep_failures": [
+        224,
+        227,
+        229
+      ],
+      "qualification_limit": "LOCAL_NEGATIVE_GUARD_ONLY"
+    },
+    {
+      "pr": 225,
+      "source": "79ff9823",
+      "f_report_pr": 232,
+      "report": "7bba2e77",
+      "keep_failures": [
+        228
+      ],
+      "qualification_limit": "READONLY_RELATIONS_AND_NARROW_SCREEN_ONLY"
     }
   ],
   "exact_verification": [
@@ -162,6 +186,13 @@
         "skipped": 0,
         "seconds": 150.198
       }
+    },
+    {
+      "sha": "16ae40e8a86b5193da0a1f97b3b5f7a5f76204cc",
+      "node": 124,
+      "real_pg_browser": 10,
+      "abcd_v4_run": 42893372170,
+      "abcd_v4_status": "IN_PROGRESS_NOT_PASS"
     }
   ],
   "rules": [

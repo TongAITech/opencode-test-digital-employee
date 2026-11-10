@@ -4,7 +4,7 @@
 
 接续索引：[ACTIVE-CONSTRUCTION-QUEUE.json](ACTIVE-CONSTRUCTION-QUEUE.json)。先刷新远端/同SHA检查再领取ready工单；本索引不是资格签署。
 
-- 当前代码集成检查点：`e7edb8a99cc48d5a30975f6f3e0689631c8b7852`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
+- 当前代码集成检查点：`16ae40e8a86b5193da0a1f97b3b5f7a5f76204cc`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
 - 本轮该精确源完整工作台Python实库回归632/632、150.198秒、0跳过；见[集成证据](WB-A-INTEGRATION-E7EDB8A9-20261111.md)。不等于完整RC7/RC7.2或真实Host/最终交付资格。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
@@ -18,8 +18,8 @@
 - 紧凑绑定纯模块设计3266cb2d经B206/D207/F208签署；实现968430ed经F210独立接受，已集成。73cdb971上两纯模块20/20局部回归通过；正式models/overlay/control/reader/writer仍未接入，结构成功不授创建/执行或来源权威。
 - Gates及原生fetch修复074b2f17已由F222精确复验接受并集成于2b94d236；旧60f013d9的F221默认浏览器Illegal invocation红灯保留。A在2b94实际Node120、原生/实库浏览器9（39.847秒）、纯模块20（0.328秒）通过；旧注入fetch包装的绿灯不能覆盖默认路径问题。
 - PG来源profile修复f4985abf由F226仅在源码/固定模板审查与既有自动化回归范围接受，已合入b4eb06be；F220两项旧P1保留。A在b4eb实际PG27/27（11.844秒）、模板2/2（0.016秒）。MATCHED_AS_OF仍admission_authorized=false，不是DDL/角色围栏或任意权限图穷尽证明。
-- E防丢失HOLD设计9623f30c经B219/D218/F217签署并集成；实现PR223的fd9/e9两轮F224/F227真实红灯均保留，未合入实现。新候选1b85493f虽作者回归/CI通过，F已复现未知callable伪造方法身份后写入R1的新P1，仍阻断，等待正式报告与修复。
-- C需求精确关联只读UI PR225源26257eae：F实际Node124/浏览器10通过，但额外长合法ID在375px溢出390px，继承Scope下拉框P2未核销；等待修复新源独立验收，未集成。D项目元数据/看板211仍待具体命名域及增量签署；B正在专项评审。
+- E防丢失HOLD实现新1e3776bc已由F231限定组件接受并合入；旧F224/227/229红灯保留，不再把1b候选作者/CI绿灯当放行。仅本地受审入口负向保护，不是生产绑定或全writer围栏。
+- C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170运行中，未写PASS，见WB-A-INTEGRATION-16AE40E8-20261111.md。D211/B230及A最小项目改名决策正在D/E/F交叉审查，尚未数据库实施。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
