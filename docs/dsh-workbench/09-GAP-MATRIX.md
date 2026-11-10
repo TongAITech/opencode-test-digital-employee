@@ -310,3 +310,11 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - C里程碑UI PR156/a7fd0827正在F独立验收，未集成或记C03/C04整体通过。E03调查确认缺通用正式控制面，BLOCKED_FORMAL_CONTROL_API；依赖提案PR155，未写R1或伪accepted。E04–E06继续按正式依赖受控。
 - 新增第三方实物审计THIRD-PARTY-WORKBENCH-AUDIT.json：Psycopg3.2.13安装元数据为LGPL-3.0-only（纠正旧or-later表述），依赖固定本次已验版本并记录许可证哈希；不是最终Windows包SBOM或LICENSE_RELEASE_APPROVED。
 - 真实宿主与Windows FIELD_NEEDS_BANK_TRANSFER，接续见BANK-TRANSFER-ACCEPTANCE.md；不合RC7.2、不出最终银行ZIP。
+
+
+## 草稿资产扩展与界面恢复缺陷（2026-11-10）
+- 六kind后端4c3c30a1获F160/47574ed4独立组件接受：真实PG/HTTP190/190、F2；A联合d0ee15ad9f97ad1990a8eba43dcccab18d3071b3本地190/190，远端PG SUCCESS42822241991/job129850419532、W0 SUCCESS42822241919/job129850418701，精确同SHA。R1引用保持UNRESOLVED，未实现可信正式映射或B07整体关闭。
+- C156/a7fd0827由F157发现未知提交刷新丢request_id；修复da1a7e82后原问题关闭，但F159/884d132f实际发现Alice旧pending在合法Bob会话重放产生新资产。当前C156不接受/不集成，必须B/D/C主体绑定context修复后新SHA复验。
+- 最小context增量D/C6661e80d、B确认仅恢复主体域绑定；不授权限、不替代CSRF/ACL/真实SSO。后端和界面分支修复中，token缺失/换key/换主体保持HOLD，不以当前Bob context替换原请求。
+- E03依赖提案0e8259cd已集成仅作DESIGN_REVIEW_PENDING；独立设计复核任务被平台内容检查中断，未产生F设计接受。E03仍BLOCKED_FORMAL_CONTROL_API，不新增伪accepted或第二状态机。
+- FIELD_NEEDS_BANK_TRANSFER；正式Host、Windows、F01-F04及发布门禁未通过，不构建最终银行交付包。
