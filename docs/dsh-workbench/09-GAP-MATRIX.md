@@ -2,6 +2,8 @@
 
 ## 当前权威状态（2026-11-11）
 
+接续索引：[ACTIVE-CONSTRUCTION-QUEUE.json](ACTIVE-CONSTRUCTION-QUEUE.json)。先刷新远端/同SHA检查再领取ready工单；本索引不是资格签署。
+
 - 当前代码集成检查点：`73cdb971541e0fec951cbe48bb6c9988010f2262`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
@@ -381,3 +383,10 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - parser/serializer只处理紧凑绑定及scope片段，旧无绑定scope输出{}且外层Mission/release仍不可变；null/partial/flat-only/错镜像拒绝，未知outer有限数不被新scope模块改变。有效自造DTO仍只结构，不是正式事件/PG来源/Host证明。
 - 该实现没有接入正式model/overlay/control/reader/writer、008或新正式事件。E下一候选#212只拟对未准入Scope Mission首业务副作用前HOLD，具体受保入口/mtime/Field-start/未封闭底层边界先跨组评审，再代码实施；不能把它或已通过纯模块当生产绑定完成。
 - B在新隔离分支实现只读Scope schema/policy资格快照，D #211已提交项目/看板真实权限与字段候选；不修改已有已接受接口，不按单PR结束施工。FIELD_NEEDS_BANK_TRANSFER和RELEASE_NOT_APPROVED保持。
+
+## 2026-11-11 长回归完成与可恢复施工队列
+
+- 精确f1b6b24e的ABCD-v4 [42870053745](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42870053745)已全部SUCCESS：完整继承RC7/RC7.2与真实Chromium，以及Ubuntu/Windows × Python3.8/3.11四原生job，共五job。旧“运行中”条目是当时快照，不是当前结果；此结果不转签后续SHA或现场/离线安装。
+- 新增ACTIVE-CONSTRUCTION-QUEUE.json保存exact code/PR/角色/worktree/验收范围/下一依赖，恢复必须先核GitHub最新状态，不凭旧聊天或errored状态停止可施工项。
+- 当前ready队列：C门禁只读#215源60f013d9与B资格快照#216源f93e4ab1待独立F；E防丢失guard#212新9623f30c目标全集矩阵待收齐B/D/F签署，旧ce6自Controller检查漏真正目标的真实失败#213/#214保留；D项目/看板#211名称唯一域/权限增量待A/B/E冻结。所有实现继续隔离，不因单PR结束工程。
+- 真实Host/Windows只能行内，生产绑定/正式控制/完整业务与离线/许可证门禁仍未放行，不生成最终交付ZIP。
