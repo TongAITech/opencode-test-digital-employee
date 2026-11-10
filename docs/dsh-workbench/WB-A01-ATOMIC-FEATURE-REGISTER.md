@@ -69,6 +69,10 @@ O=原版候选交互，需要 C/F 复核源码入口；A=原版可能仅服务�
 - 以上行为索引仅供原创设计的接口/交互验收使用；**不复制 PolyForm Noncommercial 受限 UI 源文件、表达或构建物进入商业交付**，A02 仍 BLOCKED_LICENSE。
 - 每项新实现 `actual=NOT_RUN, screenshot_ref=NONE, network_trace_ref=NONE, target_source_sha=NONE`，且 `original_source_ref` 仅为候选锚点，F 须独立复核功能是否由该函数实际实现。
 
+## A 组 2026-11-10 中英文目标与 50 项源登记再对账
+- F #106 独立确认：**50=35 O/A+15 N**，这是产品**待实施目标**而非已经完成的 50 个功能。原版候选功能仍只引用固定上游 SHA 的源函数/DOM 行号；上游 PolyForm Noncommercial 受限实现不得复制入商用交付。
+- A01 明确保留 P05-03 Skill 双语说明与 X01-01 全站中英文+主题交互，`zh-CN` 默认，`en-US` 为 W1 正式必验范围；[12 条完整正反例与缺译回退/业务身份/权限状态不变量](WB-A01-BILINGUAL-SCOPE.md)。当前 W0 原型中文，P05-03 `NO_INTERACTION`、X01-01 `THEME_COLLAPSE_ONLY`，两项正式测试仍 `NOT_RUN`。
+- `A01_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING` 仅证明 A 明确产品要求，**不是** `WB-A01_DESIGN_SIGNED`、`WB-F00_DESIGN_ACCEPTED`、`WB-W0_DESIGN_FROZEN` 或 W1 功能 QA；A02 LICENSE 继续 BLOCKED。
 
 ## A01 原版语言行为来源核验（2026-11-10）
 
