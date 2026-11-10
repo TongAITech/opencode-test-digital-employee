@@ -81,6 +81,14 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "node-version: '22'",
     )):
         errors.append("W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
+    # The read-only Scope response fence guards project/batch, ACL and truth
+    # revisions against stale or malicious preview responses. Keep its
+    # negative Node proof in the single W0 L0 gate on every candidate.
+    if not re.search(
+        r"(?m)^\s*node --test[^\n]*tests/test_dsh_workbench_ui_source_fence\.mjs(?:\s|$)",
+        sources["w0"],
+    ):
+        errors.append("W0_SCOPE_RESPONSE_FENCE_NOT_ADMITTED")
     if not all(x in e["l1"] for x in (
         "pull_request:", "ready_for_review", "workflow_dispatch:",
         "expected_source_sha:", "include_browser:",
