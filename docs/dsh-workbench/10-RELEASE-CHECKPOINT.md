@@ -212,3 +212,10 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - A联合111bc4806bb39f7bb44d857610d3b17878b23eac真实PG68/68通过；同源远端PG SUCCESS run42795365470/job129759080212，W0 SUCCESS run42795365782/job129759085711。B05 COMPONENT_QA_ACCEPTED/MERGED。
 - B06正式启动真实PG Scope HTTP/授权/完整分页/签名游标/修订权限失效；尚未验收。C02与E01仍依赖B06验收，准备组件不能视为真实纵向链路完成。
 - DSH现场/Windows离线/正式命令/AgentTeams真实并发及恢复/F01-F04/许可发布门禁继续未满足，不合RC7.2、不出银行ZIP。
+
+
+## B06 组件集成与 C02/E01 准入（2026-11-10）
+- B06精确f144f1a1492d457f0121dd77e23fdd8c474e4268获F138/20aa0068独立组件接受，真实PG/HTTP100/100、F新增攻击2/2；同源PG SUCCESS42796663148/job129763472502、W0 SUCCESS42796663127/job129763472380。
+- A联合e901b2d8bda2e53f12a3c90028deeb54071f6741本地真实PG/HTTP100/100通过并推送，远端联合检查须另核；B06 COMPONENT_QA_ACCEPTED/MERGED，仅PG/HTTP Scope组件，不代表真实DSH认证或W1整体通过。
+- C02正式日期/需求/版本/SST十区Scope联动与E01 R1只读适配已按组件依赖准入，隔离worktree/PR施工中。Host provider缺失默认503；测试provider明确fixture，不可替真实宿主现场。
+- R1 Mission/Attempt/Evidence/NodeGate仍唯一运行事实，E01必须最小Mission身份校验先于明细，不可回写正式事实。50完整产品、F01-F04、DSH现场、Windows离线及许可发布门禁仍未满足，不合RC7.2、不出银行ZIP。
