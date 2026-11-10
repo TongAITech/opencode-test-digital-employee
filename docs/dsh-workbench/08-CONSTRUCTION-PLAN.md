@@ -6,7 +6,7 @@
 
 ## 当前权威状态（2026-11-11）
 
-- 当前代码集成检查点：`02ae2d806f5ef61965d2d9fc5230ebb3d571c920`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
+- 当前代码集成检查点：`73cdb971541e0fec951cbe48bb6c9988010f2262`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
 - d31远端同SHA：W0 run42859333314、真实浏览器run42859326708均SUCCESS；本次新台账HEAD另核检查，不转签旧SHA。
@@ -16,6 +16,8 @@
 - C06只读任务事实界面源f1b6b24e已由F #193独立接受并集成，新增三路一致快照与批次范围约束，不提供执行/审批命令；正式Mission生产绑定与E03控制API仍未实现。完整项目编辑/看板/日程提醒、B08、E04–E06及产品纵向资格未完成。
 - 纯codec8618676e经F #201独立接受、直接HEAD真实Python3.8/3.11通过，已集成；旧#197/#200失败保留。PG完整来源只读预览026ddff9经F #202仅在已批准project-only schema范围接受并集成，未知/漂移RLS未资格，不能作为最终admission。
 - 02ae2d80本轮完整实库Python594/594（0跳过）、Node117/117、真实PG浏览器8/8通过，详见WB-A-INTEGRATION-02AE2D80-20261111.md。正式Host/生产创建/全部产品仍未验，不将自动化回归等同交付完成。
+- 紧凑绑定纯模块设计3266cb2d经B206/D207/F208签署；实现968430ed经F210独立接受，已集成。73cdb971上两纯模块20/20局部回归通过；正式models/overlay/control/reader/writer仍未接入，结构成功不授创建/执行或来源权威。
+- 下一步并行推进：E防丢失HOLD设计#212待B/D/F审，B只读Schema/RLS资格快照实现中，D项目/批次看板候选#211待A/B/E字段冻结；这些均不借真实Host未可达停止可独立施工部分。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
@@ -407,3 +409,11 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - B #199源026ddff9及F #202仅准已批准project-only RLS/schema的内部只读预览；实际多req/version/SST来源和date/双revision已接通，但snapshot只是as-of候选，不是创建许可证。额外关系级RLS隐藏→假UNSPLIT诊断原样保留；未知/漂移schema未资格，最终锁端口与生产admission之前须补策略资格，不绕RLS。
 - A在02ae2d80实测完整594 Python用例全部执行通过无跳过，117 Node、8真实PG浏览器通过。证据WB-A-INTEGRATION-02AE2D80-20261111.md；当前源码与这些结果逐SHA绑定，不签现场或全产品。
 - 下一ready工单：PR198紧凑绑定pure parser/serialize/immutable设计，B对b61发现legacy outer有限浮点兼容P1，E新3266cb2d澄清仅scope域严格数字；B/D/F窄复签进行中，正式模型/reader/writer零改动。继续收齐新SHA准入后实际编码，不停在单个PR。
+
+## 2026-11-11 连续施工：紧凑绑定纯模块完成
+
+- 原b61设计B #205发现“全局拒绝float”会误伤合法legacy unknown outer 0.5/1e3；E新3266cb2d明确strict numeric只scope域，raw全局重复key/非finite规则只新helper不改现有reader。B612116f1/#206、De48f5800/#207、F67c358f8/#208精确复签；旧B P1与F204字段接受范围均保留，不互相抵消。
+- E实现#209精确968430ed经F2c280269/#210独立接受后合入。新9/9+Scope11/11，独立609次拒绝数据检查（不是609个unittest）、完整709字节黄金/无IO/深不可变/3进程均验证，实际3.8/3.11各9项与显式head checkout已核实。A在73cdb971执行两模块20/20通过（0.321秒）。
+- parser/serializer只处理紧凑绑定及scope片段，旧无绑定scope输出{}且外层Mission/release仍不可变；null/partial/flat-only/错镜像拒绝，未知outer有限数不被新scope模块改变。有效自造DTO仍只结构，不是正式事件/PG来源/Host证明。
+- 该实现没有接入正式model/overlay/control/reader/writer、008或新正式事件。E下一候选#212只拟对未准入Scope Mission首业务副作用前HOLD，具体受保入口/mtime/Field-start/未封闭底层边界先跨组评审，再代码实施；不能把它或已通过纯模块当生产绑定完成。
+- B在新隔离分支实现只读Scope schema/policy资格快照，D #211已提交项目/看板真实权限与字段候选；不修改已有已接受接口，不按单PR结束施工。FIELD_NEEDS_BANK_TRANSFER和RELEASE_NOT_APPROVED保持。
