@@ -1,6 +1,7 @@
 // C02 protocol component. Not wired to UI until B06 HTTP/Host qualification.
 export class ScopeError extends Error { constructor(code){super(code);this.code=code;} }
 const fail=code=>{throw new ScopeError(code);};
+const immutable=value=>{if(value&&typeof value==='object'){for(const child of Object.values(value))immutable(child);Object.freeze(value);}return value;};
 const id=v=>typeof v==='string'&&v.trim().length>0;
 export function scopeRequest(scope,cursor=null){
   if(!id(scope.project_id)||!id(scope.batch_id)||!/^\d{4}-\d{2}-\d{2}$/.test(scope.release_date))fail('INVALID_SCOPE');
@@ -17,12 +18,15 @@ export function httpScopePort(fetcher){return async(scope,cursor,signal)=>{
   return response.json();
 };}
 export class ScopeClient {
-  constructor(port,{maxPages=100,maxRows=10000}={}){this.port=port;this.maxPages=maxPages;this.maxRows=maxRows;this.generation=0;this.state={status:'NOT_READY',scope:null,records:[]};}
-  clear(){this.generation++;this.controller?.abort();this.state={status:'NOT_READY',scope:null,records:[]};}
-  async load(input){this.clear();const generation=this.generation;const scope=structuredClone(input);const controller=new AbortController();this.controller=controller;this.state={status:'LOADING',scope,records:[]};
+  #state;
+  get state(){return this.#state;}
+  #publish(value){this.#state=immutable(structuredClone(value));}
+  constructor(port,{maxPages=100,maxRows=10000}={}){this.port=port;this.maxPages=maxPages;this.maxRows=maxRows;this.generation=0;this.#publish({status:'NOT_READY',scope:null,records:[]});}
+  clear(){this.generation++;this.controller?.abort();this.#publish({status:'NOT_READY',scope:null,records:[]});}
+  async load(input){this.clear();const generation=this.generation;const scope=immutable(structuredClone(input));const controller=new AbortController();this.controller=controller;this.#publish({status:'LOADING',scope,records:[]});
     try{scopeRequest(scope);let cursor=null;const cursors=new Set(),rows=new Set(),parents=new Map(),sourceRefs=new Set(),records=[];let snapshot;
       for(let pageNo=0;pageNo<this.maxPages;pageNo++){
-        const page=await this.port(scope,cursor,controller.signal);
+        const page=await this.port(immutable(structuredClone(scope)),cursor,controller.signal);
         if(generation!==this.generation)return false;
         if(!page||page.project_id!==scope.project_id||page.batch_id!==scope.batch_id||page.release_date!==scope.release_date)fail('SCOPE_MISMATCH');
         if(!Number.isSafeInteger(page.relation_revision)||page.relation_revision<1||!Number.isSafeInteger(page.access_scope_revision)||page.access_scope_revision<1)fail('INVALID_REVISION');
@@ -39,9 +43,9 @@ export class ScopeClient {
         }
         page.source_refs.forEach(ref=>sourceRefs.add(ref));
         if(!Object.hasOwn(page,'next_page_cursor'))fail('INCOMPLETE_SCOPE');
-        if(page.next_page_cursor===null){this.state={status:'READY',scope,records,source_refs:[...sourceRefs],relation_revision:page.relation_revision,access_scope_revision:page.access_scope_revision};return true;}
+        if(page.next_page_cursor===null){this.#publish({status:'READY',scope,records,source_refs:[...sourceRefs],relation_revision:page.relation_revision,access_scope_revision:page.access_scope_revision});return true;}
         cursor=page.next_page_cursor;if(!id(cursor)||cursors.has(cursor))fail('CURSOR_CYCLE');cursors.add(cursor);
       }fail('PAGE_LIMIT');
-    }catch(error){if(generation!==this.generation)return false;this.state={status:'ERROR',scope:null,records:[],error:error.code||'SOURCE_UNAVAILABLE'};return false;}
+    }catch(error){if(generation!==this.generation)return false;this.#publish({status:'ERROR',scope:null,records:[],error:error.code||'SOURCE_UNAVAILABLE'});return false;}
   }
 }
