@@ -45,9 +45,25 @@ mapping 固定 {schema_version:1,formal_authority_ref,project_id,batch_id,runtim
 
 新受控锁函数 wb.lock_scope_admission(project,batch) 仅专用 admission role 可 EXECUTE，PUBLIC/runtime 禁止；SECURITY DEFINER owner 非 superuser/无 BYPASSRLS，固定 search_path=pg_catalog,wb、无动态SQL；仅锁定两个指定行，不授普通 runtime 任意 UPDATE。函数内核当前 can_write 后按 project→release_batch 固定顺序 SELECT FOR UPDATE；取锁后再核 can_write、actor/context、batch 身份。FORCE RLS 保留，专用 role 的锁必要权限及策略由B单独评审，禁止用开放 project UPDATE 代替。函数不可回传不受权明细。当前 runtime 实际无 project FOR UPDATE 权限，此端口**尚不存在**。
 
-正式 writer 围栏→该 PG 事务→project 锁→batch 锁→intent 唯一域核验→完整来源 SQL/规范化→Host admission fence→R1 最终重读/CAS/append。PG 事务和两行锁必须跨最后验证至 durable append/Host fence释放；只提交回执引用后结束。连接不得交其他请求、不得在锁内等模型/人。READ COMMITTED 取锁后各语句看到已提交最新版本；project ACL AFTER 触发器要更新 project、关联 AFTER 触发器要更新 batch，因此对手若先提交，本次见新 revision；若本次先锁，对手无法完成提交直到本次结束。提交之前来源身份不可变；将来允许来源更新必须扩展相应 revision/锁协议，不能沿用本证明。
+PREPARE 已独立 durable commit 后，正式 writer 围栏→该最终 PG 事务→project 锁→batch 锁→读取核验既存 intent 唯一域→完整来源 SQL/规范化并与既存摘要精确比较→Host admission fence→R1 最终重读/CAS/append。最终事务不得首次插入 intent 或重新分配身份。PG 事务和两行锁必须跨最后验证至 durable append/Host fence释放；只提交回执引用后结束。连接不得交其他请求、不得在锁内等模型/人。READ COMMITTED 取锁后各语句看到已提交最新版本；project ACL AFTER 触发器要更新 project、关联 AFTER 触发器要更新 batch，因此对手若先提交，本次见新 revision；若本次先锁，对手无法完成提交直到本次结束。提交之前来源身份不可变；将来允许来源更新必须扩展相应 revision/锁协议，不能沿用本证明。
 
 默认候选预算：lock_timeout=2s、statement_timeout=5s、idle_in_transaction_session_timeout=10s，整个提交围栏≤5s（Host适配可要求更短），超时不得 append；跨网调用有本次剩余硬期限。55P03/40P01/40001/57014/连接丢失均中止事务，**不得自动重试 R1 append**；先在原 K 做正式 lookup。若确认尚未开始 append 才允许重新取得全部许可。append 后 PG 失败时保留正式事实，查正式回执再补 PG 引用；不可用 PG rollback 声称 R1 未发生。真实两连接须覆盖 ACL/关系已修改但触发器等待、反向锁死锁、连接终止与 append 各切点；未证明之前该端口不能上线。
+
+### 3.1 PREPARE 与最终提交分离：精确阶段和恢复矩阵
+
+PREPARE 是独立 PG 事务：重新核可信原主体/当前创建动作、mutation 证明及 can_write，构造受控完整快照，按 K 查重，固定 request_digest、snapshot_ref（scope_ref）、scope_digest、mapping_ref/runtime_release_id/mission_id/binding_ref 和 original_context_ref，并提交 snapshot/intent 成功。**必须确认该事务 durable commit 后才允许任何正式 R1 提交**；不能把首次分配的 intent 放进跨 append 的最终 PG 锁事务，否则 append 后回滚会丢失原身份。PREPARE 不产生 R1 事实。既存同 K 同 digest 仅复用原 immutable intent；异 payload（含换 batch/Scope/映射）409，不覆盖、不重新分配。
+
+最终锁定事务只读取、核验该既存 intent；重读完整 Scope/来源/日期/双 revision 后必须与 PREPARE 固定快照及摘要相等。权限撤销拒绝，Scope/映射/代次变化 HOLD，不在同 K 下重算 request_digest 或替换 snapshot_ref。需要新业务意图时另行明确新 key，禁止故障恢复自动换 key；旧 UNKNOWN 必须先查清原权威结果，不以新 key 绕开。
+
+| 阶段/故障点 | 唯一允许的恢复 |
+|---|---|
+| PREPARE 未提交或提交响应丢失 | 先按原 K 在 PG 重读确认；PG 结果不明 HOLD，不进入正式 submit、不重分配；确认无 intent 且从未允许正式调用，才可在同 K 重新 PREPARE |
+| PREPARE 已提交、未进入最终 submit | 读取原 intent；重新取得全部当前权限和锁，快照精确相等才继续；变化 HOLD |
+| 最终 PG 事务在 append 前失败/回滚 | 原 durable intent 保留；按原 K/digest 正式 lookup；确认未 append 后也必须重新取得当前 create、mutation、can_write 和围栏，不直接重放 |
+| append 已发生但 PG 回执提交失败或响应丢失 | 不回滚/重分配正式身份；原 K/digest 向原 authority 查原事件回执，核一致后只补 PG receipt 引用；图不全仍 INITIALIZATION_HOLD |
+| append 是否发生不明、Host UNKNOWN 或无零副作用证明 | HOLD + 原 K/digest lookup；超时/日志尾部问题不等于 NOT_FOUND |
+| 查到原回执 | 验证原 K/digest/所有预留身份，返回原 Mission；不得新建 |
+| 权威证明 NOT_FOUND | lookup 不暗转 submit；显式再次 submit 才重新取得全部创建许可，且始终使用原 intent/身份/digest；权限或快照已变保持拒绝/HOLD |
 
 ## 4. 动作矩阵和原主体恢复（D P1-1）
 
@@ -68,7 +84,7 @@ lookup 当前动作许可不能从 read 或 mutation_authorized boolean 推出�
 
 输入 Acquire：server-derived host_authority_ref、formal_authority_ref、principal/actor_ref、action=mission.create、project_id、batch_id、K、request_digest、original_context_ref、可信 mutation/native proof 的权威引用，以及本次 writer_epoch/预期R1 cursor/operation_ref/硬期限。证明由 Host 服务端读取，不接受 HTTP 自报 verified。结果严格区分 DENIED、CAPABILITY_UNAVAILABLE、EXPIRED_OR_INVALID、UNKNOWN、HELD；HELD 含不透明 fence_ref、持久 authority/session_generation、范围摘要和截止，不是调用方可自签 DTO。
 
-CommitWithinFence(fence_ref,operation_ref,scope_digest,request_digest,writer_epoch,expected_cursor,正式append回调) 是所需线性化协议，而非“检查一次再写”。Host 适配器必须证明撤权和该回调 durable append 之间存在全序：撤权先线性化则回调不得执行；append先线性化则返回包含同operation/digest/事件引用的 COMMITTED，之后撤权不删除该事实。允许实现为持有权威撤权读锁贯穿回调，或经审查的等价原子提交协议；单次签发短期token/时间戳不满足要求。PG锁、R1 OS锁不代替这个Host全序。结果 COMMITTED、DENIED_BEFORE_APPEND、EXPIRED_BEFORE_APPEND、CAPABILITY_UNAVAILABLE、UNKNOWN；只有前两类明确未append结果可按规则处理，UNKNOWN先lookup。
+CommitWithinFence(fence_ref,operation_ref,scope_digest,request_digest,writer_epoch,expected_cursor,正式append回调) 是所需线性化协议，而非“检查一次再写”。Host 适配器必须证明撤权和该回调 durable append 之间存在全序：撤权先线性化则回调不得执行；append先线性化则返回包含同operation/digest/事件引用的 COMMITTED，之后撤权不删除该事实。允许实现为持有权威撤权读锁贯穿回调，或经审查的等价原子提交协议；单次签发短期token/时间戳不满足要求。PG锁、R1 OS锁不代替这个Host全序。结果 COMMITTED、DENIED_BEFORE_APPEND、EXPIRED_BEFORE_APPEND、CAPABILITY_UNAVAILABLE、UNKNOWN；COMMITTED 必须包含可由原 K/request_digest 查询核实的正式原事件回执（operation_ref、event_ref、receipt_ref 和 digest），不是零 append 结果。仅 DENIED_BEFORE_APPEND、EXPIRED_BEFORE_APPEND 表示有可靠零 append 证明；UNKNOWN 及无法证明零副作用的 CAPABILITY_UNAVAILABLE 均先原域 lookup/HOLD，不重分配身份。缺少可查回执的所谓 COMMITTED 按 UNKNOWN 处理。
 
 Release 必须幂等，释放不得撤销已durable事件。过期/会话代次变化/权威重启使旧 fence_ref 不能进入回调；检查过期必须位于受保护提交临界区，不能与append间留撤权窗口。若无法保证回调执行期间不会超期失效，则不得启动回调；正在执行回调的期限处理必须由适配器与writer共同证明，不允许仅本地计时自证。崩溃会释放持有锁；持久 operation/K/digest 使新进程可查唯一事件。Host返回 UNKNOWN、回调成功但响应丢失、会话状态不可读都先HOLD+原域lookup，绝不重分配。不存在真实可证明适配器时生产默认 CAPABILITY_UNAVAILABLE/HOLD，零R1副作用；fixture只测抽象协议，真实Host继续 FIELD_NEEDS_BANK_TRANSFER。
 
