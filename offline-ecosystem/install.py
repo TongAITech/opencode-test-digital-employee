@@ -274,10 +274,15 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
     try:
         for row in checked["manifest"]["extensions"]:
             package_path = package_target / row["id"]
+            if row["id"] == "modlens":
+                # ModLens is staged, not registered, until internal-only
+                # provider configuration has been explicitly supplied.
+                continue
             _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
             installed.append(row["package"])
         listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
-        missing = [name for name in PACKAGE_NAMES.values() if name not in listing]
+        expected = [row["package"] for row in checked["manifest"]["extensions"] if row["id"] != "modlens"]
+        missing = [name for name in expected if name not in listing]
         if missing:
             raise InstallError("DSH_PLUGIN_LIST_MISSING:" + ",".join(missing))
     except Exception:
@@ -304,7 +309,9 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
         "rc72_source_commit": (rc72_home / "SOURCE_COMMIT").read_text(encoding="utf-8").strip(),
         "extensions": [
             {"id": row["id"], "package": row["package"], "version": row["version"],
-             "bundle_tree_sha256": row.get("bundle_tree_sha256")}
+             "bundle_tree_sha256": row.get("bundle_tree_sha256"),
+             "installed": row["id"] != "modlens",
+             "activation_state": "staged_until_internal_endpoint_configured" if row["id"] == "modlens" else "installed"}
             for row in checked["manifest"]["extensions"]
         ],
         "mnemon_cli": {"path": str(native_target), "version": native["version"], "sha256": native["sha256"],
@@ -332,9 +339,15 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     env["MNEMON_CLI_PATH"] = str(native_path)
     env["PATH"] = str(native_path.parent) + os.pathsep + env.get("PATH", "")
     listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
-    missing = [row["package"] for row in receipt["extensions"] if row["package"] not in listing]
+    missing = [row["package"] for row in receipt["extensions"]
+               if row.get("installed") and row["package"] not in listing]
     if missing:
         raise InstallError("ECOSYSTEM_HEALTH_PLUGIN_MISSING:" + ",".join(missing))
+    package_root = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages"
+    for row in receipt["extensions"]:
+        staged = package_root / row["id"]
+        if not staged.is_dir() or (row.get("bundle_tree_sha256") and _tree_sha256(staged) != row["bundle_tree_sha256"]):
+            raise InstallError("ECOSYSTEM_HEALTH_STAGED_PACKAGE_MISMATCH:" + row["id"])
     if not native_path.is_file() or _sha256(native_path) != receipt["mnemon_cli"]["sha256"]:
         raise InstallError("MNEMON_CLI_HEALTH_SHA256_MISMATCH")
     native_version = _run([str(native_path), "--version"])
@@ -358,7 +371,8 @@ def uninstall(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     env["MNEMON_CLI_PATH"] = str(native_path)
     env["PATH"] = str(native_path.parent) + os.pathsep + env.get("PATH", "")
     for row in reversed(receipt["extensions"]):
-        _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
+        if row.get("installed"):
+            _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
     if native_path.is_file() and _sha256(native_path) == receipt["mnemon_cli"]["sha256"]:
         native_path.unlink()
     try:
@@ -408,7 +422,7 @@ def configure_modlens(*, internal_host_suffix, replace_existing=False):
     return {"status": "CONFIGURED_INTERNAL_ENDPOINT_ONLY", "config_path": str(target), "host": host, "api_key_written": True}
 
 
-def enable_modlens(rc72_home, *, internal_host_suffix):
+def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PROFILE_DEFAULT):
     suffix = (internal_host_suffix or "").strip().lower().lstrip(".")
     config_path = Path.home() / ".modlens" / "config.json"
     if not config_path.is_file():
@@ -421,18 +435,43 @@ def enable_modlens(rc72_home, *, internal_host_suffix):
         raise InstallError("MODLENS_INTERNAL_PROVIDER_NOT_CONFIGURED")
     if not suffix or not (host == suffix or host.endswith("." + suffix)):
         raise InstallError("MODLENS_ENDPOINT_NOT_IN_APPROVED_INTERNAL_SUFFIX")
+    if profile.lower() == "web" or not profile.startswith("rc7.2-"):
+        raise InstallError("PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN")
     rc72_home = Path(rc72_home).expanduser().resolve()
-    patch = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages/modlens/cordis.patch.yml"
-    if not patch.is_file():
-        raise InstallError("MODLENS_PLUGIN_PATCH_MISSING")
-    text = patch.read_text(encoding="utf-8")
-    if "disabled: true" not in text:
-        raise InstallError("MODLENS_NOT_IN_SAFE_DISABLED_STATE")
-    patch.write_text(text.replace("disabled: true", "disabled: false", 1), encoding="utf-8")
     receipt_path = _receipt_path(rc72_home)
+    if not receipt_path.is_file():
+        raise InstallError("ECOSYSTEM_INSTALL_RECEIPT_MISSING")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    row = next((item for item in receipt["extensions"] if item["id"] == "modlens"), None)
+    if row is None:
+        raise InstallError("MODLENS_PACKAGE_NOT_STAGED")
+    if row.get("installed"):
+        return {"status": "ALREADY_ENABLED", "host": host}
+    dsh = _resolve_dsh(dsh_bin)
+    version = _dsh_version(_run([dsh, "--version"]))
+    _check_dsh_compatibility(version)
+    native_path = Path(receipt["mnemon_cli"]["path"])
+    env = os.environ.copy()
+    env.update({
+        "npm_config_offline": "true",
+        "npm_config_audit": "false",
+        "npm_config_fund": "false",
+        "PNPM_CONFIG_OFFLINE": "true",
+        "COREPACK_ENABLE_NETWORK": "0",
+        "MNEMON_CLI_PATH": str(native_path),
+        "PATH": str(native_path.parent) + os.pathsep + env.get("PATH", ""),
+        "PFC_RC72_ECOSYSTEM_OFFLINE": "1",
+    })
+    package_path = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages/modlens"
+    _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
+    listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
+    if row["package"] not in listing:
+        raise InstallError("MODLENS_PLUGIN_NOT_VISIBLE_AFTER_ENABLE")
+    row["installed"] = True
+    row["activation_state"] = "enabled_internal_endpoint_only"
     receipt["modlens_enabled"] = True
     receipt["modlens_internal_endpoint_host"] = host
+    receipt["dsh_version"] = version
     receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     return {"status": "MODLENS_ENABLED_INTERNAL_ENDPOINT_ONLY", "host": host, "restart_dsh_required": True}
 
@@ -460,6 +499,8 @@ def main(argv=None):
     en = sub.add_parser("enable-modlens")
     en.add_argument("--rc72-home", required=True)
     en.add_argument("--internal-host-suffix", required=True)
+    en.add_argument("--dsh-bin")
+    en.add_argument("--profile", default=PROFILE_DEFAULT)
     args = parser.parse_args(argv)
     if args.command == "verify":
         result = verify_bundle()
@@ -472,7 +513,8 @@ def main(argv=None):
     elif args.command == "configure-modlens":
         result = configure_modlens(internal_host_suffix=args.internal_host_suffix, replace_existing=args.replace_existing)
     else:
-        result = enable_modlens(args.rc72_home, internal_host_suffix=args.internal_host_suffix)
+        result = enable_modlens(args.rc72_home, internal_host_suffix=args.internal_host_suffix,
+                                dsh_bin=args.dsh_bin, profile=args.profile)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
