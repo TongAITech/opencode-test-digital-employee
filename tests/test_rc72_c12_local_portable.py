@@ -223,3 +223,48 @@ def test_independent_q2_failed_check_never_swallowed(tmp_path, monkeypatch):
             repo=tmp_path, source_commit=SOURCE,
             evidence_path=tmp_path / "report.json",
             zip_path=tmp_path / "zip.zip", original_stage=tmp_path / "stage")
+
+
+def test_isolated_node_outbound_block_adds_and_always_removes_scoped_rule(tmp_path, monkeypatch):
+    from rc7_release import rc72_c12_local_portable as c12
+    node = tmp_path / "node.exe"
+    node.write_bytes(b"test-only-not-a-node-runtime")
+    scripts = []
+
+    def capture(script, *, cwd):
+        scripts.append((script, str(cwd)))
+
+    monkeypatch.setattr(c12, "_powershell", capture)
+    with c12._isolated_node_outbound_block(node=node, cwd=tmp_path):
+        assert len(scripts) == 1
+        assert "New-NetFirewallRule" in scripts[0][0]
+        assert "-Action Block" in scripts[0][0]
+        assert "-Direction Outbound" in scripts[0][0]
+        assert "Get-NetFirewallProfile" in scripts[0][0]
+        assert str(node) in scripts[0][0]
+    assert len(scripts) == 2
+    assert "Remove-NetFirewallRule" in scripts[1][0]
+    assert scripts[0][0].split("RC72-C12-NODE-")[1].split("'")[0] == (
+        scripts[1][0].split("RC72-C12-NODE-")[1].split("'")[0])
+
+
+def test_isolated_firewall_cleanup_also_runs_when_q2_fails(tmp_path, monkeypatch):
+    from rc7_release import rc72_c12_local_portable as c12
+    node = tmp_path / "node.exe"
+    node.write_bytes(b"fixture")
+    scripts = []
+    monkeypatch.setattr(c12, "_powershell",
+                        lambda script, *, cwd: scripts.append(script))
+    with pytest.raises(RuntimeError, match="Q2 FAILED"):
+        with c12._isolated_node_outbound_block(node=node, cwd=tmp_path):
+            raise RuntimeError("Q2 FAILED")
+    assert len(scripts) == 2
+    assert "Remove-NetFirewallRule" in scripts[-1]
+
+
+def test_isolated_firewall_requires_real_extracted_node(tmp_path):
+    from rc7_release import rc72_c12_local_portable as c12
+    with pytest.raises(LocalC12Error, match="EXTRACTED_NODE_EXECUTABLE_MISSING"):
+        with c12._isolated_node_outbound_block(
+                node=tmp_path / "no-node.exe", cwd=tmp_path):
+            pass
