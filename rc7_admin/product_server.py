@@ -74,7 +74,7 @@ def _handler(application: ProductAdminApplication):
             self.send_response(int(status)); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
         def _static(self, request_path: str) -> None:
-            relative = "product-index.html" if request_path in {"", "/"} else request_path.lstrip("/")
+            relative = "workbench/index.html" if request_path in {"/workbench", "/workbench/"} else ("product-index.html" if request_path in {"", "/"} else request_path.lstrip("/"))
             if ".." in Path(relative).parts: self.send_error(HTTPStatus.NOT_FOUND); return
             path = (_static_root() / relative).resolve(); root = _static_root().resolve()
             try: path.relative_to(root)
