@@ -49,3 +49,21 @@ B 组签署源 80efa1bfa585fe29a5939c889d5b5a08e4f742ed 的设计可实现性；
 ## WB-FG18 SST 原始身份作用域修订
 
 F 组已实证同一个 source_system 的 SST 原始 source_object_id 可以在同项目两个系统版本中重复出现。内部稳定 sst_id 必须与原始 source_object_id 分离；源标识唯一性限定为 (project_id,system_version_id,source_system,source_namespace,source_object_id)，同时内部 sst_id 在项目内唯一。若重复出现，生成独立内部 SST ID、保留两个原始 source_ref 与 source_revision。BRVS/Scope 仍以 project_id、batch_id、requirement_id、version_id、sst_id 和 source_verified_link 关联，决不按 raw ID/版本显示标签跨版本串联。此段是 W0 设计纠偏，不是 PostgreSQL W1 验收。
+
+
+## PostgreSQL 正式业务库增量决策（待 B/E/D 与 F 精确源审查）
+正式工作台业务数据库采用 PostgreSQL；SQLite 设计见证不能替代真实 PostgreSQL 验收。Redis 仅用于缓存、临时状态和协调，丢失后必须从权威存储恢复。
+
+项目、投产日期、需求、系统、系统版本、SST、BR/BV/BRV/BRVS、测试用例、缺陷、里程碑、报告、知识、会议纪要及审计记录持久化至工作台独立 schema。所有项目内实体及关联以 project_id 参与复合主外键，BRV/BRVS 必须引用权威来源连边；禁止按显示名称连接。投产日期以 DATE 保存，稳定 batch_id 改期不变并记录历史。已有来源见证不可静默覆盖或删除。
+
+业务写入在一个 PostgreSQL 事务内完成授权、expected_relation_revision 比较、关联校验、业务变更、幂等记录、审计和事务 outbox；冲突或非法关系完整回滚。运行角色不得拥有 schema/迁移权限；宿主可信主体通过服务端上下文授权，连接池每事务设置并清理身份，RLS 及 API 授权共同隔离项目，撤权后旧游标失效。审计保留主体、动作、请求ID、对象、前后修订、时间与来源，业务角色不可改写。
+
+R1 继续是 Mission、Attempt、Evidence、NodeGate 正式运行事实来源。工作台数据库只保存业务关系与 R1 引用/投影，不直接更新这些正式事实。读取时先取最小 Mission 身份，校验 project+batch，再读关联明细；禁止 unscoped fallback。跨 PostgreSQL/R1 不假设分布式原子事务：命令以持久幂等状态、正式 command_ref 和对账恢复处理，未知副作用进入 HOLD；outbox 投递不等于 R1 已执行或 PASS。缓存与投影必须带来源修订及新鲜度，R1 不可用返回明确缺口。
+
+证据大文件放受控文件或对象存储，数据库只保存元数据、哈希、访问控制与引用；上传暂存、哈希验证、元数据提交和孤儿清理须可恢复，不将缺文件或哈希失败视为有效证据。
+
+迁移使用有序版本与校验和、专用迁移角色、备份及 dry-run；先核对来源映射、冲突隔离、行数和历史分母，再切换。回滚必须实测恢复旧应用与数据库兼容状态，不删除正式 R1 或已有证据；不可逆步骤须先备份并明确恢复方案，失败停止切换。
+
+W1 验收必须在真实 PostgreSQL 执行：迁移与回滚、同需求多版本多SST、共享版本不共享SST、跨项目/批次复合FK拒绝、并发修订冲突、幂等重放/异负载、事务中断零部分写、连接池身份串用、撤权、重启、outbox重复/故障恢复、R1不可用和证据缺失。记录服务器版本、源SHA、命令、日志与数据Oracle；当前均 NOT_RUN。
+
+本增量状态 PG_INCREMENT_REVIEW_PENDING；历史 B/D/E 设计签署不覆盖本增量，须分别绑定完整提交 SHA 提供意见；F 接受最新设计 HEAD 前禁止 W0_DESIGN_FROZEN。
