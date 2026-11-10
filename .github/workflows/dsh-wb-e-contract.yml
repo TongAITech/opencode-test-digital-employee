@@ -8,6 +8,7 @@ on:
       - 'tools/dsh_workbench/e_contract_oracle.py'
       - 'tests/test_dsh_workbench_e_*.py'
       - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
+      - 'tools/dsh_workbench/e_b06_page_consumer.py'
       - '.github/workflows/dsh-wb-e-contract.yml'
   pull_request:
     branches: [work/dsh-wb-w0]
@@ -16,6 +17,7 @@ on:
       - 'tools/dsh_workbench/e_contract_oracle.py'
       - 'tests/test_dsh_workbench_e_*.py'
       - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
+      - 'tools/dsh_workbench/e_b06_page_consumer.py'
       - '.github/workflows/dsh-wb-e-contract.yml'
   workflow_dispatch:
 
