@@ -10,6 +10,11 @@ class RelationStore(BusinessStore):
         if row[0]!=expected:
             raise BusinessError(409,'RELATION_REVISION_CONFLICT')
 
+    def _bump_revision(self,project,batch):
+        # Schema005 derives revisions in DB triggers. Earlier reviewed schemas
+        # retain the explicit transactional bump for backward compatibility.
+        self.db.execute("UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s AND NOT EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='wb' AND c.relname='batch_requirement' AND t.tgname='relation_row_changed')",(project,batch))
+
     def create_requirement(self,principal,project,requirement,source,namespace,object_id,source_revision,source_ref,request):
         with self._scope(principal,project):
             payload=['requirement',requirement,source,namespace,object_id,source_revision,source_ref]
@@ -25,7 +30,7 @@ class RelationStore(BusinessStore):
             self._revision(project,batch,expected)
             # SQL identifier only from the two literal allowlisted choices above.
             self.db.execute('INSERT INTO wb.batch_'+kind+' VALUES(%s,%s,%s)',(project,batch,member))
-            self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
+            self._bump_revision(project,batch)
             self._audit(project,principal,request,'batch.member',batch,{'kind':kind,'id':member,'revision':expected+1})
             return expected+1
 
@@ -34,7 +39,7 @@ class RelationStore(BusinessStore):
             if self._claim(project,principal,request,['brv',batch,requirement,version,expected]): return expected+1
             self._revision(project,batch,expected)
             self.db.execute('INSERT INTO wb.batch_requirement_version VALUES(%s,%s,%s,%s)',(project,batch,requirement,version))
-            self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
+            self._bump_revision(project,batch)
             self._audit(project,principal,request,'batch.requirement_version',batch,{'requirement':requirement,'version':version,'revision':expected+1})
             return expected+1
 
@@ -43,7 +48,7 @@ class RelationStore(BusinessStore):
             if self._claim(project,principal,request,['brvs',batch,requirement,version,sst,expected]): return expected+1
             self._revision(project,batch,expected)
             self.db.execute('INSERT INTO wb.batch_requirement_version_sst VALUES(%s,%s,%s,%s,%s)',(project,batch,requirement,version,sst))
-            self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
+            self._bump_revision(project,batch)
             self._audit(project,principal,request,'batch.sst',batch,{'requirement':requirement,'version':version,'sst':sst,'revision':expected+1})
             return expected+1
 

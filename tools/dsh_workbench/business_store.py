@@ -22,7 +22,7 @@ class BusinessStore:
         self.db = connection
 
     @contextmanager
-    def _scope(self, principal, project, write=True):
+    def _scope(self, principal, project, write=True, isolation=None):
         if self.db.closed:
             raise BusinessError(503,'BUSINESS_DATABASE_UNAVAILABLE')
         if self.db.info.transaction_status != 0:
@@ -31,6 +31,10 @@ class BusinessStore:
             raise BusinessError(403, 'FORBIDDEN')
         try:
             with self.db.transaction():
+                if isolation == 'repeatable read':
+                    self.db.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                elif isolation is not None:
+                    raise ValueError('INVALID_TRANSACTION_ISOLATION')
                 self.db.execute("SELECT set_config('wb.principal',%s,true)", (principal,))
                 allowed = self.db.execute('SELECT wb.allowed(%s,%s)', (project,write)).fetchone()[0]
                 if not allowed:
