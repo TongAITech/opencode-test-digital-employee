@@ -117,7 +117,7 @@ F 在 A@f870 精确源码上重新运行 `run_browser_evidence.py`，artifact [#
 - `tools/dsh_workbench/e_b06_page_consumer.py` 的 `r1_preview_after_full_b06_scope()` 在完整 B06 项目/批次 Scope 后调用 `projection.mission_overview(mission_id)`，之后才把 overview 交给 `r1_preview()` 校验 Mission 的 project_id/batch_id。
 - 真实旧 `rc7_admin/projection.py::mission_overview(mission_id)` 只按 mission_id 查询 `rc7_mission`，随后按 mission_id 查询相关 tasks/evidence/executions；该查询本身没有 project_id/batch_id ACL 过滤。
 - `test_old_mission_without_batch_identity_is_not_inferred` 还明确断言：缺 project/batch 的旧 Mission 被拒绝前，projection 已被调用一次。
-- 因此，获准访问项目 A/B1 的调用者如果传入其他项目的 mission_id，当前适配器会先把该 Mission 及相关记录读入进程，再因 Scope 不匹配拒绝结果。即使最终响应没有返回数据，这仍违反“先授权再读取跨项目数据”的安全边界。
+- 因此，获准访问项目 A/B1 的调用者如果传入其他项目的 mission_id，当前适配器会先把该 Mission 及相关记录读入进程，再因 Scope 不匹配拒绝结果。当前仍是 pre-B06 原型，尚无正式 /api/workbench/v1 路由，因此 F 没有声称存在已上线的可利用接口；但若把当前调用顺序直接接入产品，就会在校验前读取跨项目数据，违反“先授权再读取”的安全边界。
 
 **整改要求（E01 前置）：**
 1. 提供在 R1 数据访问边界执行的 scope-filtered Mission read，例如按可信 principal + project_id + batch_id + mission_id 做原子授权查询；
