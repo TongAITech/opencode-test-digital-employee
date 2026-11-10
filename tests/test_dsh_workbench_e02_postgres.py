@@ -14,7 +14,9 @@ class E02(prior.E01):
         runtime=TruthRuntime(self.r1)
         append_rc72_entity(runtime,MissionNodeRecord(mission_node_id='NODE1',mission_id='M1',node_type='N1_REALITY',scope_ref='B1'),release_id='B1')
         before=self.r1.read_bytes()
-        with patch('test_dsh_workbench_e01_postgres.E01Service',E02Service):origin=self.quality_server()
+        provider_patch=patch('test_dsh_workbench_e01_postgres.E01Service',E02Service)
+        provider_patch.start();self.addCleanup(provider_patch.stop)
+        origin=self.quality_server()
         path='/api/workbench/v1/missions/M1/graph?project_id=P1&batch_id=B1&release_date=2026-11-12'
         status,value=self.http(origin,path);self.assertEqual(status,200,value)
         self.assertEqual(value['records']['rc72_mission_node'][0]['state'],'NOT_STARTED')

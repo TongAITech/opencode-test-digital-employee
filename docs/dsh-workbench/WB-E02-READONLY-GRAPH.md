@@ -7,3 +7,5 @@ E02 reuses E01 authorization and immutable R1 snapshot admission, verifies the s
 PostgreSQL17.6 loopback HTTP and persistent synthetic R1 tests cover actual canonical N1 record, missing remaining nodes/gates, workitems, untrusted identity, wrong batch, revoked permission, unknown state503/recovery and original bytes unchanged. Inherited E01 tests cover legacy binding denial, cold recovery, immutable bytes and identity-only rejection. No bank Host/Windows/field claim. F independent review remains required.
 
 Initial local test rejected fixture node_type=N1, correctly requiring canonical N1_REALITY; fixed test and missing-node calculation to use RC72_CANONICAL_NODE_ORDER. No runtime contract modified.
+
+Final local real PostgreSQL/HTTP/persistent R1 regression: 35/35 PASS (14.725s). A first HTTP fixture used a temporary mock context that ended before request handling, causing503; fixed provider lifetime for the server. This was a test integration failure, retained here rather than counted as prior PASS.
