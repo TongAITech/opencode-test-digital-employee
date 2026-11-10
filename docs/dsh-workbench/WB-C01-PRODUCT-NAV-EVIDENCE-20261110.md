@@ -1,0 +1,9 @@
+# C01 正式导航首个实现增量
+
+基线 b6a61e4c；独立原创实现，不引用受限源码。正式入口为现有 product_server 的 /workbench/，与 tools/dsh_workbench/ui_w0_prototype 独立。五个主导航加项目详情入口，详情保留十区；默认中文，完整英文导航、设置、错误/未就绪文案。支持light/dark/system，原生button/select键盘可达。
+
+本增量只建立导航骨架。统一Scope位置保留投产日期→需求→系统版本→SST；B06及Host未接入，明确未就绪且不显示虚构记录。重新检查保留未就绪，未发业务写入/未计算Gate。没有完成C02或50项产品功能。
+
+测试：node --test tests/test_dsh_workbench_c01.mjs，3/3通过；python3 -m unittest discover -s tests -p test_dsh_workbench_c01_browser.py -v，真实Chromium+真实product_server socket 1/1通过，遍历五导航/项目入口/十区、中英文切换、Gate分区保留、主题重载恢复、坏JSON设置冷恢复、未就绪重查及浏览器无错误。无截图替代业务Oracle，真实B06/DSH/Windows/F02均NOT_RUN。
+
+未改08/09/10或R1。独立F须对新提交验收；C01此增量COMPONENT_TESTED，完整实现门禁仍待实际原生宿主和集成验证。
