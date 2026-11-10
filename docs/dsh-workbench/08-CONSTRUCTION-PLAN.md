@@ -6,14 +6,15 @@
 
 ## 当前权威状态（2026-11-11）
 
-- 当前代码集成检查点：`d31d8ef70229942215060bd58ef3b593b1b95be1`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
+- 当前代码集成检查点：`9642f5b2b7caa973d846d61471c8a5956b31cfb6`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
 - d31远端同SHA：W0 run42859333314、真实浏览器run42859326708均SUCCESS；本次新台账HEAD另核检查，不转签旧SHA。
 - 六类草稿表单、B07七kind与E02读取为组件集成；旧legacy API隔离P1、目录键盘/撤权P2已按独立报告修复。完整项目编辑、看板业务状态、正式R1资产映射及生产纵向链仍未完成；日历年月日已有PR #182组件候选，尚未独立验收/集成，不能把只读目录当项目管理全功能。
-- 新增P04-01日历组件PR #182源`1492a572`，A真实PG浏览器7/7、Node91/91、原F反例复跑5/5；F_REVIEW_REQUIRED，未合入。完整C03、独立日程及提醒仍未完成。
-- HTTP断连P3候选`47950777`独立PR #180：A真实socket4/4、真实PG断连提交恢复1/1通过，尚未合入，F_REVIEW_REQUIRED。F任务额度不可用，不用A自测替代独立验收。
-- 正式Mission绑定生产缺口已复现：正式创建无project/batch、typed更新丢extra；PR #175初稿、B #176及D #179有required details。新协议V2 PR #181源`957874d6`仅候选，B/D/E/F复签PENDING，未改R1/冻结模型。E03仍BLOCKED_FORMAL_CONTROL_API，B08/E04–E06等依赖未齐。
+- 本轮F独立接受HTTP补丁源`47950777`（#183报告904493cf，13项实际验证）与日历源`1492a572`（#187报告3ac4d157，独立公历oracle/真实PG反例）。两组件已正向合入9642f5b2，新联合HEAD回归进行中；不得把组件接受转成整个产品QA通过。
+- V2 #181经B #184、D #185独立复审仍有P1：真实来源字段形状、authority复合域/FK、受控持锁快照端口、lookup重交动作矩阵与Host最终围栏协议。仅单独摘取审查报告入账，未合入未签V2、未修改R1正式模型。E正在独立V3分支修订，不等待现场才能修抽象合同。
+- C06只读任务事实界面在隔离c-runtime-ui施工，复用已验E01/E02，不提供执行/审批命令；正式Mission生产绑定与E03控制API仍未实现。完整项目编辑/看板/日程提醒、B08、E04–E06及产品纵向资格未完成。
+- 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
 ## 六组施工责任
@@ -59,8 +60,8 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 ## W2 — 保留原能力与资产增强
 | 工单 | Owner | 内容 | 依赖 | 状态 |
 |---|---|---|---|---|
-| WB-C03 | C | 首页/看板/日历/技能页面完整对账 | C01 | MILESTONE_SLICE_ACCEPTED / CALENDAR_YMD_CODE_COMPLETE_F_PENDING / OTHER_PAGE_FEATURES_PENDING |
-| WB-C04 | C | 十分区信息与资产表单完整对账 | C01 | MILESTONE_SLICE_ACCEPTED / SIX_DRAFT_FORMS_IN_PROGRESS |
+| WB-C03 | C | 首页/看板/日历/技能页面完整对账 | C01 | MILESTONE_SLICE_ACCEPTED / CALENDAR_YMD_COMPONENT_ACCEPTED / OTHER_PAGE_FEATURES_PENDING |
+| WB-C04 | C | 十分区信息与资产表单完整对账 | C01 | MILESTONE_AND_SIX_DRAFT_FORMS_COMPONENT_ACCEPTED / OTHER_SECTIONS_PENDING |
 | WB-C05 | C | 中文/主题/搜索/响应式/可访问性 | C03,C04 | TODO |
 | WB-B07 | B | 用例/义务/缺陷/报告追踪规范化 | B05 | SEVEN_KIND_COMPONENTS_ACCEPTED / R1_REFERENCE_VERIFICATION_PENDING |
 | WB-B08 | B | 历史数据兼容和可逆迁移 | B07 | TODO |
@@ -382,3 +383,11 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - 同候选完整SHA远端：[W0 run42866382338](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42866382338) SUCCESS；[浏览器run42866382450](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42866382450)两个job均SUCCESS（含Node91和新增真实PG日历用例）。CI成功不替代F签署。
 - P04-02独立日程管理、P04-03临期/逾期提醒、P04-04提测/冻结绑定仍未实现；权威BUSINESS_TZ未取得时不能用浏览者本地日期编造逾期。完整C03/C04仍不核销。
 - PR #180断连补丁与#181绑定V2维持独立待审；真实DSH/Windows仅可搬运行内。F不可用期间不把A自测或CI当独立签署，不集成未经所需验收的候选，不生成最终交付包。
+
+## 2026-11-11 本轮连续施工：独立验收与正向集成
+
+- 起始远端aa533c21、RC7.2 edaf9290均重新核实；主线未写入。重新发起F/B/D后工具均正常，不能沿用上一轮“F额度不可用”的推断。本轮不再按单个PR结束施工。
+- HTTP源47950777与F报告904493cf一起合入15c57c1c；F明确接受13项实际执行，包含真实RST后换主体/CSRF/撤权/原请求恢复，报告#183。
+- 日历源1492a572与F报告3ac4d157一起合入9642f5b2；F除91 Node/7浏览器/5旧反例外，独立核对168个月格、5116个日期，并以真实PG验证分页末页坏日期、跨Scope/换主体未知写入、原键恢复、撤权及迟到清空。F报告#187，仅组件接受。
+- B报告2f631331（#184）与D报告29df5051（#185）只以单独报告提交摘取到主集成。没有顺带合入V2。P1真实阻断和最小修订明确，E在独立V3工作区继续；纯编码/DTO与缺能力拒绝组件不必等真实Host现场。
+- C06只读事实界面已实际实现并局部测试，仍在独立分支，待最新完整SHA的F独立验收。所有联合回归按新集成SHA另验，历史完整7586a80c资格不转签。FIELD_NEEDS_BANK_TRANSFER及最终发布NOT_APPROVED不变。
