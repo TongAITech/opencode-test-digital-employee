@@ -74,6 +74,13 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "test_dsh_workbench*.py", "ci_admission.py", "workflow_dispatch:",
     )):
         errors.append("W0_FAST_GATE_NOT_WIRED")
+    if not all(x in sources["w0"] for x in (
+        "tests/test_dsh_workbench*.mjs",
+        "node --test tests/test_dsh_workbench_ui_w0.mjs",
+        "tests/test_dsh_workbench_c_feature_reconciliation.mjs",
+        "node-version: '22'",
+    )):
+        errors.append("W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
     if not all(x in e["l1"] for x in (
         "pull_request:", "ready_for_review", "workflow_dispatch:",
         "expected_source_sha:", "include_browser:",

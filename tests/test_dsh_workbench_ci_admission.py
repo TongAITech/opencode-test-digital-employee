@@ -45,6 +45,11 @@ class TestCIAdmission(unittest.TestCase):
                      "  push:\n    branches: [work/dsh-wb-w0]\n  workflow_dispatch:",
                      "W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
 
+    def test_w0_c_node_scope_negative_tests_must_run(self):
+        self.changed("w0", "node --test tests/test_dsh_workbench_ui_w0.mjs",
+                     "echo skipped C scope tests",
+                     "W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
+
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",
                      "L1_SOURCE_PIN_OR_GATES_MISSING")
