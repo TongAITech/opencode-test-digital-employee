@@ -29,6 +29,7 @@ function collection(value,id,mission){
 export function validateRuntimeSnapshot(context,mission,graph,workitems,quality){
   for(const value of [graph,workitems,quality])validateEnvelope(value,context,mission);
   if(graph.truth_revision!==workitems.truth_revision||graph.truth_revision!==quality.truth_revision)fail('RUNTIME_SNAPSHOT_CHANGED');
+  for(const value of [workitems,quality])if(value.source_refs.length!==graph.source_refs.length||value.source_refs.some(ref=>!graph.source_refs.includes(ref)))fail('RUNTIME_SOURCE_CHANGED');
   if(graph.human_approval!=='UNKNOWN_NOT_QUERIED'||workitems.human_approval!=='UNKNOWN_NOT_QUERIED'||quality.scope_complete!==true||quality.data_quality!=='READ_ONLY_SNAPSHOT')fail('INVALID_RUNTIME_QUALIFICATION');
   const records={},keys={rc72_mission_node:'mission_node_id',rc72_node_delivery:'delivery_id',rc72_node_gate:'gate_id',rc72_node_transition:'transition_id',rc72_back_edge:'back_edge_id',rc7_task:'task_id',rc72_etu:'etu_id',rc72_workitem_attempt_binding:'binding_id'};
   for(const [kind,id] of Object.entries(keys))records[kind]=collection((kind==='rc7_task'||kind==='rc72_etu'||kind==='rc72_workitem_attempt_binding'?workitems:graph).records?.[kind],id,mission);
