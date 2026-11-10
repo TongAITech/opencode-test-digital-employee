@@ -1,8 +1,8 @@
 """B03 real PostgreSQL batch membership tests; no SQLite substitutes."""
 import test_dsh_workbench_b_postgres as base
 from test_dsh_workbench_b_postgres import DSN, psycopg, sql
-from tools.dsh_workbench.business_migrations import migrate
-from tools.dsh_workbench.business_relations import RelationStore
+from tools.dsh_workbench.business_migrations import migrate, downgrade
+from tools.dsh_workbench.business_relations import RelationStore, import_verified_requirement_version
 import unittest
 
 @unittest.skipUnless(DSN and psycopg,'real PostgreSQL DSN and psycopg required')
@@ -40,3 +40,36 @@ class Membership(base.PostgresIdentity):
         self.assertEqual(self.owner.execute('SELECT relation_revision FROM wb.release_batch').fetchone()[0],1)
         self.owner.execute('DROP TRIGGER fail ON wb.audit')
         self.assertEqual(self.relations.attach_member('alice','P1','B1','version','V1',1,'attach'),2)
+
+
+@unittest.skipUnless(DSN and psycopg,'real PostgreSQL DSN and psycopg required')
+class RequirementVersion(Membership):
+    def setUp(self):
+        super().setUp()
+        migrate(self.owner,target=3)
+        self.owner.execute(sql.SQL('GRANT SELECT ON wb.verified_requirement_version TO {}').format(sql.Identifier(self.role)))
+        self.owner.execute(sql.SQL('GRANT SELECT,INSERT ON wb.batch_requirement_version TO {}').format(sql.Identifier(self.role)))
+
+    def test_brv_source_whitelist_rejects_cartesian_pair_and_is_immutable(self):
+        self.seed()
+        self.relations.attach_member('alice','P1','B1','requirement','R1',1,'ar')
+        self.relations.attach_member('alice','P1','B1','version','V1',2,'av')
+        self.error(422,lambda:self.relations.attach_requirement_version('alice','P1','B1','R1','V1',3,'unverified'))
+        self.assertEqual(self.owner.execute('SELECT count(*) FROM wb.batch_requirement_version').fetchone()[0],0)
+        import_verified_requirement_version(self.owner,'P1','B1','R1','V1','source:rv','r1')
+        self.assertEqual(self.relations.attach_requirement_version('alice','P1','B1','R1','V1',3,'verified'),4)
+        self.relations.create_requirement('alice','P1','R2','src','prod','r2','r1','source:r2','r2')
+        self.relations.attach_member('alice','P1','B1','requirement','R2',4,'ar2')
+        self.error(422,lambda:self.relations.attach_requirement_version('alice','P1','B1','R2','V1',5,'cartesian'))
+        with self.assertRaises(psycopg.Error): self.runtime.execute("INSERT INTO wb.verified_requirement_version VALUES('P1','B1','R2','V1','forged','r1')")
+        with self.assertRaises(psycopg.Error): self.owner.execute("UPDATE wb.verified_requirement_version SET source_revision='silent-change'")
+        with self.assertRaises(psycopg.Error): self.owner.execute('DELETE FROM wb.verified_requirement_version')
+        self.assertEqual(self.owner.execute('SELECT source_revision FROM wb.verified_requirement_version').fetchone()[0],'r1')
+
+    def test_incremental_empty_downgrade_preserves_existing_date_domain(self):
+        self.batch()
+        downgrade(self.owner,1)
+        self.assertIsNone(self.owner.execute("SELECT to_regclass('wb.requirement')").fetchone()[0])
+        self.assertEqual(self.store.reschedule('alice','P1','B1','2026-11-13',1,'after-down','reason','CHG'),2)
+        self.assertTrue(migrate(self.owner,target=3))
+        self.assertEqual(self.owner.execute('SELECT relation_revision FROM wb.release_batch').fetchone()[0],1)

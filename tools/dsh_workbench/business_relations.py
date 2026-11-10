@@ -28,3 +28,22 @@ class RelationStore(BusinessStore):
             self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
             self._audit(project,principal,request,'batch.member',batch,{'kind':kind,'id':member,'revision':expected+1})
             return expected+1
+
+    def attach_requirement_version(self,principal,project,batch,requirement,version,expected,request):
+        with self._scope(principal,project):
+            if self._claim(project,principal,request,['brv',batch,requirement,version,expected]): return expected+1
+            self._revision(project,batch,expected)
+            self.db.execute('INSERT INTO wb.batch_requirement_version VALUES(%s,%s,%s,%s)',(project,batch,requirement,version))
+            self.db.execute('UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=%s AND batch_id=%s',(project,batch))
+            self._audit(project,principal,request,'batch.requirement_version',batch,{'requirement':requirement,'version':version,'revision':expected+1})
+            return expected+1
+
+
+def import_verified_requirement_version(owner_connection,project,batch,requirement,version,source_link_ref,source_revision):
+    """Trusted source-ingestion owner only, after external proof verification.
+
+    Runtime role cannot write this table. Do not expose as a client mutation.
+    """
+    with owner_connection.transaction():
+        owner_connection.execute('INSERT INTO wb.verified_requirement_version VALUES(%s,%s,%s,%s,%s,%s)',(project,batch,requirement,version,source_link_ref,source_revision))
+        owner_connection.execute("INSERT INTO wb.audit(project_id,actor,request_id,action,object_id,detail) VALUES(%s,current_user,%s,'source.requirement_version',%s,jsonb_build_object('source_ref',%s::text,'source_revision',%s::text))",(project,source_link_ref+':'+source_revision,batch,source_link_ref,source_revision))
