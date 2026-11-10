@@ -15,3 +15,9 @@
 新增定向workflow dsh-wb-scope-codec：workflow_dispatch及PR paths触发，ubuntu-22.04上的真实Python3.8/3.11，stdlib测试，无DB、业务网络或离线包构建。运行结果待推送后核实；定义工作流不计两版本实际通过。
 
 推送后真实CI已核实：[run42871479907](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42871479907)，被测完整代码源 `41d2ec560a6d7bffdc275600b316c62a5521dcb0`。日志明确 Python3.8.18：10/10、0.073s；Python3.11.18：10/10、0.059s；两job均success。此为实际解释器执行，替代先前只有AST语法的兼容性证据；不把首轮TypeError反例改记PASS。后续本记录提交仅追加证据，不改被测模块/测试/workflow。
+
+## F独立新发现 P1_FILTERED_UNSPLIT：失败保留与修复
+
+对原冻结a9758687实际复现：filters.sst_ids=['SST1']，edges为R1/V/SST1及R2/V/UNSPLIT，raw编码接受1459 bytes，parse接受2条边。原测试通过不涵盖此语义，不把旧源记为可接受。根因过滤覆盖集排除None后只比较集合，漏掉不应存在的额外UNSPLIT边。
+
+修复要求每个非空filter下每条edge对应列都必须在选中ID集合中，同时保持全部请求ID覆盖；因此SST非空过滤下None明确拒绝。新增raw/parse两条拒绝入口、无筛选SPLIT+UNSPLIT合法正例、筛选仅SPLIT正例、缺请求覆盖及成功/失败输入不变；保留不可hash nullable拒绝。提交前本地11/11通过、diff检查通过。新源Python3.8/3.11定向CI实际结果由A记录PR body/主台账；此提交后冻结，不为追加CI证据变更HEAD。

@@ -174,7 +174,8 @@ def canonical_scope_bytes(snapshot):
     for field, column in (('requirement_ids', 'requirement_id'), ('version_ids', 'version_id'), ('sst_ids', 'sst_id')):
         selected = set(filters[field])
         actual = {edge[column] for edge in canonical if edge[column] is not None}
-        if selected and selected != actual:
+        if selected and (selected != actual or
+                         any(edge[column] not in selected for edge in canonical)):
             _fail()
     canonical.sort(key=lambda e: tuple((0, b'') if e[k] is None else (1, _sort(e[k]))
                                       for k in ('requirement_id', 'system_id', 'version_id', 'sst_id')))

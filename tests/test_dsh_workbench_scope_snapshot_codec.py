@@ -186,6 +186,40 @@ class Codec(unittest.TestCase):
             with self.assertRaises(ScopeStructureError):
                 creation_key('a', malformed, 'p', 'k')
 
+    def test_sst_filter_rejects_extra_unsplit_raw_and_parse(self):
+        value = snapshot(); split = value['edges'][0]
+        split['sst_id'] = 'SST1'
+        split['sst_source'] = dict(split['requirement_source'], kind='SST_IDENTITY')
+        split['brvs_source'] = {'kind': 'VERIFIED_SST_LINK', 'source_link_ref': 'link', 'verified_source_revision': '1'}
+        unsplit = snapshot()['edges'][0]
+        unsplit['requirement_id'] = 'R2'
+        unsplit['requirement_source']['source_object_id'] = 'r2'
+        value['edges'].append(unsplit)
+        # With no SST filter, a split requirement and a different unsplit
+        # requirement sharing the version are structurally legitimate.
+        original = copy.deepcopy(value)
+        canonical_scope_bytes(value)
+        parse_snapshot_json(json.dumps(value))
+        self.assertEqual(value, original)
+        value['filters']['sst_ids'] = ['SST1']
+        original = copy.deepcopy(value)
+        self.reject(value)
+        with self.assertRaises(ScopeStructureError):
+            parse_snapshot_json(json.dumps(value))
+        self.assertEqual(value, original)
+        # The filter selects only split edges; all requested IDs remain covered.
+        value['edges'].pop()
+        original = copy.deepcopy(value)
+        canonical_scope_bytes(value)
+        parse_snapshot_json(json.dumps(value))
+        self.assertEqual(value, original)
+        value['filters']['sst_ids'].append('SST2')
+        original = copy.deepcopy(value)
+        self.reject(value)
+        with self.assertRaises(ScopeStructureError):
+            parse_snapshot_json(json.dumps(value))
+        self.assertEqual(value, original)
+
     def test_immutable_key_and_default_hold(self):
         key = creation_key('authority', 'alice', 'P', 'key')
         self.assertEqual(tuple(key), ('authority', 'alice', 'P', 'key'))
