@@ -354,6 +354,10 @@ def uninstall(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
         _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
     if native_path.is_file() and _sha256(native_path) == receipt["mnemon_cli"]["sha256"]:
         native_path.unlink()
+    try:
+        native_path.parent.rmdir()
+    except OSError:
+        pass
     extension_root = rc72_home / "workspace-template" / "runtime" / "dsh-ecosystem-extensions"
     if extension_root.exists():
         shutil.rmtree(str(extension_root))
