@@ -426,3 +426,53 @@ def test_n8_cold_replay_refuses_missing_or_forged_delivery_before_r1_write(
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("damage", ["forged_gate", "wrong_active_delivery_generation"])
+def test_r4_n8_replay_checks_forged_gate_and_active_delivery_before_evidence(
+        tmp_path, monkeypatch, damage):
+    """A saved process receipt cannot write a new Evidence before R1 gate review."""
+    from rc7_runtime.rc72_domain import AutonomousMissionNode
+
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / "diagnosis")
+        assert service.run(p["preparation_id"])["failure_class"] == "TEST_DATA_GAP"
+        original_query = truth.query
+        if damage == "forged_gate":
+            gate = original_query("rc72_node_gate", node_type="N8_DIAGNOSIS_RECOVERY")[0]
+
+            def forged_gate(kind, **filters):
+                rows = original_query(kind, **filters)
+                if (kind == "rc72_node_gate"
+                        and filters.get("gate_id") == gate["gate_id"]):
+                    return [dict(rows[0], evidence_refs=["FORGED-DIAGNOSTIC-EVIDENCE"])]
+                return rows
+
+            monkeypatch.setattr(truth, "query", forged_gate)
+            error = "N8_ACCEPTED_GATE_CONFLICT"
+        else:
+            original_node = service.runtime.node_by_type
+
+            def wrong_node(mission_id, node_type):
+                node = original_node(mission_id, node_type)
+                if node_type == AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY:
+                    return dict(node, active_delivery_version=9999)
+                return node
+
+            monkeypatch.setattr(service.runtime, "node_by_type", wrong_node)
+            error = "N8_ACTIVE_DELIVERY_CONFLICT"
+
+        def forbidden_evidence_write(*args, **kwargs):
+            raise AssertionError("untrusted cold R1 replay attempted Evidence write")
+
+        monkeypatch.setattr(service.evidence, "_ensure", forbidden_evidence_write)
+        before = truth.store.path.read_bytes()
+        with pytest.raises(ContractError, match=error):
+            service.run(p["preparation_id"])
+        assert truth.store.path.read_bytes() == before
+        assert truth.query("execution_attempt")[0]["status"] == "BLOCKED"
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
