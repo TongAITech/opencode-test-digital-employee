@@ -105,3 +105,11 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 本次 B #95 领域复签 @ `67c4fc592f290710d6242aef2d4144000e7d82fd`、E #96 R1 consumer @ `c70ad0da92c5a4899a72d3096fad5e46fded74d5`、C #97 原创 UI 原型 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 纳入 A 候选，保留各组独立 PR 供 F 审查；B06 只读 Scope 使用服务端可信主体、source_refs、顶层 next_page_cursor，E 检查显式 Mission project+batch。
 - C 原型最新可重复源 d4863ba：20/20 Node、Chromium 六页十区多选及表单、3 PNG 通过，F 后续视觉独立复查和正式 F02 尚未进行；B 23/23、E 47/47 属各自源 SHA，不预填联合 HEAD 绿灯。
 - A 当前集成源码的 W0 155+/FG22 新测试/F 独立边界仍需同 SHA 运行；PR #84 继续 Draft，W0_NOT_FROZEN、A02 BLOCKED_LICENSE、B01/C01/E01 真实实现 NOT_RUN、无现场 DSH、无 Windows 离线 ZIP、不得合并运行主线。
+
+## 2026-11-10 A 组只读 Scope 竞争保护准入检查点
+
+- 本次独立增量从 A`200a96ac2ce3b69f2bd76a98517444699c8fbe92` 与 C PR #97@`cf96541b0833dfa32654d6f3451742af73c9c5ff` 固定来源组合，只增 W0 内存只读 Scope 响应隔离与负向准入，不承诺正式 B06/E01/API/Browser 宿主功能。
+- 新增原子证据：9 项 Node 跨批次/版本旧响应/403 资源匿名/503 和 NodeGate 假 PASS 反例；W0 PR fast CI 必须执行且不能移除。候选同 SHA CI 结果由 GitHub Actions 产生后再写，不借旧 200a 的 PASS。
+- F #101 已审核旧 A b385e、结论 REVIEWED_WITH_BLOCKERS；A@200a L0 source green 并不代表 F 对新增 SHA 通过。W0_NOT_FROZEN、A02_BLOCKED_LICENSE、PR #84 仍 Draft、RC7.2 主线不可放行，银行 ZIP 未获授权。
+- B06 真 PostgreSQL/API、D 行内 DSH1.18.26 和会话恢复、E R1/SSE 与人审、C 六页十区正式 UI、Windows/AgentTeams32 实际现场与 F01-F04 FIELD_QA 均 NOT_RUN。
+
