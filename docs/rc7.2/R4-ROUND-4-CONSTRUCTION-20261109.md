@@ -101,3 +101,64 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-05 / Q3–Q6 现场签章准入补强（2026-11-10）
+
+- 发现源码安全问题：原 FieldQualificationService._is_trusted_for_gate 仅验证 provider:// 或 human:// URI 字符串和 ReleaseBatch 关联。任意 R1 写入者可凭借这些可伪造字段提交 Q3–Q6 FIELD PASS，甚至原有测试未使用真实签章。此情况不符合 Field Evidence 真伪门禁。
+- 修复为 Gate-specific 银行 Host 信任根（trusted_gate_authorities）。对 R1 Evidence 实施 HMAC-SHA256 精确绑定：Gate、Batch、source_commit、platform_family、platform_release、architecture、python_version、Evidence ID/Kind、source/content reference、content hash、subject_refs 与 artifact_version；少签、错签、跨批/跨平台重放、无可信 Host 时必须 HOLD。Q6 保留独立 human:// 和 CASE_HUMAN_GATE_APPROVAL 类型，并要求银行审批侧受信签章。
+- 明确安全边界：源码单测内的 signing key 只是隔离测试夹具，不能替代行内信任根、真实审批、4A 或物理 Evidence 真实性。银行 Host 必须在确认原始 Provider/人审/被签文件后才签发，且密钥不能注入 Agent Prompt/Worker 或随包分发。
+- 增加 4 平台（Windows/Linux × Python3.8/3.11）独立专项 CI；不重复构建 ZIP。此轮仅更新 Q3–Q6 的安全准入，不宣称 R4-01～07 Field、C12 或 Bank Final 通过。
+
+当前：FIELD_APPROVAL_SIGNATURE_HARDENING_PR / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO.
+
+## R4-01 / C07 DSH AgentTeams provider 自签名门禁加固（2026-11-10）
+
+- 源码审计发现：configured_agentteams_host_bindings 允许 provider_module 按调用方字符串动态导入，且 CaptainProviderWiring 可以同时返回其自行构造的 membership_authority 和 host_authority。若不要求独立银行 Host 提前锁定信任根，provider 的自签名可能被当作真实 AgentTeams Captain。
+- 增加 BankCaptainTrustRoots：调用方必须由银行可信 Host 预先注入受批准 provider_module 名称及彼此独立的 membership/host authority；在导入模块前拒绝 provider 名称不匹配、缺少受信根及共享密钥。provider 返回的 authority 必须是预先注入的同一对象，不能自签自验。LocalDshAgentTeamsHost 继续检查真实 loopback DSH session/status、HMAC、准确 R1 Batch 和 Captain 身份。
+- 新增独立负例：缺少受信根或未批准模块不得 import，独立对象共用同一签名 key 必须拒绝，provider 自带的任意双 key 不得创建 Captain，签名缺失即使 trust root 正确仍不写 R1。
+- 这只能证明受控 Host 源码的准入条件，不代表银行真实 module 文件身份、私有信任根、DSH 进程及 32/33 人 Field 已实测。provider 的真实来源、供应链校验、银行密钥保管及行内单点签章均依旧属于现场准入。不能将模拟测试密钥直接复制到交付包。
+- 目标：Windows/Linux Python3.8/3.11 定向回归，仅一次源码工程批次验收，不构建 ZIP，FIELD_VERIFIED=false / BANK_FINAL=NO。
+
+### C07 CLI 接线约束与继承回归
+- `rc7_release.rc72_mission_cli.main` 新增仅供受信银行 Host 进程使用的 keyword-only `bank_trust_roots` 注入入口。普通 CLI 参数、配置 JSON 或模型 Prompt 均无法提供或制造签章密钥；未批准银行控制端嵌入时，`--captain-observer-module` 显式 fail-closed，而不是退回 legacy 无 Captain 执行。
+- 原 `tests/test_rc72_configured_mission.py` 的真实 loopback DSH Captain 正向测试升级为显式 BankCaptainTrustRoots 注入，不删除原真实会话/R1 Gate 断言；四平台 C07 工作流增加旧 Mission CLI 与 Host 继承合同测试。
+- 此接线能力仍不是银行 Host 授权的实际取得：行内应由受控进程 provision/sign，绝不能把 test-key 加入安装包。`R4_01_SOURCE_VERIFIED_PENDING_CI / FIELD_HOLD / BANK_FINAL=NO`。
+
+### PR #99 完整 Chromium 继承回归失败分析与修复
+- 两个完整 Chromium 继承 job 均执行 `2938 passed, 4 skipped`，仅有 2 个失败，定位在 `tests/test_rc72_q7_admission.py` 的 Q7 正向准入 fixture：测试仍使用原先无签章 `provider://` / `human://` 字符串模拟 Q3–Q6 PASS，触发新安全门禁后正确 HOLD。该失败不是通过放松生产校验解决。
+- 已修正 Q7 admission 测试夹具：每个 Gate 使用隔离的测试 Host authority，先对 Gate/Batch/source SHA/平台/Evidence 全字段签章，再调用 FieldQualificationService；保留 Q7 对 `field_verified=false` / `bank_final=false` 的原有断言。无签章与伪造场景的拒绝测试仍保留。
+- 修复 commit `3b167018415f3a9e651e8d3e1538fb025ba38f0a`，触发 PR #99 同 HEAD 新 CI；在同 HEAD 全部回归通过前不合并。测试 key 仅用于测试，不能代表真实银行 Host 授权。
+
+## R4-07 路径安全补强：容量配置工具不能通过路径重定向触碰银行配置（2026-11-10）
+- 新增源码审计缺口：`apply_cloned_profile_capacity` 直接调用时只检查 base/target 最末级是否 symlink，未拒绝 `DSH_HOME/profiles` symlink 及 clone 下 `node_modules/@nanmicoder/dsh-agent-teams` 中间目录 symlink；可能把插件身份读取重定向到 clone 外部路径。
+- 原 CLI `--output` 直接 `write_text`，若目标指向 `~/.dsh/profiles/web/cordis.patch.yml` 或指向它的 symlink，会把 JSON 报告写入银行受保护配置，违背只改隔离 clone 的合同。
+- 修复分支 `work/rc7.2-r4-capacity-path-hardening-20261110`：拒绝 profiles root/base/target/package/config 路径上的任一 symlink；在修改 clone 前解析并拒绝任何 DSH profile 内的报告目标；报告采用同目录临时文件 + flush/fsync + atomic replace，并在替换前重新校验。
+- 新增 4 个反例：profiles root symlink、node_modules 祖先 symlink、报告直接指向 web profile、报告 symlink 指向 web profile；必须在任何 profile/config 写入前 HOLD/拒绝。现有克隆配置正向、原配置保留、幂等与 Windows/Linux Python3.8/3.11 四平台合同继续保留。
+- 本修复只证明路径/文件写入隔离，不证明 DSH 运行进程已加载 32 成员配置，更不证明 32 名真实 Agent/第 33 名拒绝。`SOURCE_PENDING_CI / FIELD_PENDING / BANK_FINAL=NO`。
+
+## 第四轮 CI 新模式：草稿 PR 专项先行，Ready PR 才执行完整 ABCD（2026-11-10）
+- 用户要求减少“每个小修复都跑 40–60 分钟完整 Chromium/继承回归”的浪费。v3/v4 原 workflow 对所有 `pull_request` 无条件启动 4 平台完整工程 + 2 套 Chromium/全继承测试。
+- 已调整 v3/v4：Draft PR 只执行对应专项合同工作流（如 R4-07 capacity32、C07 trust、Q3–Q6 signature）；ABCD 工程矩阵与完整 Chromium/RC7+RC7.2 继承套件仅在 PR Ready for Review 时执行。`ready_for_review` 事件已加入，转 Ready 会自动触发；Ready PR 后续每次 synchronize 仍执行完整回归。push 与 workflow_dispatch 行为不变。
+- 本 PR #105 保持 Draft，因此新 HEAD 只应执行 R4-07 四平台专项，不重复启动完整产品回归；原已启动的本 PR 旧 SHA 完整作业由 PR 并发策略取消。PR #99 当前非 Draft，已承担本轮一次完整产品回归，不再为同一代码批次额外复制完整回归。
+- 此策略不删除任何测试、不缩减测试集合；仅把全量回归放到集成检查点，专项测试仍在每个 Draft PR 上运行。
+
+## R4-05 批次新增：银行模型请求配额的内核锁和冷恢复（2026-11-10）
+
+- 旧共享限流器以 O_EXCL 文件创建/删除充当锁，且错误地在 lockfile mtime 超过 30 秒时无条件 unlink；另一个活跃进程若临时超过 30 秒仍可能持有该窗口，第三个进程却可获得新锁并触发模型额度双重计量。
+- 本批将其改为平台原生独占锁：Windows `msvcrt.locking`、Linux `fcntl.flock`；锁文件长期存在，不再以年龄删除。进程崩溃时 OS 自动释放锁，守护者重新获取锁并基于原 `shared-window.json` 继续额度计算，不清空存量；用 monotonic deadline 避免模拟钟/时钟回拨造成无期限等待。异常、非法符号链接和重入保持 fail-closed。
+- 增加真实本地文件锁反例：活跃锁的 mtime 被人为设为一小时前，第二实例仍必须超时拒绝；旧版遗留的僵尸 PID 文件在无 OS 锁时可恢复且 **保留全部历史计数**；子进程锁定后调用 `os._exit(0)`，冷重启必须可安全重新加锁。保留损坏窗口模型 IO 前拒绝、429/502 已启动 Worker 不盲重放与旧 R1 Attempt 不重启等测试。
+- 非工作日/工作日额度仍以既有银行明确模型窗口合同为准。本次不将源码锁恢复当作真实银行额度/502/会话现场 PASS。
+
+## R4-02 批次新增：N8 先验证既有 Gate/Delivery 代数再写证据（2026-11-10）
+
+- 在既有“诊断 Receipt 不得补造原生 Delivery”基础上进一步发现：如果冷恢复已有 Node Gate 被篡改或 `Node.active_delivery_version` 与原生 Delivery 不一致，`_accept` 先执行 `_ensure(rc7_evidence)`，再修改 Node 或检查 Gate；在中断重入时可能先造成 R1 副作用，之后才拒绝。
+- 现先验证原生 Delivery 谱系、已激活 Delivery generation/ref、已有 Gate 的 reviewer 身份/签名所绑定 Evidence 分母，全部通过后才允许 `_ensure`、NodeGate、分类和 N5 回边；新增 forged Gate 与失配 active version 的真实 N7→N8 独立进程冷重入负例，断言零 Evidence IO、原 BLOCKED Attempt、原始 R1 字节不变、业务 HTTP 零重放。
+- 保留之前“已有 Process Receipt/原生 Delivery 丢失、Evidence 伪造、R1 Gate 伪造、UNKNOWN 拒绝分类”的全部正反例，禁止通过改写原失败或缩减 Case/ETU/Attempt 分母达成 PASS。
+
+## R4-01～R4-07 一次批次化集成与资格策略（2026-11-10）
+
+- 集中基线 `work/rc7.2@87f956f1388f58beabf7116c937fd6fda5fae2ca`，从 PR #99 导入 Q3–Q6 真签章验收与 Q7 正向签章夹具，从 PR #100 导入 C07 银行预批准 provider + 独立 Host/Captain 根和正式 CLI 接线，从 PR #105 导入 32 人隔离 profile 完整路径及报告保护及 ABCD-v3/v4 的 Draft/Ready CI 门禁。
+- 以上所有修复、N8 预校验和模型额度 OS 锁均先真实提交到**同一独立施工分支**，本阶段不会给每个修复构建完整离线 ZIP 或各跑一套全量 Chromium。
+- 待代码齐备后一次性创建 Ready 候选 PR：Windows/Linux Python 3.8/3.11 专项合同 + v3/v4 完整继承（含真实 Chromium/CDP/DOM/业务 Oracle）同 HEAD 验证；最终确认无失败并经独立 E 组审查后才能合入主线。该批次以前的源 PR 绿灯不能自动代替此候选 SHA。
+- 工程源码边界：`32 logical members` 不等于真实行内 DSH 32 个成员创建和第 33 人真实拒绝；受信 Host 的测试签名不等于银行认可的 Provider、4A 人审和原生 Team/Captain 签名；内核锁与冷恢复单测不等于现场 429/502/Libra/N9/N10 全业务闭环。
+- R4-06/C12 仍需获得分发授权的真实 DSH 主程序、独立 SHA256、正式 Windows 搬运包与 clean-unpack/目标 Linux/行内 Q3–Q9 验证。**缺此来源不得编造 dsh.exe、不得构建并宣称最终 ZIP。** `FIELD_VERIFIED=false`，`C12_PHYSICAL_HOLD`，`BANK_FINAL=NO`。
