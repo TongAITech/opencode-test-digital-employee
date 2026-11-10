@@ -275,3 +275,10 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - WB-D01 COMPONENT_TESTED，现场探测GET_UNAVAILABLE，BLOCKED_FIELD；不是IMPLEMENTATION_QA_PASS。
 - 下一就绪工单：B01/B02真实PostgreSQL、C01六页十区双语骨架；各组独立worktree/PR。B06未完成，C02/E01仍BLOCKED_DEPENDENCY_B06。A唯一维护08/09/10。
 - 真实PostgreSQL实例准备中；50产品功能、Host/Windows/现场QA未完成。A02_BLOCKED_LICENSE / NO_RC72_MAINLINE_MERGE / NO_BANK_ZIP。W0冻结绝非最终交付。
+
+
+## W1 首轮真实实现验收（2026-11-10）
+- WB-C01 PR #122 原源98292caf：Node3/3、Chromium1/1自测通过但F #123/ac5774a6独立发现P1无尾斜杠入口空白、P2键盘重绘丢焦点。保留真实红灯；修复源c699965f46276db30fcf1e11b4aa5e834b5dfcbd已补双入口/焦点反例，F复验中，未记QA_PASS。
+- WB-B01/B02 PR #124 源617636424877f24a582d1c55e374553131c3d85a：真实PG本地12/12自测，远端同SHA w0-contracts PASS但postgres-identity FAIL（run42781440846/job129712176958）。状态CODE_COMPLETE/CI_BLOCKED，B正修复，F独立验收中；本地绿不能覆盖远端红。
+- W0冻结源a73ed52d的设计签署保持；本轮实现尚未通过集成门禁，不能转移旧设计PASS。B06未实施，C02/E01 BLOCKED_DEPENDENCY_B06；D01 BLOCKED_FIELD；50功能/F01-F04/Windows/现场/许可证发布门禁未完成。
+- 下一步：核销两组真实失败→F精确源接受→A唯一集成→同HEAD回归；不合RC7.2，不出银行ZIP。
