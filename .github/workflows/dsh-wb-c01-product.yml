@@ -12,6 +12,8 @@ on:
       - 'tests/browser/test_draft_forms_product_browser.py'
       - 'tests/browser/test_directory_product_browser.py'
       - 'tests/test_dsh_workbench_directory_client.mjs'
+      - 'tests/test_dsh_workbench_runtime_client.mjs'
+      - 'tests/browser/test_runtime_product_browser.py'
       - 'tests/test_dsh_workbench_calendar.mjs'
       - 'tests/browser/test_calendar_product_browser.py'
       - 'tests/test_dsh_workbench_draft_forms.mjs'
@@ -73,4 +75,5 @@ jobs:
           python -m unittest discover -s tests/browser -p test_milestone_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_draft_forms_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_directory_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_runtime_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_calendar_product_browser.py -v

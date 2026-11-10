@@ -1,3 +1,4 @@
+import {mountRuntime} from './runtime-panel.mjs';
 import {mountDirectory} from './directory-panel.mjs';
 import {mountMilestones} from './milestone-panel.mjs';
 import {mountScopePanel} from './scope-panel.mjs';
@@ -13,3 +14,5 @@ const scopePanel=mountScopePanel(document.getElementById("business-scope"));
 mountMilestones(document.getElementById('milestones'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
 mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>{update('page','detail');$('heading').tabIndex=-1;$('heading').focus();}});
+
+mountRuntime(document.getElementById('runtime-facts'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
