@@ -38,6 +38,8 @@
 
 最小修订：对列内方法**实际会写的目标**先做最小身份归属核验，覆盖self row、按task/gap等稳定ID取得的既有目标Mission、传入Mission/Gap等身份及会被覆盖的旧对象所属Mission。目标有reserved时必须在scheduler/append/对象原地修改前HOLD；已有身份不一致错误能在零副作用前拒绝的路径可保留。若要保持全unbound旧错误/行为，此阶段可只新增目标Scope存在性拒绝，不必顺便重构全部legacy身份语义。至少增加上述两例、output及直接_sync/_persist_gap目标反例，不能用invalid task/lease先失败代替验证。
 
+目标矩阵还须明确：register_task的输入task归属、start/output的既有task归属、evaluation/defect/gap输入及被覆盖旧对象归属、直接persist的真实目标row都纳入检查；既有身份不匹配已能在零副作用前拒绝时保留该错误。批量循环必须先收集全部**实际拟写**目标并完成前置核验，再进行任何对象原地修改或首个append，不能先改一个合法gap再在第二个Scope目标处HOLD。目标Mission不能解析/不唯一时不能用“没有看到reserved”归为legacy后继续写；按既有无资源/身份错误或明确HOLD拒绝。仅bootstrap明示的新legacy创建分支可接受尚无Mission row，不把这个例外扩给任意persist。新稿应列清这些输入/旧row解析规则及有效跨目标反例，避免用无效参数先报错冒充保护。
+
 修订不需新Host/PG能力，不需接纳绑定创建，也不需修改底层TaskScheduler或关闭所有raw入口；只是使本候选**列入保护的方法**不因目标身份错位漏掉目标Scope。
 
 ## 权限/读取顺序与真实零副作用承诺
