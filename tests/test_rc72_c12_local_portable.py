@@ -174,37 +174,52 @@ def test_clean_q2_checks_and_independent_audit_bind_exact_commit(tmp_path, monke
     from rc7_release import rc72_c12_local_portable as c12
     called = []
 
-    def record(*args, cwd):
-        called.append((tuple(str(x) for x in args), str(cwd)))
+    def record(*args, cwd, env=None):
+        called.append((tuple(str(x) for x in args), str(cwd), env))
         return ""
 
     monkeypatch.setattr(c12, "_run", record)
     root = tmp_path / "repo"
     extracted = tmp_path / "extract"
     py = extracted / "workspace-template/runtime/python/python.exe"
+    archive = tmp_path / "signed-package.zip"
+    stage = tmp_path / "build-stage"
     c12._qualify_extracted(
         python=py, extracted=extracted, repo=root,
-        source_commit=SOURCE,
-        evidence_path=tmp_path / "c12-clean-runtime.json")
-    assert len(called) == 5
+        source_commit=SOURCE, evidence_path=tmp_path / "c12-clean-runtime.json",
+        zip_path=archive, original_stage=stage)
+    assert len(called) == 8
     assert called[0][0][1:4] == ("-m", "rc7_release.rc72_package", "verify")
     assert "--expected-source-commit" in called[0][0]
     assert called[0][0][-1] == SOURCE
     assert called[2][0][2] == "rc7_release.rc72_complete_payload_inventory"
     assert "--require-pass" in called[3][0]
-    assert called[4][0][1].endswith("tools/rc72_qa_offline_audit.py") or (
-        called[4][0][1].endswith("tools\\rc72_qa_offline_audit.py"))
-    assert called[4][0][-2:] == ("--expected-source-commit", SOURCE)
+    assert called[4][0][1] == "-I"
+    assert called[4][0][2].endswith("python_full_capability_probe.py")
+    assert called[5][0][2] == "rc7_release.rc72_execution_node_qualification"
+    assert "--require-windows-outbound-block" in called[5][0]
+    assert "--require-full-text-search" in called[5][0]
+    assert called[6][0][1].endswith("tools/rc72_qa_offline_audit.py") or (
+        called[6][0][1].endswith("tools\\rc72_qa_offline_audit.py"))
+    assert called[6][0][-2:] == ("--expected-source-commit", SOURCE)
+    assert called[7][0][1:3] == ("-m", "pytest")
+    env = called[7][2]
+    assert env["RC72_PIP_MIRROR_COMPONENT"] == "1"
+    assert env["RC72_PIP_MIRROR_PACKAGE_ARCHIVE"] == str(archive)
+    assert env["RC72_PIP_MIRROR_PACKAGE_ROOT"] == str(extracted)
+    assert env["RC72_PIP_MIRROR_ORIGINAL_STAGE"] == str(stage)
 
 
 def test_independent_q2_failed_check_never_swallowed(tmp_path, monkeypatch):
     from rc7_release import rc72_c12_local_portable as c12
 
-    def fail(*args, cwd):
+    def fail(*args, cwd, env=None):
         raise c12.LocalC12Error("C12_OFFLINE_Q2_CHECK_FAILED")
 
     monkeypatch.setattr(c12, "_run", fail)
     with pytest.raises(LocalC12Error, match="Q2_CHECK_FAILED"):
         c12._qualify_extracted(
             python=tmp_path / "python.exe", extracted=tmp_path,
-            repo=tmp_path, source_commit=SOURCE, evidence_path=tmp_path / "report.json")
+            repo=tmp_path, source_commit=SOURCE,
+            evidence_path=tmp_path / "report.json",
+            zip_path=tmp_path / "zip.zip", original_stage=tmp_path / "stage")
