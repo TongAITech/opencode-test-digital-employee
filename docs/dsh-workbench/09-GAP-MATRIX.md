@@ -222,3 +222,9 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - PostgreSQL 正式业务库增量合同正在独立分支施工；B/D/E 技术评审 PR #115 为 REVIEW_IN_PROGRESS，不能当作原组签署。增量必须绑定实际 SHA 再审，不继承历史签署。
 - BLOCKED：PostgreSQL 增量 B/E/D 审查及最新设计 HEAD 的 F00 接受；W0_NOT_FROZEN。W1 产品实现不得借本轮合同测试宣称完成。
 - A02_BLOCKED_LICENSE / 50_PRODUCT_NOT_RUN / FIELD_QA_NOT_RUN / NO_RC72_MERGE / NO_BANK_ZIP。
+
+
+### PostgreSQL 增量工单评审证据
+- PR #116 合同源 `2343e0ff9f08f306da52b38428d7640b3409d526` 已写入02/06；真实本地 Python 合同260/260；同源 GitHub w0-contracts SUCCESS，run 42773079476/job129685163960。不是 PostgreSQL 产品验收。
+- PR #115 独立技术审查更新 `1e777123`：B/D/E职责视角 ACCEPTED_FOR_DESIGN，无新增 W0 P0/P1；不冒充历史团队新签署，F 最新联合设计源接受仍待。
+- PR #114/#115/#116 均为独立分支审查材料，尚未集成冻结；下一步核对并集成合同及报告，再对精确集成 HEAD 回归/F复验。W0_NOT_FROZEN，真实 PostgreSQL/Host/Windows/现场 NOT_RUN。
