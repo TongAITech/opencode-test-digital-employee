@@ -76,3 +76,22 @@ deny-by-default actions, theme and mobile
 **F 总裁决：`REVIEWED_WITH_BLOCKERS` / `W0_NOT_FROZEN` / `NO_RC7.2_MERGE` / `NO_BANK_ZIP`。**
 
 本轮 F 靶向源码无商业许可结论；不以 `200`、截图或模拟 NodeGate 代替业务 Oracle。每次新 SHA 都必须独立重验，不能跨 SHA 抄 green。
+
+
+## 5. F 追加独立负向实测（同固定源，不重复构建 Chromium）
+
+**证据：** [F lightweight run #42732665548 / job #129554278918](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42732665548/job/129554278918)，在相同 A `200a96a` + B `50bd16d` + C `a36421e` 的本地临时合并源码上：
+
+| 真执行范围 | 实际结果 |
+|---|---|
+| C Scope、多选、source-fence、50 原子 feature_id 设计核对 | **30/30 Node PASS** |
+| B 复合来源、SST source trace、批次关系 SQL 设计 | **26/26 Python PASS** |
+| F 原始 FG18 跨版本同源 SST ID 反例 | **1/1 PASS** |
+| E B06 read-only/source_refs/cursor/R1 保守消费 | **47/47 Python PASS** |
+| F 原始 FG16 终局 F02/F03/D04 Gate 先驱闭包 | **2/2 PASS** |
+
+F 的 [第二次完整合并 run #42732664794](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42732664794) 仍有 **183 tests / 1 FAIL**，其原因为唯一 `C_BROWSER_RERUN_ON_LEDGER`；Chromium job 同次再验证 PASS。此独立轻量 job 不是完整联合契约的替代，**不能把上述子集全绿说成 ABCDE W0 QA_PASS**。
+
+`FG23` 整改意见已提交 [C PR #97](https://github.com/TongAITech/opencode-test-digital-employee/pull/97#issuecomment-6755821800) 与 [A PR #84](https://github.com/TongAITech/opencode-test-digital-employee/pull/84#issuecomment-6755823252)，B #95、D #90、E #96 也分别收到范围内增量复核。F 新评审 PR [#104](https://github.com/TongAITech/opencode-test-digital-employee/pull/104) 保持 OPEN；未因独立 CI 故意的失败而绕过 gate 或伪造绿灯。
+
+**最终状态依然 `FG23 OPEN / W0_NOT_FROZEN / BLOCKED_LICENSE`。** 新 C/A fix HEAD 必须重跑 A+B+C 合并与共同 Python/Node/admission 策略，再由 F 核销。
