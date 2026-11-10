@@ -158,7 +158,10 @@ class PersistentSlidingWindowGovernor:
         self.window_seconds = max(0.1, float(window_seconds))
         self.now_fn = now_fn or time.time
         self.sleep_fn = sleep_fn or time.sleep
-        root = Path(state_root).expanduser().resolve() / "model-governor"
+        raw_state_root = Path(state_root).expanduser()
+        if raw_state_root.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        root = raw_state_root.resolve() / "model-governor"
         if root.is_symlink():
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         root.mkdir(parents=True, exist_ok=True)
@@ -199,6 +202,12 @@ class PersistentSlidingWindowGovernor:
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         if not self.state_path.exists():
             return {"timestamps": []}
+        try:
+            metadata = self.state_path.stat()
+        except OSError:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED") from None
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
         try:
             value = json.loads(
                 self.state_path.read_text(encoding="utf-8"),
@@ -266,12 +275,17 @@ class PersistentSlidingWindowGovernor:
             fd = os.open(str(self.lock_path), flags, 0o600)
         except OSError:
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED") from None
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             os.close(fd)
             raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED")
-        if os.fstat(fd).st_size == 0:
-            os.write(fd, b"0")
-            os.fsync(fd)
+        try:
+            if metadata.st_size == 0:
+                os.write(fd, b"0")
+                os.fsync(fd)
+        except OSError:
+            os.close(fd)
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED") from None
         deadline = time.monotonic() + 10.0
         while True:
             try:
