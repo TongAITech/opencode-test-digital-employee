@@ -102,7 +102,7 @@ class R4IndependentMergeGateTests(unittest.TestCase):
         variants = [
             ("state", "closed"),
             ("draft", True),
-            ("head", {"sha": PREVIOUS_SHA}),
+            ("head", {"sha": PREVIOUS_SHA, "ref": "work/rc7.2-r4-consolidated-1to5-20261110"}),
             ("base", {"ref": "main"}),
         ]
         for key, value in variants:
