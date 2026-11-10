@@ -11,6 +11,7 @@ on:
       - '.github/workflows/rc7.2-abcd-v4-qualification.yml'
   pull_request:
     branches: [work/rc7.2]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +23,9 @@ concurrency:
 
 jobs:
   c01-c10-engineering:
+    # Full product qualification is an integration checkpoint, not a per-commit tax.
+    # Draft PRs run focused source/contract workflows; ready PRs run full ABCD + Chromium.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: abcd-v4-native-${{ matrix.os }}-python-${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -73,6 +77,9 @@ jobs:
           if-no-files-found: warn
 
   complete-rc7-with-real-chromium:
+    # Full product qualification is an integration checkpoint, not a per-commit tax.
+    # Draft PRs run focused source/contract workflows; ready PRs run full ABCD + Chromium.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: abcd-v4-ubuntu-3.11-complete-source-real-chromium
     runs-on: ubuntu-22.04
     timeout-minutes: 90
