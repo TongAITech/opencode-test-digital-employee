@@ -1,0 +1,91 @@
+name: F independent final W0 review on A a3555b1
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-final-a355.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  F_A_SHA: 'a3555b187eb35d27a2d712313dd8ea7daa28915f'
+  F_B_SHA: '50bd16d9e2c321eb5eaa21e96f663e89ae377b34'
+  F_C_SHA: 'b2a64df65661880808510d0486f6aefc70ca23df'
+  F_D_SHA: 'a332e6c575cac9d2b6ef0b2038615b276dcfa602'
+  F_E_SHA: '26b2deaf5485193133e418da81982291c8056d64'
+  F_A103_SHA: 'd082e71f7eb9260afe450203bd160f8cd9e65948'
+
+jobs:
+  f-a355-unified-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_A_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin exact candidate and verify A/B/C/D/E source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$F_A_SHA"
+          for source in "$F_B_SHA" "$F_C_SHA" "$F_D_SHA" "$F_E_SHA" "$F_A103_SHA"; do
+            git merge-base --is-ancestor "$source" "$F_A_SHA"
+          done
+          echo "F_EXACT_A_HEAD=$F_A_SHA"
+          echo "F_VERIFIED_ANCESTRY=B95,C97,D90,E102,A103"
+      - name: Full W0 Python contract suite, preserve every negative test
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: Node syntax and all C Scope, SourceFence and 50-feature contracts
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: F independent FG18 and FG16 release-DAG negatives
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+      - name: F verify FG23 browser ledger path admission is preserved
+        run: |
+          python tools/dsh_workbench/ci_admission.py
+          python -m unittest discover -s tests -p 'test_dsh_workbench_ci_admission.py' -v
+      - name: Keep qualification boundary explicit
+        run: echo 'W0 source/design only; W1-W4 field QA NOT_RUN; A02 LICENSE BLOCKED; no bank package or RC7.2 merge claim'
+
+  f-a355-real-chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.F_A_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact A candidate source
+        run: test "$(git rev-parse HEAD)" = "$F_A_SHA"
+      - name: Install pinned Playwright and Chromium
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Independently run real Chromium against A five-group integrated candidate
+        run: python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "${{ runner.temp }}/f-w0-a355-browser-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-w0-a355-browser-${{ env.F_A_SHA }}
+          path: ${{ runner.temp }}/f-w0-a355-browser-evidence/*.png
+          retention-days: 14
+          if-no-files-found: error
