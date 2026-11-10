@@ -8,6 +8,7 @@ from rc7_runtime.rc72_domain import RC72_CANONICAL_NODE_ORDER
 from rc7_admin.projection import AdminProjection
 from .business_store import BusinessError
 from .e01_service import E01Service
+from .e02_lineage import validate_lineage
 
 install_rc72_truth_overlay()
 
@@ -26,7 +27,10 @@ class E02Service(E01Service):
                 if len(missions)!=1 or missions[0].get('project_id')!=project or missions[0].get('batch_id')!=batch:
                     raise BusinessError(403,'FORBIDDEN')
                 kinds=('rc72_mission_node','rc72_node_delivery','rc72_node_gate','rc72_node_transition','rc72_back_edge') if view=='graph' else ('rc7_task','rc72_etu','rc72_workitem_attempt_binding')
-                records={kind:truth.query(kind,mission_id=mission_id) for kind in kinds}
+                all_kinds=('rc72_mission_node','rc72_node_delivery','rc72_node_gate','rc72_node_transition','rc72_back_edge','rc7_task','rc72_etu','rc72_workitem_attempt_binding','execution_attempt','rc72_test_obligation')
+                all_records={kind:truth.query(kind,mission_id=mission_id) for kind in all_kinds}
+                validate_lineage(all_records,missions[0],batch)
+                records={kind:all_records[kind] for kind in kinds}
                 # All canonical records must belong to this exact Mission release.
                 if any(row.get('release_id')!=missions[0].get('release_id') for rows in records.values() for row in rows):
                     raise BusinessError(503,'R1_LINEAGE_UNRESOLVED')
