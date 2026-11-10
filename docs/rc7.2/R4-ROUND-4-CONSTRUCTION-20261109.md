@@ -118,3 +118,8 @@
 - 新增独立负例：缺少受信根或未批准模块不得 import，独立对象共用同一签名 key 必须拒绝，provider 自带的任意双 key 不得创建 Captain，签名缺失即使 trust root 正确仍不写 R1。
 - 这只能证明受控 Host 源码的准入条件，不代表银行真实 module 文件身份、私有信任根、DSH 进程及 32/33 人 Field 已实测。provider 的真实来源、供应链校验、银行密钥保管及行内单点签章均依旧属于现场准入。不能将模拟测试密钥直接复制到交付包。
 - 目标：Windows/Linux Python3.8/3.11 定向回归，仅一次源码工程批次验收，不构建 ZIP，FIELD_VERIFIED=false / BANK_FINAL=NO。
+
+### C07 CLI 接线约束与继承回归
+- `rc7_release.rc72_mission_cli.main` 新增仅供受信银行 Host 进程使用的 keyword-only `bank_trust_roots` 注入入口。普通 CLI 参数、配置 JSON 或模型 Prompt 均无法提供或制造签章密钥；未批准银行控制端嵌入时，`--captain-observer-module` 显式 fail-closed，而不是退回 legacy 无 Captain 执行。
+- 原 `tests/test_rc72_configured_mission.py` 的真实 loopback DSH Captain 正向测试升级为显式 BankCaptainTrustRoots 注入，不删除原真实会话/R1 Gate 断言；四平台 C07 工作流增加旧 Mission CLI 与 Host 继承合同测试。
+- 此接线能力仍不是银行 Host 授权的实际取得：行内应由受控进程 provision/sign，绝不能把 test-key 加入安装包。`R4_01_SOURCE_VERIFIED_PENDING_CI / FIELD_HOLD / BANK_FINAL=NO`。
