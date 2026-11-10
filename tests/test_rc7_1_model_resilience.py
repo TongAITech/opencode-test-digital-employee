@@ -154,6 +154,36 @@ class ModelResilienceTests(unittest.TestCase):
             self.assertTrue(governor.reserve().admitted)
             self.assertFalse(governor.reserve().admitted)
 
+    def test_r4_predictable_governor_temp_symlink_cannot_overwrite_other_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            protected = Path(root) / "protected-bank-file.txt"
+            protected.write_text("ORIGINAL BANK DATA", encoding="utf-8")
+            legacy_temp = governor.state_path.with_suffix(".tmp")
+            try:
+                legacy_temp.symlink_to(protected)
+            except (OSError, NotImplementedError):
+                self.skipTest("Platform does not permit creation of test symlinks")
+            self.assertTrue(governor.reserve().admitted)
+            self.assertEqual(protected.read_text(encoding="utf-8"), "ORIGINAL BANK DATA")
+            self.assertTrue(legacy_temp.is_symlink())
+            self.assertFalse(governor.state_path.is_symlink())
+            self.assertFalse(governor.reserve().admitted)
+
+    def test_r4_governor_atomic_write_leaves_legacy_temp_untouched(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(
+                Path(root), max_requests=1, window_seconds=600.0)
+            legacy_temp = governor.state_path.with_suffix(".tmp")
+            legacy_temp.write_text("stale crash remnant", encoding="utf-8")
+            self.assertTrue(governor.reserve().admitted)
+            self.assertEqual(legacy_temp.read_text(encoding="utf-8"),
+                             "stale crash remnant")
+            self.assertFalse(governor.reserve().admitted)
+            self.assertFalse(any(governor.state_path.parent.glob(
+                ".shared-window-*.tmp")))
+
     def test_r4_active_bank_quota_lock_cannot_be_stolen_after_30_seconds(self):
         with tempfile.TemporaryDirectory() as root:
             first = PersistentSlidingWindowGovernor(
