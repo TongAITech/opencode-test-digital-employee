@@ -138,6 +138,9 @@ def start_or_resume(*, r1_path: str, mission_id: str, release_id: str, goal: str
     inputs = dict(external_inputs or {})
     truth = TruthRuntime(r1)
     row = _mission_row(truth, mission_id)
+    if row is not None:
+        from .unadmitted_scope_guard import check_missions
+        check_missions(truth, (mission_id,), BankMissionError)
     persisted = _persisted_graph_version(truth, mission_id)
 
     if row is None:

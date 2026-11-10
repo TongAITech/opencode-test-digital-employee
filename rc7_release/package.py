@@ -71,6 +71,7 @@ LAUNCHER_NAMES = (
 ENTRYPOINTS = tuple("packaging/rc7/%s" % name for name in LAUNCHER_NAMES)
 REQUIRED_PRODUCT_FILES = (
     "rc7_runtime/bank_mission.py",
+    "rc7_runtime/unadmitted_scope_guard.py",
     "rc7_admin/__main__.py",
     "rc7_admin/server.py",
     "rc7_admin/projection.py",
