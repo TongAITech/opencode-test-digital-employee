@@ -23,6 +23,10 @@ class BusinessStore:
 
     @contextmanager
     def _scope(self, principal, project, write=True):
+        if self.db.closed:
+            raise BusinessError(503,'BUSINESS_DATABASE_UNAVAILABLE')
+        if self.db.info.transaction_status != 0:
+            raise ValueError('IDLE_CONNECTION_REQUIRED_FOR_SCOPED_TRANSACTIONS')
         if not principal or not project:
             raise BusinessError(403, 'FORBIDDEN')
         try:

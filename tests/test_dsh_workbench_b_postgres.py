@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 try:
     import psycopg
     from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict
 except ImportError:
     psycopg = None
 from tools.dsh_workbench.business_store import BusinessStore, BusinessError, provision_project
@@ -25,9 +26,10 @@ class PostgresIdentity(unittest.TestCase):
         self.admin = psycopg.connect(DSN,autocommit=True)
         self.name = 'wb_test_'+uuid.uuid4().hex[:16]
         self.role = self.name+'_runtime'
-        self.admin.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS').format(sql.Identifier(self.role)))
+        self.password=uuid.uuid4().hex
+        self.admin.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD {}').format(sql.Identifier(self.role),sql.Literal(self.password)))
         self.admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(self.name)))
-        params = dict(self.admin.info.get_parameters(),dbname=self.name)
+        params = dict(conninfo_to_dict(DSN),dbname=self.name)
         self.owner = psycopg.connect(**params,autocommit=True)
         migrate(self.owner)
         self.owner.execute("INSERT INTO wb.project VALUES('P1','first'),('P2','second')")
@@ -40,7 +42,7 @@ class PostgresIdentity(unittest.TestCase):
         self.owner.execute(sql.SQL('GRANT INSERT ON wb.release_batch,wb.system_identity,wb.system_version,wb.audit,wb.batch_date_history,wb.request_log TO {}').format(role))
         self.owner.execute(sql.SQL('GRANT UPDATE ON wb.release_batch TO {}').format(role))
         self.owner.execute(sql.SQL('GRANT USAGE ON ALL SEQUENCES IN SCHEMA wb TO {}').format(role))
-        self.params = dict(params,user=self.role)
+        self.params = dict(params,user=self.role,password=self.password)
         self.runtime = psycopg.connect(**self.params,autocommit=True)
         self.store = BusinessStore(self.runtime)
         self.addCleanup(self.cleanup)
@@ -174,3 +176,13 @@ class PostgresIdentity(unittest.TestCase):
                 BusinessStore(nested)
         self.runtime.close()
         self.error(503,lambda:self.store.batches('alice','P1'))
+
+    def test_explicit_begin_on_autocommit_connection_is_rejected_without_context_leak(self):
+        self.batch()
+        self.runtime.execute('BEGIN')
+        with self.assertRaisesRegex(ValueError,'IDLE_CONNECTION_REQUIRED'):
+            self.store.batches('alice','P1')
+        self.assertEqual(self.runtime.execute("SELECT current_setting('wb.principal',true)").fetchone()[0],'')
+        self.assertEqual(self.runtime.execute('SELECT count(*) FROM wb.release_batch').fetchone()[0],0)
+        self.runtime.execute('ROLLBACK')
+        self.assertEqual(len(self.store.batches('alice','P1')),1)

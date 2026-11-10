@@ -21,3 +21,5 @@ WB_PG_TEST_DSN='host=/tmp/dsh-pg-371f43f0 port=55432 dbname=postgres' ../pg-envi
 GitHub `.github/workflows/dsh-wb-b-postgres.yml`用真实postgres:17服务执行同一测试；远端CI结果须以当前完整源SHA另查。缺PG/驱动时独立测试会明确SKIP，不得视为PG验收。
 
 最终本地实测：真实PG **12/12 PASS**，包含外层事务上下文拒绝与关闭连接503；使用autocommit连接，每次repository操作自建显式事务，避免嵌套事务导致身份残留。此前纯合同回归273 tests OK，其中10个明确无DSN跳过；该回归不充当PG证据。远端首提交w0-contracts已成功，postgres-identity尚运行，最终HEAD须另验。
+
+历史真实红灯与修复：61763642的GitHub PG run42781440846为12 ERROR（owner重连未携带密码，不能视为PG通过）；修复为从原始DSN解析保留认证参数，并为隔离runtime角色生成独立随机密码。F126另外真实发现P1：autocommit连接显式BEGIN后_scope使用savepoint导致主体残留；原本12/12未覆盖该场景。现每次_scope先要求连接事务状态IDLE，存在外层事务直接拒绝且不改调用者事务，新增F等价BEGIN/零身份/零越域读取/ROLLBACK后正常恢复反例。新HEAD仍需F独立核销，不继承旧绿。
