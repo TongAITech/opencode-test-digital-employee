@@ -1,0 +1,11 @@
+# F E02 谱系修复独立复验
+
+精确源1136bea21fa485ff0096172a7112632bedda225b，PR149；取代72dd3f9f旧缺陷源。F隔离worktree、真实PG/nonowner临时DB、合成持久R1，未参与实现/写生产R1。
+
+原F跨Mission反例原样在本源执行1/1 PASS：M1 Gate引用同release M2 node/delivery现在503，不再返回错误PASS Gate，原R1字节不变。test_dsh_workbench_e02_postgres.py真实35/35 PASS；test_dsh_workbench_e02_lineage.py独立运行1/1 PASS（含正向及11个引用/Mission/case不匹配负例，不虚报为12个独立测试）。节点缺失保留missing_nodes，未创建节点状态；未知状态503、恢复后可读，workitems同样谱系验证、HOLD/人审UNKNOWN，不以模型、正文或缺Gate推断通过。
+
+源码确认授权后仅建立当前Mission各canonical对象索引，验证node/delivery/gate引用与node type、node反向refs/active版本、transition/backedge、ETU/obligation/batch、workitem/attempt/case绑定与父Attempt；仅release一致不足以放行。外Mission引用不在授权索引即503。缺正式来源与不确定状态维持failclosed，不修写R1。F-E02-01/P1在本源关闭，旧72dd3f9f真实失败保留。
+
+同源五CI SUCCESS，独立API核实：W042813779094/job129821552668、PG42813778890/job129821552097、E0142813778996/job129821551895、C01/C02浏览器42813778880/job129821551786及129821551320。
+
+结论E02_CANONICAL_GRAPH_WORKITEM_READ_COMPONENT_ACCEPTED；本组件范围无剩余已发现P0/P1。不是完整生产Attempt/Evidence资格链、正式命令/SSE、人审、DSH Host现场、Windows或F01整体验收。provider与执行图均合成fixture，FIELD_NEEDS_BANK_TRANSFER保持。A集成后新联合HEAD需同源回归；F未改功能、08/09/10或正式R1事实。
