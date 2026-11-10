@@ -137,7 +137,7 @@ class EPageConsumerContractTests(unittest.TestCase):
         self.assertEqual("UNKNOWN_NOT_READ_FROM_CANONICAL_NODEGATE",
                          result["nodegate"]["decision"])
         self.assertIn("source:brvs:R1:V1:S1", result["source_refs"])
-        self.assertIn("rc7_admin:mission_overview:M1", result["source_refs"])
+        self.assertIn("rc7_admin:mission_overview_scoped:M1", result["source_refs"])
 
     def test_single_terminal_page_consumed_once(self):
         port = self.fixture([page([link()])])
@@ -217,7 +217,9 @@ class EPageConsumerContractTests(unittest.TestCase):
             page([link(sst="S2")]),
         ])
         result = self.run_read(port)
-        self.assertEqual(["M1"], self.r1.projection.calls)
+        self.assertEqual([("P1", "B1", "M1")],
+                         self.r1.projection.identity_calls)
+        self.assertEqual(["M1"], self.r1.projection.related_calls)
         self.assertEqual(["S1", "S2"],
                          [r["sst_id"] for r in result["records"]])
         self.assertEqual("HOLD", result["release_decision"])
@@ -375,17 +377,10 @@ class EPageConsumerContractTests(unittest.TestCase):
                 mission_id="M1", release_id="B1", goal="synthetic only"),
                 release_id="B1")
             original = event_path.read_bytes()
-            identity_calls = []
-            original_get = app.truth.get
-            def observed_get(artifact_type, entity_id):
-                identity_calls.append((artifact_type, entity_id))
-                return original_get(artifact_type, entity_id)
-            app.truth.get = observed_get
-
-            related_queries = []
+            query_calls = []
             original_query = app.truth.query
             def observed_query(artifact_type, **filters):
-                related_queries.append((artifact_type, filters))
+                query_calls.append((artifact_type, filters))
                 return original_query(artifact_type, **filters)
             app.truth.query = observed_query
             valid_b06 = self.fixture()
@@ -395,9 +390,9 @@ class EPageConsumerContractTests(unittest.TestCase):
                     mission_id="M1", page_size=2)
             self.assertEqual("R1_MISSION_SCOPE_UNRESOLVED",
                              raised.exception.code)
-            self.assertEqual([("rc7_mission", "M1")], identity_calls)
-            self.assertEqual([], related_queries,
-                             "scope mismatch must precede every related detail query")
+            self.assertEqual([("rc7_mission", {"mission_id": "M1"})],
+                             query_calls,
+                             "only the minimal Mission identity query may run")
             self.assertEqual(2, len(valid_b06.calls))
             self.assertEqual(original, event_path.read_bytes())
 

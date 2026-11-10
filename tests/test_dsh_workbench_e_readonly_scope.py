@@ -401,10 +401,10 @@ class EReadOnlyScopeTests(unittest.TestCase):
                 mission_id="M1", release_id="B1", goal="fixture only"),
                 release_id="B1")
             before = path.read_bytes()
-            related_queries = []
+            query_calls = []
             original_query = app.truth.query
             def observed_query(artifact_type, **filters):
-                related_queries.append((artifact_type, filters))
+                query_calls.append((artifact_type, filters))
                 return original_query(artifact_type, **filters)
             app.truth.query = observed_query
             # B06 is a fixture too; test does NOT grant production authorization.
@@ -412,10 +412,94 @@ class EReadOnlyScopeTests(unittest.TestCase):
                         lambda: r1_preview_from_legacy_admin(
                             lambda *_: verified_scope(), app,
                             project_id="P1", batch_id="B1", mission_id="M1"))
-            self.assertEqual([], related_queries,
-                             "unbound legacy Mission must be rejected before related reads")
+            self.assertEqual([("rc7_mission", {"mission_id": "M1"})],
+                             query_calls,
+                             "only the minimal Mission identity query may run")
             self.assertEqual(before, path.read_bytes(),
                              "Read-only preview must not append any R1 event")
+
+    def test_real_admin_projection_checks_project_scope_before_related_queries(self):
+        from rc7_admin.projection import AdminProjection, AdminProjectionError
+
+        class RecordingTruth:
+            def __init__(self, mission):
+                self.mission = mission
+                self.queries = []
+
+            def query(self, artifact_type, **filters):
+                self.queries.append((artifact_type, filters))
+                if artifact_type == "rc7_mission":
+                    if self.mission.get("mission_id") == filters.get("mission_id"):
+                        return [copy.deepcopy(self.mission)]
+                    return []
+                return []
+
+        truth = RecordingTruth({
+            "mission_id": "M1", "project_id": "P2", "batch_id": "B1",
+        })
+        projection = AdminProjection(truth)
+        with self.assertRaises(AdminProjectionError) as raised:
+            projection.mission_overview_scoped(
+                mission_id="M1", project_id="P1", batch_id="B1")
+        self.assertEqual("R1_MISSION_SCOPE_UNRESOLVED", str(raised.exception))
+        self.assertEqual([("rc7_mission", {"mission_id": "M1"})],
+                         truth.queries)
+
+    def test_real_admin_projection_checks_batch_scope_before_related_queries(self):
+        from rc7_admin.projection import AdminProjection, AdminProjectionError
+
+        class RecordingTruth:
+            def __init__(self, mission):
+                self.mission = mission
+                self.queries = []
+
+            def query(self, artifact_type, **filters):
+                self.queries.append((artifact_type, filters))
+                if artifact_type == "rc7_mission":
+                    return [copy.deepcopy(self.mission)]
+                return []
+
+        truth = RecordingTruth({
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B2",
+        })
+        with self.assertRaises(AdminProjectionError) as raised:
+            AdminProjection(truth).mission_overview_scoped(
+                mission_id="M1", project_id="P1", batch_id="B1")
+        self.assertEqual("R1_MISSION_SCOPE_UNRESOLVED", str(raised.exception))
+        self.assertEqual([("rc7_mission", {"mission_id": "M1"})],
+                         truth.queries)
+
+    def test_real_admin_projection_loads_details_only_after_scope_match(self):
+        from rc7_admin.projection import AdminProjection
+
+        class RecordingTruth:
+            def __init__(self, mission):
+                self.mission = mission
+                self.queries = []
+
+            def query(self, artifact_type, **filters):
+                self.queries.append((artifact_type, filters))
+                if artifact_type == "rc7_mission":
+                    return [copy.deepcopy(self.mission)]
+                return [{"mission_id": "M1", "id": artifact_type}]
+
+        truth = RecordingTruth({
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B1",
+            "goal": "not returned by scoped identity lookup",
+        })
+        result = AdminProjection(truth).mission_overview_scoped(
+            mission_id="M1", project_id="P1", batch_id="B1")
+        self.assertEqual(
+            [("rc7_mission", {"mission_id": "M1"}),
+             ("rc7_task", {"mission_id": "M1"}),
+             ("execution_attempt", {"mission_id": "M1"}),
+             ("rc7_evidence", {"mission_id": "M1"})],
+            truth.queries)
+        self.assertEqual({
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B1",
+        }, result["mission"])
+        self.assertEqual(["tasks", "executions", "evidence"],
+                         list(result["related"]))
 
     def test_real_rc7_admin_has_no_workbench_control_or_graph_api(self):
         """Pinned old API rejects the proposed routes; not production HTTP QA."""

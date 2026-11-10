@@ -40,8 +40,8 @@ After B06 succeeds:
 2. Resolve the minimal Mission identity first and require explicit `mission_id`, `project_id`, and `batch_id` to match. A missing or cross-scope identity is rejected before any related query.
 3. Only after the identity match, load Tasks/Executions/Evidence and require each row to retain the same `mission_id`; reject duplicate IDs or malformed collections.
 4. Never fall back to the old `mission_overview(mission_id)` method, which reads related details before E can check scope.
-4. Preserve B06 source refs and append the R1 projection source ref; never replace one provenance domain with the other.
-5. Keep Attempt result `UNKNOWN_UNQUALIFIED`, Evidence `UNVERIFIED_NO_CONTENT_READ`, NodeGate `UNKNOWN`, and release decision `HOLD`. A declared hash is not a verified hash until bytes are read and recomputed.
+5. Preserve B06 source refs and append the R1 projection source ref; never replace one provenance domain with the other.
+6. Keep Attempt result `UNKNOWN_UNQUALIFIED`, Evidence `UNVERIFIED_NO_CONTENT_READ`, NodeGate `UNKNOWN`, and release decision `HOLD`. A declared hash is not a verified hash until bytes are read and recomputed.
 
 The inherited R1 `Mission` currently carries `release_id`, not canonical project/batch fields. Therefore old Mission records without explicit, independently migrated bindings are rejected. No guess or backfill is performed by E.
 
@@ -93,7 +93,7 @@ F independently reviewed E HEAD `917f597d11daa1ae0bfc0caa07066bd45ad64ffa` and a
 **Remediation:**
 - E now requires `mission_overview_scoped(project_id, batch_id, mission_id)`; no unscoped fallback is permitted.
 - The legacy in-process AdminProjection performs a minimal `truth.get("rc7_mission", mission_id)` identity lookup first. It compares explicit Mission `project_id` and `batch_id` against the authorized B06 scope; missing, unbound, or mismatched identities all fail with `R1_MISSION_SCOPE_UNRESOLVED` without disclosing whether another-scope Mission exists.
-- Only after the identity matches does it query the selected Mission's Tasks, Executions, and Evidence. It returns only the three identity fields required by E, not the complete Mission row. It intentionally does not call `refresh()`, because that rebuilds the whole event projection before scope validation.
+- Only after the identity matches does it query the selected Mission's Tasks, Executions, and Evidence. It returns only the three identity fields required by E, not the complete Mission row. It intentionally does not call `refresh()`, because that rebuilds the whole event projection before scope validation. It uses `TruthRuntime.query("rc7_mission", mission_id=...)` for the identity-only lookup; the inherited runtime has no `get()` API.
 - Both E read seams (single-scope prototype and complete paginated consumer) call the same scope-first helper. A legacy object exposing only `mission_overview(mission_id)` is rejected with `R1_SCOPED_READ_UNAVAILABLE`; the unsafe method is never invoked.
 - Negative tests cover cross-project, cross-batch, missing legacy bindings, old unscoped-only projection, and actual inherited RC7 AdminProjection. They assert zero related Tasks/Executions/Evidence queries before rejection. Positive fixtures assert the identity check happens before related reads.
 

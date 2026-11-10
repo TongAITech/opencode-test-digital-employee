@@ -170,7 +170,10 @@ class AdminProjection:
         if not all(isinstance(value, str) and value.strip()
                    for value in (mission_id, project_id, batch_id)):
             raise AdminProjectionError("R1_MISSION_SCOPE_UNRESOLVED")
-        mission = self.truth.get("rc7_mission", mission_id)
+        # TruthRuntime exposes query() (not get()); this query touches only the
+        # Mission identity bucket and deliberately does not load related records.
+        missions = self.truth.query("rc7_mission", mission_id=mission_id)
+        mission = missions[0] if len(missions) == 1 else None
         if (not isinstance(mission, Mapping)
                 or mission.get("mission_id") != mission_id
                 or mission.get("project_id") != project_id
