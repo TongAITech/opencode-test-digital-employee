@@ -74,3 +74,9 @@ B 组最新 PR #89 HEAD `98bac426a35063a306f4eaa4b43c80cf0a0a1745` 已新增 sst
 - E 组新 #102 `26b2deaf5485193133e418da81982291c8056d64` B06 全分页请求 page_cursor、顶层 next_page_cursor；所有页授权和 project+batch/revisions/source_refs 恒等才允许读取 R1，E 不接收自报 principal。E 的 W0 协议反例可进入联合 CI，E01 真实 R1/HTTP/持久化未通过。
 - C 组 #97 `b2a64df65661880808510d0486f6aefc70ca23df` 新原创 SourceReadFence/30 Node 反例只展示只读模拟 Scope，不得自动让 NodeGate/人审 PASS。F #104 FG23 旧联合树失败、新 C 已删除 Chromium CI 08/09/10 PR 路径，待本次 A 同 SHA 合同/F 独立复验。
 - 最新 F 已审查但尚未签署当前 A 集成树，`W0_DESIGN_ACCEPTED=NO`；F02/F03/F04、A02 商业权限与独立产品现场认证另为严格门禁；`W0_NOT_FROZEN / BLOCKED_LICENSE / W1–W4_NOT_RUN`。
+
+## 2026-11-10 B108/E107 来源合同新复签事项（不能代替 F 的 E P1 审核）
+- B [#108](https://github.com/TongAITech/opencode-test-digital-employee/pull/108) 源 `b801c25bbec361e6a791c561d5a7dd0ec9440aaf`：F #111 接受 `B108_W0_DESIGN_WITNESS_PASS`，规定 B06 的 SPLIT/UNSPLIT 必须根据 verified BRV↔BRVS 关系和一致性快照计算，而不是引用可变标签；来源修订不可被静默 UPDATE/DELETE，合法纠正/退役需来源 supersession+审计。SQLite W0 是见证不是 PostgreSQL。
+- E [#107](https://github.com/TongAITech/opencode-test-digital-employee/pull/107) 旧源 `917f597`：F #111 指出 Mission Scope 检查之前已读取关联任务与 Evidence 的 P1；新源 `a04933fbe7b651c10b589b90cade5da65bdd8b81` 改为强制 `AdminProjection.mission_overview_scoped(project_id,batch_id,mission_id)`。先唯一 Mission 身份查询及显式 project/batch 校验，匹配后才读 details；缺绑定、跨项目/批次时关联明细零查询，老 mission_id-only API 绝不可 fallback。**E 新修复仅具备提交与同 E HEAD CI，F 最新安全签署仍待**。
+- A03 新增“先权限、后数据”的读取时序边界；正式 Host-derived principal/真实 Postgres/R1 ACL/重启与权限撤销 QA 在 W1+ 执行。F 原 P1 提醒不是实际线上接口已暴露证据；但不能放行预适配器生产使用。
+- A02 `BLOCKED_LICENSE` 不变，W0 `NOT_FROZEN`；B01/B02/E01 真产品 `QA_NOT_RUN`；A 不代签 F。

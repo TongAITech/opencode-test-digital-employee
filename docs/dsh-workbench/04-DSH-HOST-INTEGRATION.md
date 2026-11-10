@@ -1,5 +1,5 @@
 # DSH 宿主与插件契约
-状态：W0 候选冻结
+状态：W0_DESIGN_IN_PROGRESS / W0_NOT_FROZEN；W0 候选合同待 A01/A03/F00 正式签署；W1–W4 实现与现场 QA 未运行；A02 BLOCKED_LICENSE
 
 ## 原生能力优先
 插件使用 DSH 宿主已有的面板注册、会话、模型目录、技能、命令、附件、取消、历史等能力。不得自建第二套 API Key、模型配置、对话历史。行内 DSH 1.18.26 兼容性需要现场 Qualification，不能以开源 Harness 版本通过替代。

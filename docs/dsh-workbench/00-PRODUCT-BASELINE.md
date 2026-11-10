@@ -1,5 +1,5 @@
 # DSH 智能测试工作台 V1.0 — 产品基线
-状态：W0 候选冻结；等待独立验收与授权门禁核销
+状态：W0_DESIGN_IN_PROGRESS / W0_NOT_FROZEN；W0 候选合同待 A01/A03/F00 正式签署；W1–W4 实现与现场 QA 未运行；A02 BLOCKED_LICENSE
 基线：RC7.2 work/rc7.2 @ 3de74c2bf3a0f3a555ccd979edd2832f26c9963a（此 SHA 仅为首次分支起点，实际施工必须读取最新 HEAD）
 
 ## 产品定位

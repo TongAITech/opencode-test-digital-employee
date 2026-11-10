@@ -1,5 +1,5 @@
 # 独立质量验收合同
-状态：W0 候选冻结
+状态：W0_DESIGN_IN_PROGRESS / W0_NOT_FROZEN；W0 候选合同待 A01/A03/F00 正式签署；W1–W4 实现与现场 QA 未运行；A02 BLOCKED_LICENSE
 
 ## 证据优先级
 同提交 HEAD 的实际测试、R1 正式 Evidence、真实宿主操作及截图 > 代码/PR > 施工账本 > 聊天自述。任何一个按钮能点击不能证明业务闭环。

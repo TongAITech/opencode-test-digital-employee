@@ -145,3 +145,10 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - A01 精简 PR #110 已合并至 W0 candidate：`afcda9a5737e181a1d1d5e08f926943664c594d5`，不是运行主线 `work/rc7.2`。重复 PR #109 未合并即关闭，A 的既有 12 条 W1 正反例和 50 个功能合同保持唯一来源。
 - 该合并 HEAD 的 [GitHub W0 fast CI run #42744769517](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42744769517) 真实 225/225 Python、30/30 Node、A01 locale PASS、policy 13 PASS。只核销设计层，而非 W1 bilingual UI QA_PASS；完整 Q1/L1/L2/Windows Host 现场不由该运行覆盖。
 - F #106 对旧 A@a3555b1 的 C 原型接受继续有效但**不能自动承诺新增 A01 源码锚点已审完/整体 W0 已冻结**。产品仍 50/50 NOT_RUN，A02 `BLOCKED_LICENSE`，`W0_NOT_FROZEN / PR84_DRAFT / RC72_NOT_MERGED / NO_BANK_PACKAGE`。
+
+## 2026-11-10 A/B/E Round-1 安全整改统一检查点
+- **旧 F 审查源：** F #111 A `f870ad5` 225 Python/30 Node/真 Chromium；B108 30 定向+210 W0，旧 E107 73 E+211 W0，临时 overlay 234 Python+30 Node。此阶段 F 发现 E P1 先读 R1 details 后校验 Mission Scope，结论 `W0_NOT_FROZEN`。历史 E P1 记录保留。
+- **新 B 集成：** #108 @ `b801c25bbec361e6a791c561d5a7dd0ec9440aaf`，F 已签 W0 领域设计见证；不具备生产 Postgres 关系迁移或真实 B06 状态推导 API。
+- **新 E 集成候选：** #107 @ `a04933fbe7b651c10b589b90cade5da65bdd8b81`，AdminProjection R1 Mission identity-only scope-first query，拒绝时 related query 0，老 unscoped API 无 fallback；[E 单 SHA W0 239](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42752449330/job/129618982111) / [Python3.8+3.11 各82](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42752443232/job/129618962172) 为独立分支的工程证据，**F 必须对新 A 精确 HEAD 独立签核 E P1**。
+- A 单一 Draft 集成分支 `work/dsh-wb-w0` 维护唯一 08/09/10 并保留 B/E 独立 Git 父提交。另将 00/02/03/04/05/07 “W0 候选冻结”状态统一改为 `W0_DESIGN_IN_PROGRESS / W0_NOT_FROZEN`，避免代码状态与合同不符。
+- **任何 L0 PASS 不自动签 `WB-F00_DESIGN_ACCEPTED`**：A01 双语 W1 NOT_RUN，A02 `BLOCKED_LICENSE`，B/C/D/E 真实 PostgreSQL/API/R1/Host/Windows/W2-W4 和 50/50 产品功能均未完成；PR #84 保持 Draft，禁止 RC7.2 主线合入和银行 ZIP。

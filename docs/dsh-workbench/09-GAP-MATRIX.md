@@ -195,3 +195,13 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | WB-A01-LOCALE-W1 | `12_W1_ACCEPTANCE_CASES_NOT_RUN` | 保留 zh-CN/en-US 两模式，默认中文；全六页十区、Skill 词条、无障碍、Scope 和 Human Gate 不变量须 C/D W1 真实验收 |
 | WB-A02 | `BLOCKED_LICENSE` | 上游源码仍非商业许可，原始入口核查不授予银行商业复制、分发或打包权 |
 | WB-F00-W0 | `F_GLOBAL_DESIGN_REVIEW_PENDING / W0_NOT_FROZEN` | F #106 仅签 C 原型及 FG23；需 F 审阅 A @afcda9a 及正式全局设计门禁后才可讨论 W0 冻结 |
+
+## F #111 安全阻断及 B/E 最新设计差量（2026-11-10）
+
+| GAP | 真实来源与回归证据 | 当前准确状态 | 退出条件 |
+|---|---|---|---|
+| E107-P1 R1 跨 Scope 预读取 | F #111 旧 `917f597` 真实调用 Mission 关联详情早于 project/batch 授权；E 新 `a04933f` 改为 scoped identity-only lookup+0 related queries on reject，E 同源 239 Python、Py3.8/3.11 各82 PASS | `E_CODE_FIX_SUBMITTED / F_NEW_SHA_SECURITY_REVIEW_PENDING`，**不能写 P1 CLOSED** | F 在新 A 联合树重跑跨项目/跨批次/legacy missing scope、unscoped fallback 禁止和查询时序，不把生产 R1/Host/Postgres ACL 当已验 |
+| B108 Split/Source Audit | F #111 已签 `B108_W0_DESIGN_WITNESS_PASS`，BRV/BRVS verified relation 推导拆分态，来源审计不能静默改写，B 原同 SHA 210 Python | `W0_DESIGN_WITNESS_ACCEPTED / B01_B02_NOT_RUN` | W1 PostgreSQL 事务一致性快照、合法来源纠正 supersession 事件、CAS/回滚/HTTP/ACL 经 F 实测 |
+| 旧 00/02/03/04/05/07 冻结字眼 | F #111 指出 W0 候选冻结误读风险；A 改为 W0_DESIGN_IN_PROGRESS/NOT_FROZEN，反向门禁 | `SOURCE_DOC_STATUS_CORRECTED / F_REVIEW_PENDING` | F 确认 A01+A03 整体设计合同并签 F00 后才能设正式 FROZEN |
+| FG20/FG23 C 原型 | F #106 签 C W0 prototype/FG23 closed，F #111 重验 A f870 真 Chromium | `C_W0_PROTOTYPE_PASS / 50_PRODUCT_NOT_RUN` | C01/C02 正式代码 + F02 真 UI/Host/API，不得由 demo 顶替 |
+| W0 总体/许可 | F #111 `ROUND1_W0_CONTRACTS_PASS_WITH_E_P1_HOLD`，法务许可未出 | `W0_NOT_FROZEN / A02_BLOCKED_LICENSE` | F00 DESIGN_ACCEPTED + 真实 W1-W4 QA + license grant/clean-room审计各自独立门禁 |

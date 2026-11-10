@@ -188,7 +188,7 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
             else:
                 item["status"] = "READ_ONLY_UNQUALIFIED"
             sink.append(item)
-    r1_source_ref = "rc7_admin:mission_overview:%s" % mission_id
+    r1_source_ref = "rc7_admin:mission_overview_scoped:%s" % mission_id
     combined_source_refs = list(scope["source_refs"])
     if r1_source_ref not in combined_source_refs:
         combined_source_refs.append(r1_source_ref)
@@ -218,6 +218,31 @@ def r1_preview(b06_authorized_scope: Mapping[str, Any],
     }
 
 
+def read_scoped_r1_mission_overview(
+    projection: Any, *, project_id: str, batch_id: str, mission_id: str,
+) -> Mapping[str, Any]:
+    """Require a scope-first R1 port; never fall back to mission_id-only reads.
+
+    The port must resolve only the Mission identity first, compare its explicit
+    project/batch binding, and load related details only after that match.
+    """
+    _expect(projection is not None, "TRUTH_SOURCE_UNAVAILABLE")
+    method = getattr(projection, "mission_overview_scoped", None)
+    _expect(callable(method), "R1_SCOPED_READ_UNAVAILABLE")
+    try:
+        overview = method(
+            mission_id=mission_id, project_id=project_id, batch_id=batch_id)
+    except ContractRejection:
+        raise
+    except Exception as exc:
+        # The legacy AdminProjection reports contract codes as RuntimeError text.
+        if str(exc) == "R1_MISSION_SCOPE_UNRESOLVED":
+            raise ContractRejection("R1_MISSION_SCOPE_UNRESOLVED") from exc
+        raise ContractRejection("TRUTH_SOURCE_UNAVAILABLE") from exc
+    _expect(isinstance(overview, Mapping), "TRUTH_SOURCE_UNAVAILABLE")
+    return overview
+
+
 def r1_preview_from_legacy_admin(
     authorized_b06_fetch: Callable[[str, str], Mapping[str, Any]],
     legacy_admin: Any, *,
@@ -227,9 +252,9 @@ def r1_preview_from_legacy_admin(
 
     The injected B06 port MUST be bound by server-side DSH Host middleware to the
     authenticated request context; it accepts project+batch only, never a principal
-    from a browser/body argument. B06 is not passed mission_id: after authorization
-    and source-verified join, the explicit R1 Mission project_id+batch_id binding is
-    checked. The next call reads old AdminProjection; no dispatch_post or R1 append.
+    from a browser/body argument. After B06 authorization, R1 must expose a scoped
+    read port: resolve minimal Mission identity, verify exact project+batch, then
+    load related details. The old mission_id-only overview is never a fallback.
     A fixture cannot authenticate production users or prove Host middleware wiring.
     """
     _expect(callable(authorized_b06_fetch), "SCOPE_SOURCE_UNAVAILABLE")
@@ -240,8 +265,8 @@ def r1_preview_from_legacy_admin(
     # Do not invoke /api/missions/{id} over an unprotected network endpoint:
     # direct in-process R1-derived read only, after B06 confirms authorization.
     projection = getattr(legacy_admin, "projection", None)
-    method = getattr(projection, "mission_overview", None)
-    _expect(callable(method), "TRUTH_SOURCE_UNAVAILABLE")
-    overview = method(mission_id)
+    overview = read_scoped_r1_mission_overview(
+        projection, project_id=project_id, batch_id=batch_id,
+        mission_id=mission_id)
     return r1_preview(b06, overview, project_id=project_id,
                       batch_id=batch_id, mission_id=mission_id)
