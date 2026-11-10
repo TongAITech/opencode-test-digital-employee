@@ -5,20 +5,29 @@ from pathlib import Path
 ROOT = Path(__file__).with_name('migrations')
 
 
-def migrate(connection):
-    content = (ROOT/'001_identity.up.sql').read_text()
-    digest = hashlib.sha256(content.encode()).hexdigest()
+def migrate(connection, target=1):
+    """Apply the explicitly selected reviewed migration prefix atomically."""
+    if target not in (1,2):
+        raise ValueError('UNKNOWN_MIGRATION_TARGET')
+    changed=False
     with connection.transaction():
         connection.execute("SELECT pg_advisory_xact_lock(684091210)")
         connection.execute('CREATE TABLE IF NOT EXISTS public.wb_schema_migration(version integer PRIMARY KEY, checksum text NOT NULL)')
-        row = connection.execute('SELECT checksum FROM public.wb_schema_migration WHERE version=1').fetchone()
-        if row:
-            if row[0] != digest:
-                raise RuntimeError('MIGRATION_CHECKSUM_CONFLICT')
-            return False
-        connection.execute(content)
-        connection.execute('INSERT INTO public.wb_schema_migration VALUES(1,%s)',(digest,))
-        return True
+        for version in range(1,target+1):
+            files=list(ROOT.glob('%03d_*.up.sql' % version))
+            if len(files)!=1:
+                raise RuntimeError('MIGRATION_FILE_AMBIGUOUS')
+            content=files[0].read_text()
+            digest=hashlib.sha256(content.encode()).hexdigest()
+            row=connection.execute('SELECT checksum FROM public.wb_schema_migration WHERE version=%s',(version,)).fetchone()
+            if row:
+                if row[0]!=digest:
+                    raise RuntimeError('MIGRATION_CHECKSUM_CONFLICT')
+                continue
+            connection.execute(content)
+            connection.execute('INSERT INTO public.wb_schema_migration VALUES(%s,%s)',(version,digest))
+            changed=True
+    return changed
 
 
 def rollback(connection):
