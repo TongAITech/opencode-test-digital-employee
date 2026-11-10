@@ -52,8 +52,9 @@ CREATE TABLE sst(
 );
 CREATE TABLE sst_source_trace(
     project_id TEXT NOT NULL, version_id TEXT NOT NULL, sst_id TEXT NOT NULL,
-    source_namespace TEXT NOT NULL, source_revision TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
+    source_namespace TEXT NOT NULL CHECK(length(trim(source_namespace)) > 0),
+    source_revision TEXT NOT NULL CHECK(length(trim(source_revision)) > 0),
+    source_ref TEXT NOT NULL CHECK(length(trim(source_ref)) > 0),
     PRIMARY KEY(project_id,version_id,sst_id),
     UNIQUE(project_id,version_id,source_ref),
     FOREIGN KEY(project_id,version_id,sst_id) REFERENCES sst(project_id,version_id,sst_id)
@@ -77,7 +78,7 @@ CREATE TABLE bv(
 CREATE TABLE authoritative_req_version(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
     requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
-    source_link_ref TEXT NOT NULL,
+    source_link_ref TEXT NOT NULL CHECK(length(trim(source_link_ref)) > 0),
     PRIMARY KEY(project_id,batch_id,requirement_id,version_id),
     UNIQUE(project_id,batch_id,source_link_ref),
     FOREIGN KEY(project_id,batch_id,requirement_id)
@@ -102,13 +103,13 @@ CREATE TABLE brv(
 CREATE TABLE authoritative_link(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
     requirement_id TEXT NOT NULL, version_id TEXT NOT NULL,
-    sst_id TEXT NOT NULL, source_link_ref TEXT NOT NULL,
+    sst_id TEXT NOT NULL, source_link_ref TEXT NOT NULL CHECK(length(trim(source_link_ref)) > 0),
     PRIMARY KEY(project_id,batch_id,requirement_id,version_id,sst_id),
     UNIQUE(project_id,batch_id,source_link_ref),
     FOREIGN KEY(project_id,batch_id,requirement_id,version_id)
       REFERENCES brv(project_id,batch_id,requirement_id,version_id),
     FOREIGN KEY(project_id,version_id,sst_id)
-      REFERENCES sst(project_id,version_id,sst_id)
+      REFERENCES sst_source_trace(project_id,version_id,sst_id)
 );
 CREATE TABLE brvs(
     project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
@@ -204,6 +205,11 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                             [("P1",v,s,"Starlink",s) for v,s in
                              [("VA","S1"),("VA","S2"),("VB","S3"),
                               ("VA","S4"),("VC","S5"),("VC","S6"),("VC","S7")]])
+        # A source-verified SST link requires a recorded, version-scoped
+        # immutable upstream provenance row, not merely an SST identity.
+        self.db.execute("""INSERT INTO sst_source_trace
+            SELECT project_id,version_id,sst_id,'FAT1','source-rev-1',
+                   'starlink:verified:'||version_id||':'||sst_id FROM sst""")
         for b,r,v in [("B1","R1","VA"),("B1","R1","VB"),("B1","R1","VC"),
                       ("B1","R2","VA"),("B1","R2","VC"),
                       ("B2","R1","VA")]:
@@ -410,6 +416,71 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
                             ("P1","VC","SST-A-100","Starlink","different-raw"))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sst WHERE source_key='SST-100'").fetchone()[0],2)
 
+    def test_untraced_sst_cannot_be_promoted_to_verified_batch_link(self):
+        """A locally valid SST identity is not proof of source-verified linkage."""
+        self.db.execute(
+            "INSERT INTO sst VALUES (?,?,?,?,?)",
+            ("P1","VC","SST-UNTRACED","Starlink","RAW-UNTRACED"))
+        edge = ("P1","B1","R2","VC","SST-UNTRACED","verified-link-untraced")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",edge)
+        self.assertIsNone(self.db.execute(
+            """SELECT 1 FROM authoritative_link
+               WHERE project_id='P1' AND batch_id='B1'
+                 AND requirement_id='R2' AND version_id='VC'
+                 AND sst_id='SST-UNTRACED'""").fetchone())
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)", edge[:5])
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VC","SST-UNTRACED","FAT1","8","starlink:VC:SST-UNTRACED"))
+        self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",edge)
+        self.db.execute("INSERT INTO brvs VALUES (?,?,?,?,?)",edge[:5])
+        self.assertIn(("R2","VC","SST-UNTRACED"),
+                      scope_rows(self.db,{"P1"},"P1","B1"))
+
+    def test_trace_for_other_version_does_not_authorize_current_version(self):
+        """Equal upstream raw SST IDs across versions cannot share trace authority."""
+        self.db.executemany("INSERT INTO sst VALUES (?,?,?,?,?)",[
+            ("P1","VA","TRACE-VA","Starlink","RAW-TRACE-7"),
+            ("P1","VB","TRACE-VB","Starlink","RAW-TRACE-7")])
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VA","TRACE-VA","FAT1","r10","starlink:VA:RAW-TRACE-7"))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                            ("P1","B1","R1","VB","TRACE-VB","link-without-vb-trace"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM authoritative_link WHERE sst_id='TRACE-VB'"
+        ).fetchone()[0],0)
+        self.db.execute("INSERT INTO sst_source_trace VALUES (?,?,?,?,?,?)",
+                        ("P1","VB","TRACE-VB","FAT1","r11","starlink:VB:RAW-TRACE-7"))
+        self.db.execute("INSERT INTO authoritative_link VALUES (?,?,?,?,?,?)",
+                        ("P1","B1","R1","VB","TRACE-VB","verified-vb-trace"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM authoritative_link WHERE sst_id='TRACE-VB'"
+        ).fetchone()[0],1)
+
+    def test_blank_source_lineage_fields_are_rejected(self):
+        """Empty upstream proofs must never satisfy non-null FK provenance."""
+        bad = [
+            ("UPDATE sst_source_trace SET source_ref='' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE sst_source_trace SET source_revision='  ' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE sst_source_trace SET source_namespace='' "
+             "WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"),
+            ("UPDATE authoritative_req_version SET source_link_ref='  ' "
+             "WHERE project_id='P1' AND batch_id='B1' AND requirement_id='R1' AND version_id='VA'"),
+            ("UPDATE authoritative_link SET source_link_ref='' "
+             "WHERE project_id='P1' AND batch_id='B1' AND requirement_id='R1' AND version_id='VA' AND sst_id='S1'")
+        ]
+        for sql in bad:
+            with self.subTest(sql=sql):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.db.execute(sql)
+        self.assertEqual(self.db.execute(
+            "SELECT source_revision FROM sst_source_trace WHERE project_id='P1' AND version_id='VA' AND sst_id='S1'"
+        ).fetchone()[0],"source-rev-1")
+
     def test_fg18_same_raw_source_id_across_projects_allowed(self):
         self._fg18_reused_source_ids()
         self.db.execute("INSERT INTO system_version VALUES (?,?,?,?,?,?)",
@@ -419,6 +490,312 @@ class TestBA03SqlDesignWitness(unittest.TestCase):
         self.assertEqual(
             self.db.execute("SELECT project_id,version_id,sst_id FROM sst WHERE source_key='SST-100' ORDER BY project_id,version_id").fetchall(),
             [("P1","VA","SST-A-100"),("P1","VB","SST-B-100"),("P2","VP2","SST-P2")])
+
+
+
+# Separate B01/B02 design witness. Keep the original DDL above stable because
+# F's immutable FG18 regression extracts it verbatim from this file.
+B01_B02_IDENTITY_DDL = """
+PRAGMA foreign_keys = ON;
+CREATE TABLE project(project_id TEXT PRIMARY KEY);
+CREATE TABLE release_batch(
+    project_id TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    release_date TEXT NOT NULL
+        CHECK(length(release_date)=10 AND release_date GLOB
+              '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    date_revision INTEGER NOT NULL DEFAULT 1 CHECK(date_revision > 0),
+    relation_revision INTEGER NOT NULL DEFAULT 1 CHECK(relation_revision > 0),
+    PRIMARY KEY(project_id,batch_id),
+    UNIQUE(project_id,release_date),
+    FOREIGN KEY(project_id) REFERENCES project(project_id)
+);
+CREATE TABLE batch_date_history(
+    project_id TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    date_revision INTEGER NOT NULL CHECK(date_revision > 1),
+    old_date TEXT NOT NULL,
+    new_date TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    actor_id TEXT NOT NULL CHECK(length(trim(actor_id)) > 0),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+    approved_change_ref TEXT NOT NULL
+        CHECK(length(trim(approved_change_ref)) > 0),
+    PRIMARY KEY(project_id,batch_id,date_revision),
+    FOREIGN KEY(project_id,batch_id)
+        REFERENCES release_batch(project_id,batch_id),
+    CHECK(old_date <> new_date)
+);
+CREATE TRIGGER batch_date_history_no_update
+BEFORE UPDATE ON batch_date_history
+BEGIN
+    SELECT RAISE(ABORT,'BATCH_DATE_HISTORY_APPEND_ONLY');
+END;
+CREATE TRIGGER batch_date_history_no_delete
+BEFORE DELETE ON batch_date_history
+BEGIN
+    SELECT RAISE(ABORT,'BATCH_DATE_HISTORY_APPEND_ONLY');
+END;
+CREATE TABLE system_identity(
+    project_id TEXT NOT NULL,
+    system_id TEXT NOT NULL,
+    source_system TEXT NOT NULL,
+    source_namespace TEXT NOT NULL,
+    source_object_id TEXT NOT NULL,
+    source_revision TEXT NOT NULL,
+    PRIMARY KEY(project_id,system_id),
+    UNIQUE(project_id,source_system,source_namespace,source_object_id),
+    FOREIGN KEY(project_id) REFERENCES project(project_id)
+);
+CREATE TABLE system_version_identity(
+    project_id TEXT NOT NULL,
+    system_version_id TEXT NOT NULL,
+    system_id TEXT NOT NULL,
+    source_system TEXT NOT NULL,
+    source_namespace TEXT NOT NULL,
+    source_object_id TEXT NOT NULL,
+    source_revision TEXT NOT NULL,
+    version_label TEXT NOT NULL,
+    PRIMARY KEY(project_id,system_version_id),
+    UNIQUE(project_id,source_system,source_namespace,source_object_id),
+    FOREIGN KEY(project_id,system_id)
+        REFERENCES system_identity(project_id,system_id)
+);
+"""
+
+def reschedule_batch_design_witness(
+    db, authorized_projects, project_id, batch_id, new_date,
+    expected_date_revision, actor_id, reason, approved_change_ref, changed_at
+):
+    # Authorization is intentionally evaluated before resource existence.
+    if project_id not in authorized_projects:
+        raise DomainError(403, "FORBIDDEN")
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(
+            """SELECT release_date,date_revision FROM release_batch
+               WHERE project_id=? AND batch_id=?""",
+            (project_id,batch_id)
+        ).fetchone()
+        if row is None:
+            raise DomainError(404, "RESOURCE_NOT_FOUND")
+        old_date, current_revision = row
+        if current_revision != expected_date_revision:
+            raise DomainError(409, "DATE_REVISION_CONFLICT")
+        if not all((actor_id,reason,approved_change_ref,changed_at)):
+            raise DomainError(400, "DATE_CHANGE_AUDIT_REQUIRED")
+        next_revision = current_revision + 1
+        updated = db.execute(
+            """UPDATE release_batch
+               SET release_date=?,date_revision=?,relation_revision=relation_revision+1
+               WHERE project_id=? AND batch_id=? AND date_revision=?""",
+            (new_date,next_revision,project_id,batch_id,expected_date_revision)
+        )
+        if updated.rowcount != 1:
+            raise DomainError(409, "DATE_REVISION_CONFLICT")
+        db.execute(
+            """INSERT INTO batch_date_history
+               (project_id,batch_id,date_revision,old_date,new_date,changed_at,
+                actor_id,reason,approved_change_ref)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (project_id,batch_id,next_revision,old_date,new_date,changed_at,
+             actor_id,reason,approved_change_ref)
+        )
+        db.commit()
+        return next_revision
+    except sqlite3.IntegrityError as error:
+        db.rollback()
+        if "UNIQUE constraint failed: release_batch.project_id, release_batch.release_date" in str(error):
+            raise DomainError(409, "RELEASE_DATE_CONFLICT") from error
+        raise
+    except BaseException:
+        db.rollback()
+        raise
+
+
+class TestB01B02IdentityAndDateDesignWitness(unittest.TestCase):
+    def setUp(self):
+        self.db = sqlite3.connect(":memory:", isolation_level=None)
+        self.addCleanup(self.db.close)
+        self.db.executescript(B01_B02_IDENTITY_DDL)
+        self.db.executemany("INSERT INTO project VALUES (?)", [("P1",),("P2",)])
+        self.db.executemany(
+            """INSERT INTO release_batch
+               (project_id,batch_id,release_date) VALUES (?,?,?)""",
+            [("P1","B1","2026-11-12"),("P1","B2","2026-11-19"),
+             ("P2","B3","2026-11-12")]
+        )
+        self.db.executemany(
+            """INSERT INTO system_identity VALUES (?,?,?,?,?,?)""",
+            [("P1","SYS-A","Starlink","FAT1","SYS-100","8"),
+             ("P1","SYS-B","Starlink","FAT1","SYS-200","8"),
+             ("P1","SYS-C","Starlink","FAT2","SYS-100","9"),
+             ("P2","SYS-P2","Starlink","FAT1","SYS-100","8")]
+        )
+        self.db.executemany(
+            """INSERT INTO system_version_identity VALUES
+               (?,?,?,?,?,?,?,?)""",
+            [("P1","VA","SYS-A","Starlink","FAT1","VER-100","8","PF1.2.0"),
+             ("P1","VB","SYS-B","Starlink","FAT1","VER-200","8","PF1.2.0"),
+             ("P1","VC","SYS-C","Starlink","FAT2","VER-100","9","PF1.2.0")]
+        )
+
+    def _reschedule(self, batch, new_date, expected=1, **overrides):
+        values = {
+            "actor_id":"release-manager",
+            "reason":"approved production date change",
+            "approved_change_ref":"CHANGE-2026-11-001",
+            "changed_at":"2026-11-10T02:00:00+08:00",
+        }
+        values.update(overrides)
+        return reschedule_batch_design_witness(
+            self.db, {"P1"}, "P1", batch, new_date, expected,
+            values["actor_id"],values["reason"],values["approved_change_ref"],
+            values["changed_at"]
+        )
+
+    def test_b01_project_date_unique_but_cross_project_same_date_allowed(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                "INSERT INTO release_batch VALUES ('P1','B4','2026-11-12',1,1)"
+            )
+        self.assertEqual(
+            self.db.execute(
+                "SELECT batch_id FROM release_batch WHERE project_id='P2' AND release_date='2026-11-12'"
+            ).fetchone()[0],
+            "B3"
+        )
+
+    def test_b01_reschedule_keeps_batch_id_and_appends_full_audit_atomically(self):
+        self.assertEqual(self._reschedule("B1","2026-11-13"),2)
+        self.assertEqual(
+            self.db.execute(
+                """SELECT batch_id,release_date,date_revision,relation_revision
+                   FROM release_batch WHERE project_id='P1' AND batch_id='B1'"""
+            ).fetchone(),
+            ("B1","2026-11-13",2,2)
+        )
+        self.assertEqual(
+            self.db.execute(
+                """SELECT old_date,new_date,actor_id,reason,approved_change_ref,changed_at
+                   FROM batch_date_history WHERE project_id='P1' AND batch_id='B1'
+                     AND date_revision=2"""
+            ).fetchone(),
+            ("2026-11-12","2026-11-13","release-manager",
+             "approved production date change","CHANGE-2026-11-001",
+             "2026-11-10T02:00:00+08:00")
+        )
+
+    def test_b01_duplicate_date_maps_to_409_without_partial_write(self):
+        before = self.db.execute(
+            """SELECT release_date,date_revision,relation_revision
+               FROM release_batch WHERE project_id='P1' AND batch_id='B1'"""
+        ).fetchone()
+        with self.assertRaises(DomainError) as error:
+            self._reschedule("B1","2026-11-19")
+        self.assertEqual((error.exception.status,error.exception.code),
+                         (409,"RELEASE_DATE_CONFLICT"))
+        after = self.db.execute(
+            """SELECT release_date,date_revision,relation_revision
+               FROM release_batch WHERE project_id='P1' AND batch_id='B1'"""
+        ).fetchone()
+        self.assertEqual(after,before)
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM batch_date_history"
+        ).fetchone()[0],0)
+
+    def test_b01_stale_revision_is_409_and_does_not_append_history(self):
+        self._reschedule("B1","2026-11-13",expected=1)
+        with self.assertRaises(DomainError) as error:
+            self._reschedule("B1","2026-11-14",expected=1)
+        self.assertEqual((error.exception.status,error.exception.code),
+                         (409,"DATE_REVISION_CONFLICT"))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM batch_date_history"
+        ).fetchone()[0],1)
+
+    def test_b01_audit_failure_rolls_back_date_and_revision(self):
+        self.db.execute(
+            """CREATE TRIGGER reject_history_insert BEFORE INSERT ON batch_date_history
+               BEGIN SELECT RAISE(ABORT,'AUDIT_STORE_UNAVAILABLE'); END"""
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._reschedule("B1","2026-11-13")
+        self.assertEqual(self.db.execute(
+            """SELECT release_date,date_revision,relation_revision
+               FROM release_batch WHERE project_id='P1' AND batch_id='B1'"""
+        ).fetchone(),("2026-11-12",1,1))
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM batch_date_history"
+        ).fetchone()[0],0)
+
+    def test_b01_authorization_precedes_batch_existence(self):
+        with self.assertRaises(DomainError) as error:
+            reschedule_batch_design_witness(
+                self.db, set(), "P1", "DOES-NOT-EXIST", "2026-11-13", 1,
+                "actor","reason","approval","2026-11-10T02:00:00+08:00"
+            )
+        self.assertEqual(error.exception.status,403)
+        with self.assertRaises(DomainError) as missing:
+            reschedule_batch_design_witness(
+                self.db, {"P1"}, "P1", "DOES-NOT-EXIST", "2026-11-13", 1,
+                "actor","reason","approval","2026-11-10T02:00:00+08:00"
+            )
+        self.assertEqual(missing.exception.status,404)
+
+    def test_b01_history_is_append_only(self):
+        self._reschedule("B1","2026-11-13")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """UPDATE batch_date_history SET reason='rewritten'
+                   WHERE project_id='P1' AND batch_id='B1' AND date_revision=2"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """DELETE FROM batch_date_history
+                   WHERE project_id='P1' AND batch_id='B1' AND date_revision=2"""
+            )
+
+    def test_b02_version_label_is_not_identity_and_system_fk_is_enforced(self):
+        labels = self.db.execute(
+            """SELECT system_id,version_label FROM system_version_identity
+               WHERE project_id='P1' ORDER BY system_id"""
+        ).fetchall()
+        self.assertEqual(labels,[
+            ("SYS-A","PF1.2.0"),("SYS-B","PF1.2.0"),("SYS-C","PF1.2.0")
+        ])
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO system_version_identity VALUES
+                   ('P1','V-NO-SYSTEM','SYS-NO','Starlink','FAT1','VER-NO','1','PF1.2.1')"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO system_version_identity VALUES
+                   ('P1','V-CROSS-PROJECT','SYS-P2','Starlink','FAT1','VER-P2','1','PF1.2.1')"""
+            )
+
+    def test_b02_source_identity_includes_namespace_and_revision(self):
+        self.assertEqual(
+            self.db.execute(
+                """SELECT system_id,source_namespace,source_revision
+                   FROM system_identity WHERE project_id='P1' AND source_object_id='SYS-100'
+                   ORDER BY source_namespace"""
+            ).fetchall(),
+            [("SYS-A","FAT1","8"),("SYS-C","FAT2","9")]
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO system_identity VALUES
+                   ('P1','SYS-A-DUP','Starlink','FAT1','SYS-100','10')"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO system_version_identity VALUES
+                   ('P1','VA-DUP','SYS-A','Starlink','FAT1','VER-100','9','PF1.2.1')"""
+            )
+
+
 
 if __name__ == "__main__":
     unittest.main()
