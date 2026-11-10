@@ -84,3 +84,31 @@ F PR #94 对 75fd2c6 的 FG18 设计复验通过；A 7067d19 的 FG17 专项 CI 
 - F 对 75fd2c6 的总裁决为 REVIEWED_WITH_BLOCKERS；A 7067d19 仍待 F 差量复核；FG21 PR #84→work/rc7.2 mergeable=false/dirty，A02 BLOCKED_LICENSE。W0 继续 NOT_FROZEN。
 
 **下一 ready 工单：** 等待 A/F 正式解除 WB-W0_DESIGN_FROZEN；届时 B01 与 B02 才可并行转 READY。随后按 B03→B04→B05→B06 顺序施工。本轮不创建 PostgreSQL migration、不标 IMPLEMENTATION_QA_PASS、不构建 Windows ZIP、不改 RC7.2 主线。
+
+## 8. R4 最新联合集成差量复核（A@b385e042c4543f5d918d61bff5e01be1d88afba7；F PR #101）
+
+B 自 PR #95 前次签署所依赖的 A@7067d19 重新核对当前 A W0 源 `b385e042c4543f5d918d61bff5e01be1d88afba7`。B 原 `WB-B-A03-DESIGN-SIGNOFF.md`、02 业务领域合同和 06 通用 API 合同在新 A HEAD 的 blob 未发生变化；A 新增 RC7.2 R4 逻辑 Agent Teams 名册32/默认活跃4 与 FG17 targeted 收敛不改变 B 领域来源 ID、复合 FK、投产批次或 B06 的 ownership 边界。
+
+F 最新独立审核 PR #101：FG17 targeted real browser PASS；FG21 Git merge conflict resolved；新 FG22 为 CI 入场负向错误码不一致（W0 159 cases / 1 FAIL，F 164 / 1 FAIL）；A02 商业授权仍阻断。**F=REVIEWED_WITH_BLOCKERS、W0_NOT_FROZEN**，B 不代替 A 修复其 CI validator，也不以 B 测试绿灯覆盖 FG22。当前 B01/B02 的 W1 PostgreSQL 施工门禁仍未解除。
+
+### 8.1 B 组补强：来源 SST 身份 ≠ 已核验来源链
+
+B 的早期 FG18 W0 SQL witness 虽记录了 `sst_source_trace`，但 `authoritative_link` 只 FK→`sst`，允许一个有内部 SST 身份、却没有 source_trace 的对象伪造为已验证关系。这是新的 W0 设计负向覆盖缺口；本次改为 `authoritative_link(project_id,version_id,sst_id)` 必须复合 FK→`sst_source_trace`，trace 本身再 FK→`sst`。source_ref / source_revision / source_namespace 和两个 source_link_ref 均增加非空白检查。
+
+新增三项 W0 负向测试：未留痕 SST 不得变成 authoritative link；同 raw ID 不同系统版本的 source trace 不可互认；空白来源 namespace/revision/ref/requirement-version-link/SST-link 一律拒绝。原 F 独立跨版本 raw SST ID 测试保持原始 source key 语义与输入，不修改 F 代码。关联仍需要完整 BRV + 权威 requirement-version edge + authoritative SST edge；本轮只是 SQLite 设计契约，不是 PostgreSQL migration 或外部真来源导入。
+
+### 8.2 新 HEAD 验证边界
+
+本轮 B PR #95 最新 HEAD 与 run/job 必须按 GitHub 同 SHA 原始 CI 更新；A@b385e042c4543f5d918d61bff5e01be1d88afba7 的全局 W0 contract 仍因 FG22 RED，允许 B 原型独立设计子集 PASS，但不得显示全局 W0 绿灯、F ACCEPTED 或 WB-B01/B02 IMPLEMENTATION_QA_PASS。
+
+## 9. FG22 A 组修复差量（A@5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1）
+
+A 自 R4 `b385e042c4543f5d918d61bff5e01be1d88afba7` 之后仅修改 `tests/test_dsh_workbench_ci_admission.py` 修复 F 提出的 FG22 Q1 Admission reject-code 测试不一致，并补充真实 CDP test 被删与 Draft 不应入场两类独立反例；B 领域 02/06、原始设计签署以及 B 原型保持各自源语义不变。
+
+A 同 SHA W0 合同工作流 job 129538382920 实际 `Ran 161 tests ... OK` 和 `CI_ADMISSION_POLICY_PASS workflow_count=12`。这只是 A FG22 合同整改的正向证据，不意味着 F 已审核新 SHA、W0_DESIGN_FROZEN、PostgreSQL 实库或银行现场验收。B 在 A 新源之上重新合成独立 PR，重新跑 B 专项与联合合同并保留历史红灯。
+
+## 10. A 组 W0 集成并账增量复核（A@3f96e032e7e33491ab1330bff73aa8a4acf1b8c7）
+
+A 最新 W0 集成提交 `3f96e032e7e33491ab1330bff73aa8a4acf1b8c7` 已包含 B PR #95 早期 `67c4fc5` 的日期/系统版本设计 witness、B06 API payload/来源主体约束，及 C #97、E #96 原创合同。A 的 06 合同 blob 与 B 原签署版本一致；新 B PR 差量只修改 B 自有 SQL witness 和本复签补充，不倒退 A 的 08/09/10/A03 集成账本或 C/E 文件。B 新增的三项 source trace 负向约束与旧 F FG18 原始反例相互独立；需要 F 在最新源独立审查。
+
+A 已修复 FG22 旧错误码单测，W0 合同绿灯；但最后 W0_DESIGN_FROZEN 仍须 F 独立签署，不能因 CI 绿灯单方放行 B01/B02 正式 PostgreSQL 实施。B 本轮只提交 W0 SQL 设计见证，不声称 W1 SQL migration/API 可用。
