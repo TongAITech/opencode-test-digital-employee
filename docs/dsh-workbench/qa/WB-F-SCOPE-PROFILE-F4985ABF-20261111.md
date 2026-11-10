@@ -32,7 +32,7 @@
 
 原profile回归继续实际通过：F202未知关系级RESTRICTIVE政策、额外permissive/ALL/其他role SELECT漂移拒绝；RLS关闭、字段/复合约束/来源权限/函数安全属性、owner/NOINHERIT/切角色/原建连身份遮蔽、timeout/闭连接/外层事务及设置恢复。当前正常runtime不被新条件误拒。固定模板不从部署学习，修改同profile_id的JSON定义在任何DB调用前拒绝。
 
-P2函数正文观察已修：内部仍按批准body hash比较，返回facts对allowed/support函数只含body_sha256，删除prosrc；已有哨兵测试及facts_hash可重算回归通过。不把这称为任意catalog文本的通用secret扫描或全库脱敏证明；当前没有新增外部HTTP输出。实际未读取连接密码、Host token、业务行或R1。
+P2函数正文观察已修：内部仍按批准body hash比较，返回facts对allowed/support函数只含body_sha256，删除prosrc；已有哨兵测试及facts_hash可重算回归通过。不把这称为任意catalog文本的通用secret扫描或全库脱敏证明；当前没有新增外部HTTP输出。probe实现不读取连接密码、Host token、业务行或R1；仓库测试fixture对自身资料的读取和回滚写入范围已在上文单独说明。
 
 ## 复现命令
 
