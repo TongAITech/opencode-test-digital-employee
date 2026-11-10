@@ -1,6 +1,10 @@
 import { DEMO, PAGES, SECTIONS, STAGES, ScopeController } from './scope.mjs';
+import { ScopeReadFence, scopeIdentity } from './source_fence.mjs';
 const $ = id => document.getElementById(id);
 const ctrl = new ScopeController(DEMO);
+const sourceFence = new ScopeReadFence();
+let sourceTicket = null;
+let sourceKey = null;
 let page = '测试首页';
 let section = SECTIONS[0];
 const sectionMessages = {
@@ -66,6 +70,13 @@ function scopeText(snapshot) {
 }
 function renderScope() {
   const snapshot = ctrl.query();
+  const nextKey = snapshot.batch_id ? scopeIdentity(snapshot) : null;
+  if (nextKey !== sourceKey) {
+    sourceKey = nextKey;
+    if (nextKey) sourceTicket = sourceFence.begin(snapshot);
+    else { sourceFence.invalidate(); sourceTicket = null; }
+    $('source-preview-status').textContent = 'W0 演示：筛选已切换，所有旧请求与来源状态失效；实际业务结果未知。';
+  }
   populate($('batch'), ctrl.batches().map(batch => ({ id: batch.id, label: batch.release_date })), '请选择投产日期', snapshot.batch_id);
   populate($('requirement'), ctrl.options('requirement_ids'), '全部需求', snapshot.requirement_ids);
   populate($('version'), ctrl.options('system_version_ids'), '全部系统版本', snapshot.system_version_ids);
@@ -183,6 +194,36 @@ function boot() {
       renderScope();
     }));
   }
+  $('source-preview-run').addEventListener('click', () => {
+    if (!sourceTicket) {
+      $('source-preview-status').textContent = 'W0 演示：请先选择投产日期；未访问任何 API。';
+      return;
+    }
+    const ticket = sourceTicket;
+    const http_status = Number($('source-preview-code').value);
+    const sample = {
+      http_status,project_id:ticket.project_id,batch_id:ticket.batch_id,
+      relation_revision:ticket.relation_revision,
+      access_scope_revision:ticket.access_scope_revision,
+      truth_revision:ticket.truth_revision,
+      body: {node_gate:'PASS', evidence_refs:[],human_review_approved:false}
+    };
+    const result = sourceFence.accept(ticket,sample);
+    $('source-preview-status').textContent = 'W0 模拟响应 ' + result.result.code + '：' + result.result.message;
+  });
+  $('source-preview-late').addEventListener('click', () => {
+    if (!sourceTicket) {
+      $('source-preview-status').textContent = 'W0 演示：缺少投产日期，拒绝旧请求';
+      return;
+    }
+    const oldTicket = sourceTicket;
+    sourceTicket = sourceFence.begin(ctrl.query());
+    const late = sourceFence.accept(oldTicket,{
+      http_status:200,project_id:oldTicket.project_id,batch_id:oldTicket.batch_id,
+      body:{node_gate:'PASS',evidence_refs:['not-real'],human_review_approved:true}
+    });
+    $('source-preview-status').textContent = 'W0 模拟迟到响应 ' + late.result.code + '：' + late.result.message;
+  });
   $('detail-action').addEventListener('click', () => { $('detail-error').hidden = false; });
   $('board-new').addEventListener('click', () => { $('board-error').hidden = false; });
   $('chat-send').addEventListener('click', () => {
