@@ -1,0 +1,113 @@
+{
+  "contract_id": "WB-A01-I18N-01",
+  "product_decision": "RETAIN_ZH_EN_FULL_PRODUCT_SCOPE",
+  "design_state": "W0_DESIGN_CONTRACT_ONLY",
+  "w0_frozen": false,
+  "originals_not_copied": true,
+  "upstream": {
+    "repository": "naodeng/dsh-qa",
+    "commit": "fc5a054a48973d004580a3cc1de60da3f701150b",
+    "license": "PolyForm-Noncommercial-1.0.0",
+    "sources": [
+      "public/i18n.js#L5-L8",
+      "public/i18n.js#L700-L722",
+      "public/app.js#L2048-L2094",
+      "public/index.html#L46-L60",
+      "public/index.html#L224-L225"
+    ]
+  },
+  "feature_requirements": {
+    "P05-03": {
+      "category": "O",
+      "owner": "C/D",
+      "product_status": "NOT_RUN",
+      "boundary": "QA Skill catalog search, descriptions, status and error messages in both UI languages",
+      "upstream_evidence": [
+        "public/i18n.js#L7-L8",
+        "public/app.js#L2048-L2091"
+      ]
+    },
+    "X01-01": {
+      "category": "O",
+      "owner": "C/D",
+      "product_status": "NOT_RUN",
+      "boundary": "Global language choice independent of system/light/dark theme, sidebar and radar layout",
+      "upstream_evidence": [
+        "public/i18n.js#L700-L722",
+        "public/app.js#L2048-L2094"
+      ]
+    }
+  },
+  "locale_policy": {
+    "accepted": [
+      "zh",
+      "en"
+    ],
+    "default": "zh",
+    "missing_english": "FALLBACK_ZH_WITH_GAP_NOTICE",
+    "invalid_input": "REJECT_OR_DEFAULT_ZH_WITH_AUDIT",
+    "persist_locale_separately_from_auth_and_theme": true
+  },
+  "all_page_ids": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06"
+  ],
+  "all_detail_section_ids": [
+    "D01",
+    "D02",
+    "D03",
+    "D04",
+    "D05",
+    "D06",
+    "D07",
+    "D08",
+    "D09",
+    "D10"
+  ],
+  "visible_message_classes": [
+    "navigation",
+    "forms",
+    "skills",
+    "statuses",
+    "errors",
+    "human_gate",
+    "evidence",
+    "empty_states",
+    "accessibility_labels"
+  ],
+  "scope_must_remain_unchanged": [
+    "project_id",
+    "batch_id",
+    "release_date",
+    "requirement_ids",
+    "system_version_ids",
+    "sst_ids",
+    "mission_id",
+    "host_session_id",
+    "relation_revision",
+    "access_scope_revision",
+    "truth_revision",
+    "nodegate_state",
+    "approval_state"
+  ],
+  "independent_presentation_controls": [
+    "locale",
+    "theme",
+    "sidebar_collapse",
+    "project_radar_width"
+  ],
+  "legal_boundary": "BLOCKED_LICENSE",
+  "forbidden_claims": [
+    "QA_PASS",
+    "W0_DESIGN_FROZEN",
+    "W1_IMPLEMENTATION_QA_PASS",
+    "LICENSE_RELEASE_APPROVED",
+    "BANK_PACKAGE_READY"
+  ],
+  "ui_implementation_status": "NOT_RUN",
+  "field_qa_status": "NOT_RUN"
+}
