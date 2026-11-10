@@ -2,9 +2,9 @@
 
 ## 当前权威状态（2026-11-10）
 
-- 当前已集成检查点：`76d6d9c8`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
+- 当前已集成检查点：`d0fbd1ee`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
 - W0 设计冻结源 `a73ed52d`，F 正式签署 #121；B01–B06、C01/C02、E01 与同源入口已分别独立组件验收并集成，来源见下文各工单证据。组件接受不等于 F01/F02/现场或全部产品完成。
-- 正在施工：B07其余草稿资产、C03/C04里程碑界面独立验收；E02只读Mission图已组件集成。E03缺正式控制面BLOCKED；B08、E04–E06与完整界面仍未完成。
+- 正在施工：C03/C04六kind草稿分区表单；B07七kind后端、里程碑界面与E02只读Mission图已组件集成。E03缺正式控制面BLOCKED；B08、E04–E06与完整界面仍未完成。
 - 仍然阻断：D01 真实 DSH 宿主/SSO 与现场资格、D02/D03、Windows 离线交付、Agent Teams 实际并发及资源恢复、F01–F04、LICENSE_RELEASE_APPROVED。测试 fixture Host 不是现场认证。
 - RELEASE=NOT_APPROVED；PR #84 保持 Draft；不合并 `work/rc7.2`，不生成银行交付 ZIP。
 
@@ -318,3 +318,12 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - 最小context增量D/C6661e80d、B确认仅恢复主体域绑定；不授权限、不替代CSRF/ACL/真实SSO。后端和界面分支修复中，token缺失/换key/换主体保持HOLD，不以当前Bob context替换原请求。
 - E03依赖提案0e8259cd已集成仅作DESIGN_REVIEW_PENDING；独立设计复核任务被平台内容检查中断，未产生F设计接受。E03仍BLOCKED_FORMAL_CONTROL_API，不新增伪accepted或第二状态机。
 - FIELD_NEEDS_BANK_TRANSFER；正式Host、Windows、F01-F04及发布门禁未通过，不构建最终银行交付包。
+
+
+## 主体绑定恢复修复集成与集中回归（2026-11-10）
+- B161/3fc3c1a4与C162/37a025fa获独立F本地报告1728c731接受。A仅代推F原提交并建PR164，未代写结论；F本地16PG/HTTP、四browser、Node24、原F159主体切换反例通过。F157未知刷新与F159主体切换两P1关闭，旧失败记录保留。
+- 每资产写入先验证可信Host/mutation及原opaque write-context，再进入业务连接；context不授权限，CSRF/ACL仍独立。未知pending固定原context/request_id，不以Bob或新key的context替换；Alice恢复同key原回执无重复。
+- A联合d0fbd1ee9164b05d0516f24b44807a211bd2b860本地PG/HTTP206/206、真实browser4/4+原F1591/1、Node24；轻量540发现/265执行/275明确PGskip。该源远端PG SUCCESS42826010909/job129863371353、W0 SUCCESS42826011099/job129863372191、专属E SUCCESS42826008090与browser SUCCESS42826017673，headSha均独立核对d0fbd1ee。
+- 首milestone详情/日历同资产生命周期与主体恢复COMPONENT_QA_ACCEPTED/MERGED；六kind界面在独立分支，不代表C03/C04完整完成。B07可信R1引用映射仍UNRESOLVED，未授全B07完成。
+- E03提案B审查163/4c02b8af已集成，要求精确幂等/FK/CAS/fencing及丢权威回执的恢复查询。E03仍BLOCKED_FORMAL_CONTROL_API；正式writer跨进程原子准入尚待设计，不以实例锁或PG本地journal冒正式控制事实。
+- FIELD_NEEDS_BANK_TRANSFER；最终交付/真实宿主/Windows/实际并发及F01-F04/许可证门禁未通过。
