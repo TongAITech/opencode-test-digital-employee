@@ -1,0 +1,9 @@
+# F 显式工作台模式遗留API隔离复验
+
+精确源ee33d642fc30b7b7925fbf87d971670abf2e5f78，PR168。本地临时R1/隔离PG/loopback HTTP，未触现场或生产R1。
+
+原5/5独立PASS：显式workbench_mode或自定义handler时旧私有GET/POST在dispatch及body解析前403，health/path/inventory拒绝，精确GET meta白名单可读；新Scope和quality授权200，缺provider503，旧单独legacy模式保持兼容；原R1字节不变。CLI workbench静态facade不打开R1、不创建不存在父目录、不打印R1路径。
+
+F新增GET/POST/PUT/DELETE/PATCH私有路径与坏JSON攻击1/1 PASS，全部403/405，legacy读写dispatch各0、无私密内容响应、R1字节不变。源码核验namespace优先受控handler，旧私有接口不再作为工作台认证旁路。未运行浏览器，本项是HTTP访问一致性组件验收，不冒充完整UI资格。
+
+结论MOUNTED_LEGACY_PRIVATE_API_ISOLATION_COMPONENT_ACCEPTED，原A发现新Scope403而旧Mission200访问一致性缺口在本源关闭。没有真实Host/SSO现场接受；独立legacy模式原行为保留不意味着推荐将其当工作台认证入口。A新联合源需回归，CI由A另核，未改08/09/10或功能/R1。
