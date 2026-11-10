@@ -229,3 +229,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - P05-03 与 X01-01 的先前原版来源锚点不完整：X01-01 指向主题函数不能证明英语/中文切换；新证据固定 upstream `fc5a054` `public/i18n.js#L700-L722`、`public/app.js#L2048-L2094` 及 P05-03 语言选择 handler。仅保存来源链接、能力描述、原版许可证元数据，禁止复制受限 JS/词典。
 - 追加机器合同 `upstream_readonly_provenance`，在原 `a01_locale_scope.py` 增加准确 SHA、法律标识、未复制、语言按钮和词典来源强制校验；新增 5 项独立负向测试：主题入口冒充语言、失去来源 SHA、MIT 误标、复制源码、删除语言/Skill handler 锚点。仍以 **同源 GitHub CI 实测**核销，不以本条自报成功。
 - F #106 在 A@a3555b1 已独立接受 `C_W0_PROTOTYPE_REVIEW_PASS/FG23_CLOSED`，并真实 206 Python/30 Node/FG16/18/Chromium；A 后续 W0 b4bea 已记录双语设计，但 F **尚未对本新增源码来源门禁签署**。W0_NOT_FROZEN、A02 BLOCKED_LICENSE、W1-W4 NOT_RUN、NO_BANK_ZIP。
+
+## 2026-11-10 A01 原版语言来源负向门禁已集成的准确工程证据
+- 重复 A01 设计 PR #109 因 A 主线已先行建立同一双语合同，**CLOSED_NOT_MERGED**，未造成两套标准。只保留 A canonical `WB-A01-LOCALE-SCOPE.json`；精简 PR [#110](https://github.com/TongAITech/opencode-test-digital-employee/pull/110) 已 **MERGED_TO_W0_DESIGN_BRANCH**，合并 HEAD `afcda9a5737e181a1d1d5e08f926943664c594d5`。
+- 在相同合并源码 HEAD，[W0 fast CI #42744769517/job #129594118685](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42744769517/job/129594118685) 实测 Python **225/225**、C Node **30/30**、A01 locale gate **PASS**、CI policy **13 workflows PASS**。原 PR #110 精确修复源 `e3d87d6e032a6733ef887cb9856841445a8c9a9b` 的 [CI #42744623650](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42744623650) 同样 225/30 PASS，并保留原型 Chromium PASS。
+- 新增的并非英语产品界面，而是 `i18n.js`/设置页实语言入口和 PolyForm Noncommercial 来源的**负向可验证证据**；A01 50 原子目标与 W1 12 个双语验收案均未标已执行。F #106 的审查只针对旧 A@a355/C 原型，本次合并后的 A01 增量需 F 独立复核，未签全球 W0 冻结。
+- 仍 `W0_NOT_FROZEN / A02_BLOCKED_LICENSE / B06_E01_C01_D_HOST_FIELD_QA_NOT_RUN / PR84_DRAFT / NO_RC72_MERGE / NO_BANK_ZIP`。

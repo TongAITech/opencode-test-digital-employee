@@ -187,3 +187,11 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | WB-A01-LOCALE-W1 | DESIGN_SCOPE_RETAINED / IMPLEMENTATION_QA_NOT_RUN | 使用 A 唯一 `WB-A01-LOCALE-SCOPE.json` 保留 zh-CN/en-US、12 条 W1 反例；C01/C02 及 D Host/QA Skill 两语真实验收未运行 |
 | WB-A02 | BLOCKED_LICENSE | PolyForm Noncommercial 适用商业权利或独立原创及第三方许可证法务审核未批准，不得复制原版文件、不得打包 |
 | W0_DESIGN_FROZEN | NO / F_GLOBAL_SIGNOFF_PENDING | F #106 只签 C 原型与 FG23；新 A01 原版源锚点核对不能代签 F 全局冻结或 W1 施工准入 |
+
+## 2026-11-10 A01 来源证据 W0 merge 检查点
+| GAP | 最新状态 | 验证与未关闭条件 |
+|---|---|---|
+| WB-A01-LOCALE-PROVENANCE | `DESIGN_NEGATIVE_CI_PASS / F_NEW_SHA_RECHECK_PENDING` | PR #110 MERGED W0 `afcda9a`；同 SHA 225 Python/30 Node/13 workflow gate PASS，原版 `i18n.js`/language-picker 关联锚点、来源 SHA、PolyForm 许可负向经机器检查；正式英文 UI、Host 和 QA Skill 双语尚未实施 |
+| WB-A01-LOCALE-W1 | `12_W1_ACCEPTANCE_CASES_NOT_RUN` | 保留 zh-CN/en-US 两模式，默认中文；全六页十区、Skill 词条、无障碍、Scope 和 Human Gate 不变量须 C/D W1 真实验收 |
+| WB-A02 | `BLOCKED_LICENSE` | 上游源码仍非商业许可，原始入口核查不授予银行商业复制、分发或打包权 |
+| WB-F00-W0 | `F_GLOBAL_DESIGN_REVIEW_PENDING / W0_NOT_FROZEN` | F #106 仅签 C 原型及 FG23；需 F 审阅 A @afcda9a 及正式全局设计门禁后才可讨论 W0 冻结 |

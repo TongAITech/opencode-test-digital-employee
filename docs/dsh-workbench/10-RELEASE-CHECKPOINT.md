@@ -140,3 +140,8 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 新增 upstream 固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 和 `public/i18n.js`、`public/app.js` 语言 picker 只读锚点，拒绝主题开关冒充语言实现、未授权源码误标 MIT、来源 SHA 脱钩以及删除真实设置入口；所有官方 12 条 W1 中文+英文真实 UI/Host 资格均 NOT_RUN。
 - F #106 已证实旧 A@a3555b1 C 原型/FG23 的 206 Python、30 Node、FG16 2/FG18 1 和真实 Chromium；**不推导本增量源码或 A01 英文实现已获 F 接受**。本 PR 需最新 HEAD 同源 W0 L0 与 F 单独增量审计。
 - `W0_NOT_FROZEN / A02_BLOCKED_LICENSE / B06/C01/E01/D Host/Windows FIELD_QA_NOT_RUN / RC72_NOT_MERGED / NO_BANK_PACKAGE`，不构建银行交付物。
+
+## 2026-11-10 A01 来源合同合入检查点
+- A01 精简 PR #110 已合并至 W0 candidate：`afcda9a5737e181a1d1d5e08f926943664c594d5`，不是运行主线 `work/rc7.2`。重复 PR #109 未合并即关闭，A 的既有 12 条 W1 正反例和 50 个功能合同保持唯一来源。
+- 该合并 HEAD 的 [GitHub W0 fast CI run #42744769517](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42744769517) 真实 225/225 Python、30/30 Node、A01 locale PASS、policy 13 PASS。只核销设计层，而非 W1 bilingual UI QA_PASS；完整 Q1/L1/L2/Windows Host 现场不由该运行覆盖。
+- F #106 对旧 A@a3555b1 的 C 原型接受继续有效但**不能自动承诺新增 A01 源码锚点已审完/整体 W0 已冻结**。产品仍 50/50 NOT_RUN，A02 `BLOCKED_LICENSE`，`W0_NOT_FROZEN / PR84_DRAFT / RC72_NOT_MERGED / NO_BANK_PACKAGE`。
