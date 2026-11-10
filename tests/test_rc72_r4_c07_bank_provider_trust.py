@@ -64,7 +64,7 @@ def test_unapproved_provider_rejected_before_import_or_r1(tmp_path, monkeypatch,
             else "PROVIDER_NOT_BANK_APPROVED")):
         _invoke(tmp_path, roots=roots, name=name)
     assert called == []
-    assert not (tmp_path / "r1.jsonl").exists()
+    assert (tmp_path / "r1.jsonl").read_bytes() == b""
 
 
 def test_provider_cannot_return_own_self_signed_authorities(tmp_path, monkeypatch):
@@ -75,7 +75,7 @@ def test_provider_cannot_return_own_self_signed_authorities(tmp_path, monkeypatc
     monkeypatch.setattr(importlib, "import_module", lambda name: fake)
     with pytest.raises(ContractError, match="PROVIDER_SELF_SIGNED_TRUST_ROOT_FORBIDDEN"):
         _invoke(tmp_path, roots=roots)
-    assert not (tmp_path / "r1.jsonl").exists()
+    assert (tmp_path / "r1.jsonl").read_bytes() == b""
 
 
 def test_different_objects_with_same_signing_key_not_independent_trust_roots(
@@ -88,7 +88,7 @@ def test_different_objects_with_same_signing_key_not_independent_trust_roots(
     monkeypatch.setattr(importlib, "import_module", forbidden_import)
     with pytest.raises(ContractError, match="SEPARATE_BANK_SIGNERS_REQUIRED"):
         _invoke(tmp_path, roots=roots)
-    assert not (tmp_path / "r1.jsonl").exists()
+    assert (tmp_path / "r1.jsonl").read_bytes() == b""
 
 
 def test_approved_roots_still_require_valid_real_plugin_signature(tmp_path, monkeypatch):
@@ -100,4 +100,4 @@ def test_approved_roots_still_require_valid_real_plugin_signature(tmp_path, monk
     # proof still cannot bootstrap a Captain or write a Mission/R1 event.
     with pytest.raises(ContractError, match="TEAM_SIGNATURE_INVALID"):
         _invoke(tmp_path, roots=roots)
-    assert not (tmp_path / "r1.jsonl").exists()
+    assert (tmp_path / "r1.jsonl").read_bytes() == b""
