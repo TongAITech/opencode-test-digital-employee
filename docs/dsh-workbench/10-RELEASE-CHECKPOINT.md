@@ -134,3 +134,9 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - F #106 在精确 A `a3555b187eb35d27a2d712313dd8ea7daa28915f` 源 [run #42740012204](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42740012204) 独立验收：206/206 Python、30/30 Node、FG16 2/2、FG18 1/1、21/21 CI 负例、原型真 Chromium PASS，3 张 PNG F 已目视；**FG23_CLOSED、FG20_DESIGN_RECONCILIATION_PASS、C_W0_PROTOTYPE_REVIEW_PASS**。该结论不覆盖 W1 50 功能。
 - A01 产品范围决定 `KEEP_ZH_EN_W1_REQUIRED`：保留 `P05-03` Skill 双语说明与 `X01-01` 完整中英文/浅深系统主题，中文为 W0 默认；W1 C/D 正式实现与 F02 真实验收必须覆盖 `zh-CN,en-US` 12 个正反例。只标记 `A_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`，没有擅自签 `WB-A01_DESIGN_SIGNED` 或 `WB-F00_DESIGN_ACCEPTED`。
 - A `fc2619d` 范围合同单测真实 [run #42743331421](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42743331421) **218 Python、30 Node、CI policy 13 PASS**；完整产品 QA/许可证/现场仍不同门槛。W0_NOT_FROZEN、A02 BLOCKED_LICENSE、NO_BANK_ZIP。
+
+## 2026-11-10 A01 原版语言入口真实性设计核查检查点
+- **唯一正式双语合同：** `WB-A01-LOCALE-SCOPE.json`（`KEEP_ZH_EN_W1_REQUIRED`），不另建第二套语言设计。A 原先并行 PR #109 已关且未合并，以最新 A `b4bea4a405a2325fbbf7f59e29fa6e6cf2017b68` 作为本轮补强源。
+- 新增 upstream 固定 SHA `fc5a054a48973d004580a3cc1de60da3f701150b` 和 `public/i18n.js`、`public/app.js` 语言 picker 只读锚点，拒绝主题开关冒充语言实现、未授权源码误标 MIT、来源 SHA 脱钩以及删除真实设置入口；所有官方 12 条 W1 中文+英文真实 UI/Host 资格均 NOT_RUN。
+- F #106 已证实旧 A@a3555b1 C 原型/FG23 的 206 Python、30 Node、FG16 2/FG18 1 和真实 Chromium；**不推导本增量源码或 A01 英文实现已获 F 接受**。本 PR 需最新 HEAD 同源 W0 L0 与 F 单独增量审计。
+- `W0_NOT_FROZEN / A02_BLOCKED_LICENSE / B06/C01/E01/D Host/Windows FIELD_QA_NOT_RUN / RC72_NOT_MERGED / NO_BANK_PACKAGE`，不构建银行交付物。
