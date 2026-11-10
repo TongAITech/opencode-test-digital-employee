@@ -170,3 +170,16 @@
 - `tests/test_rc7_1_model_resilience.py` 增加两项对抗回归：旧固定 `.tmp` 已是 symlink 指向受保护文件时，模型额度持久化不改变外部文件且不生成符号链接正式账本；旧固定 `.tmp` 是普通崩溃残留文件时，不覆盖该文件，限额仍正确持续计数。符号链接不可创建的 Windows runner 合法 skip 该专用符号链接反例，另有普通残留测试跨四平台必跑。
 - 将源码、测试和本台账先提交于独立暂存分支，然后**只在一次合并检查点**推进 PR #113 候选 HEAD；旧 `d35eea4` 的所有测试成功不继承为新 HEAD 成功。新的完整 ABCD-v3/v4 和专项只跑新最终源，不为每条文件编辑重复触发大型 CI。
 - 状态：`R4_05_ATOMIC_TEMP_HARDENING_SUBMITTED / SAME_HEAD_CI_REQUIRED / E_INDEPENDENT_REVIEW_REQUIRED / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO`。无需且不得因此构建 ZIP。
+
+## 第四轮统一集成：同 SHA CI 与独立 E 组 Review 实质门禁（2026-11-10）
+
+在 PR #113 源码 `f63e72f366569c155028d038260a7d02a90a6505` 上，16/16 GitHub PR 工作流全部 `completed/success`、四平台+ABCD-v3/v4 真实 Chromium 均成功。但 Github API 报告 `reviews=[]`；`mergeable=true` 不能代替独立 E 组签收。故不合并、不得称 R4_FIELD/BANK_FINAL。
+
+新增 `rc7_release/rc72_r4_merge_gate.py`（仅工程合入准入、无业务执行、无模型调用）和对抗测试、No-ZIP 四平台工作流：
+- 从只读 GitHub PR / Actions / Reviews API 抓取事实，检查目标 `work/rc7.2`、精确 40 位 HEAD、非 Draft、16 项列名固定的必需工作流均为同 SHA `pull_request/completed/success`，缺失、跳过、失败、排队、旧 SHA、重复同名相互矛盾均拒绝。
+- 独立审批仅接受 GitHub API 的真实 `APPROVED` review，审批人须由**仓库管理员维护的** `RC72_E_REVIEWER_LOGINS` 变量授权，且**不得等于 PR 作者**、不得是 Bot、Review 所绑定 `commit_id` 必须等于当前 HEAD；撤回/驳回更新后的审批不接受。若无独立 E 组账号、未配置授权名单或无有效 Review，保持 `HOLD`，不得自己伪造 E 组签收。
+- 新增四平台 Python3.8/3.11 负例：16 项全绿但无审批、错 SHA、错分支、缺/跳过/失败/正在运行的 CI、非授权/原 PR 作者/Bot/过期/撤销审批、分页不完整，均不能返回工程可合入状态。
+- `.github/workflows/rc7.2-r4-e-merge-admission.yml` 为 R4 候选自动运行上述门禁；`pull_request_review` 的提交或撤销会触发重新评估。若仓库未来将该检查设为 required，它才成为 GitHub 服务器强制保护；**不能因为存在 Workflow 便宣称分支保护已配置**。
+- 通过门禁仅表示 `SOURCE_MERGE_ADMISSIBLE`；输出仍强制 `field_verified=false / bank_final=false`。C12 approved DSH main / 银行真实 32 roster + 33rd 拒绝 / Q3–Q9 / 4A / BSK / 真实 N8-N9-N10 仍 HOLD。不得借此绕开 Issue #79 或制造虚假 ZIP。
+
+施工采取独立支线先做源码和定向 CI，再**一次性**将本批集成到 PR #113，不在每个文件提交后触发两轮大 Chromium。现阶段 `R4_E_REVIEW_GATE_SOURCE_SUBMITTED / QA_SOURCE_PENDING / E_INDEPENDENT_REVIEW_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO`。
