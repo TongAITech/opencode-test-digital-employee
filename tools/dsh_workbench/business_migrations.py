@@ -7,7 +7,7 @@ ROOT = Path(__file__).with_name('migrations')
 
 def migrate(connection, target=1):
     """Apply the explicitly selected reviewed migration prefix atomically."""
-    if target not in (1,2,3,4,5,6):
+    if target not in (1,2,3,4,5,6,7):
         raise ValueError('UNKNOWN_MIGRATION_TARGET')
     changed=False
     with connection.transaction():
@@ -43,8 +43,8 @@ def rollback(connection):
 
 def downgrade(connection, target):
     """Empty incremental relation tables only; accepted records require restore plan."""
-    tables={6:['asset_root','asset_revision','asset_brv_link','asset_brvs_link','asset_outbox','asset_request_result'],4:['batch_requirement_version_sst','verified_sst_link','sst_identity'],3:['batch_requirement_version','verified_requirement_version'],2:['batch_requirement','batch_version','requirement']}
-    if target not in (1,2,3,5): raise ValueError('UNKNOWN_MIGRATION_TARGET')
+    tables={7:['asset_payload'],6:['asset_root','asset_revision','asset_brv_link','asset_brvs_link','asset_outbox','asset_request_result'],4:['batch_requirement_version_sst','verified_sst_link','sst_identity'],3:['batch_requirement_version','verified_requirement_version'],2:['batch_requirement','batch_version','requirement']}
+    if target not in (1,2,3,5,6): raise ValueError('UNKNOWN_MIGRATION_TARGET')
     with connection.transaction():
         connection.execute('SELECT pg_advisory_xact_lock(684091210)')
         versions=connection.execute('SELECT version FROM public.wb_schema_migration WHERE version>%s ORDER BY version DESC',(target,)).fetchall()
