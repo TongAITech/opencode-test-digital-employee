@@ -13,3 +13,5 @@ C首次新写前读取当前context，若失败不得发资产写。pending捕�
 稳定key重启可继续对账；key轮换令旧token失效时维持HOLD并要求受控恢复，不自动换token/重新执行。token不存URL/localStorage、不打印日志，不是用户密钥；响应no-store，同源读取，不新增CORS宽放。真实Host提供稳定principal身份语义仍须搬运行内验证，FIELD_NEEDS_BANK_TRANSFER。
 
 D职责结论：D_DESIGN_ACCEPTED_FOR_SUBJECT_BINDING_ONLY（待B确认接口/服务端顺序）。C实现只在此增量确认后接入。真实PG/browser验收必须包含Alice已提交丢响应→Bob合法同项目写权→旧pending被拒且资产数不增→刷新/切语仍HOLD→Alice恢复同key对账无重复；缺token/伪token/provider缺失、CSRF/ACL仍拒绝。fixture不是现场，不允许让缺实现动作accepted。
+
+B已独立审查精确设计提交6661e80de31292fbbc766c37fbe008bae41dfd65，结论B_DESIGN_ACCEPTED_FOR_SUBJECT_BINDING_ONLY，无接口异议。固定schema为dsh-workbench/write-context/v1，token前缀wctx1；header拒绝必须发生在DB连接/幂等读取前。此段记录收到的本轮B意见，不代B实现验收；独立服务端实现PR另作证据。

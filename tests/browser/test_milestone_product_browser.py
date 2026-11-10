@@ -10,13 +10,13 @@ class MilestoneUI(unittest.TestCase):
   if not fixture.infra.DSN or not fixture.infra.psycopg:self.fail('REAL_PG_REQUIRED')
   db=fixture.Milestone(methodName='test_same_milestone_calendar_detail_update_idempotency_retire_restore');db.setUp()
   try:
-   db.scope_seed();outage=[False];temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);r1=pathlib.Path(temp.name)/'r1.jsonl';r1.write_bytes(b'')
+   db.scope_seed();db.owner.execute("INSERT INTO wb.project_acl VALUES('P1','bob',true)");actor=['alice'];outage=[False];temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);r1=pathlib.Path(temp.name)/'r1.jsonl';r1.write_bytes(b'')
    def connect():
     if outage[0]:raise ConnectionError('fixture DB outage')
     return fixture.infra.psycopg.connect(**db.params,autocommit=True)
    def identity(req):
     if req.headers.get('Cookie')!='fixture=host':return None
-    return HostIdentity('alice',req.headers.get('Origin')==origin and req.headers.get('X-CSRF-Token')=='bound-fixture')
+    return HostIdentity(actor[0],req.headers.get('Origin')==origin and req.headers.get('X-CSRF-Token')=='bound-fixture')
    server=create_server(ProductAdminApplication(str(r1)),port=0,workbench_handler=scope_handler(connect,db.scope.key,identity));origin='http://127.0.0.1:'+str(server.server_port)
    threading.Thread(target=server.serve_forever,daemon=True).start()
    try:
@@ -54,6 +54,8 @@ class MilestoneUI(unittest.TestCase):
       route.fetch();route.abort('failed')
      page.route('**/assets',lose_response);panel.locator('[name=milestone-title]').fill('uncertain transport');panel.locator('[name=milestone-date]').fill('2026-11-15');panel.locator('form button').click();page.wait_for_selector('#milestones[data-milestone-status=ERROR]');self.assertEqual(db.owner.execute('SELECT count(*) FROM wb.asset_root').fetchone()[0],2);page.unroute('**/assets',lose_response)
      panel.locator('[data-action=load]').click();page.wait_for_selector('#milestones[data-milestone-status=READY]');self.assertTrue(panel.locator('[data-action=retry]').is_visible());self.assertTrue(panel.locator('form button').is_disabled())
+     actor[0]='bob';panel.locator('[data-action=retry]').click();page.wait_for_selector('#milestones[data-milestone-status=ERROR]');self.assertIn('HTTP_409',panel.locator('[data-status]').inner_text());self.assertEqual(db.owner.execute('SELECT count(*) FROM wb.asset_root').fetchone()[0],2)
+     panel.locator('[data-action=load]').click();page.wait_for_selector('#milestones[data-milestone-status=READY]');self.assertTrue(panel.locator('form button').is_disabled());self.assertTrue(panel.locator('[data-action=retry]').is_visible());actor[0]='alice'
      page.select_option('#locale','zh-CN');page.locator('#project-entry').click();page.locator('#sections [data-id=milestones]').click();self.assertTrue(panel.locator('[data-action=retry]').is_visible());self.assertTrue(panel.locator('form button').is_disabled())
      page.locator('[name=batch_id]').fill('new-private-scope');self.assertEqual(panel.locator('[name=milestone-title]').input_value(),'');self.assertTrue(panel.locator('[data-action=retry]').is_disabled());self.assertTrue(panel.locator('form button').is_disabled())
      page.locator('[name=batch_id]').fill('B1');db.owner.execute("DELETE FROM wb.project_acl WHERE principal='alice'");page.locator('#business-scope button').click();page.wait_for_selector('#business-scope[data-scope-status=ERROR]');self.assertTrue(panel.locator('[data-action=retry]').is_disabled())
