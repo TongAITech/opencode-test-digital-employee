@@ -162,3 +162,11 @@
 - 待代码齐备后一次性创建 Ready 候选 PR：Windows/Linux Python 3.8/3.11 专项合同 + v3/v4 完整继承（含真实 Chromium/CDP/DOM/业务 Oracle）同 HEAD 验证；最终确认无失败并经独立 E 组审查后才能合入主线。该批次以前的源 PR 绿灯不能自动代替此候选 SHA。
 - 工程源码边界：`32 logical members` 不等于真实行内 DSH 32 个成员创建和第 33 人真实拒绝；受信 Host 的测试签名不等于银行认可的 Provider、4A 人审和原生 Team/Captain 签名；内核锁与冷恢复单测不等于现场 429/502/Libra/N9/N10 全业务闭环。
 - R4-06/C12 仍需获得分发授权的真实 DSH 主程序、独立 SHA256、正式 Windows 搬运包与 clean-unpack/目标 Linux/行内 Q3–Q9 验证。**缺此来源不得编造 dsh.exe、不得构建并宣称最终 ZIP。** `FIELD_VERIFIED=false`，`C12_PHYSICAL_HOLD`，`BANK_FINAL=NO`。
+
+## R4-05 源码审计：模型配额临时文件路径重定向 P0（2026-11-10）
+
+- 在 PR #113 最初集成源 `d35eea4ad69334a24d6166a5f388552258bba503` 复核 `PersistentSlidingWindowGovernor._save`，发现旧代码使用可预测路径 `shared-window.tmp` 并直接 `Path.write_text`。若该路径已是符号链接，数据会先覆盖其所指文件，然后才调用 `os.replace`；隔离临时目录已重现“保护文件内容被覆写、结果状态成为符号链接”的负例。
+- 本次最小修复不修改模型额度窗口、R1、Worker 或原字段语义：采用同目录系统随机 `NamedTemporaryFile(delete=False)` 原子创建，写入后 flush/fsync，再替换正式账本；异常清理残留临时文件，正式账本若为符号链接仍拒绝。旧固定临时路径永不再被写入。
+- `tests/test_rc7_1_model_resilience.py` 增加两项对抗回归：旧固定 `.tmp` 已是 symlink 指向受保护文件时，模型额度持久化不改变外部文件且不生成符号链接正式账本；旧固定 `.tmp` 是普通崩溃残留文件时，不覆盖该文件，限额仍正确持续计数。符号链接不可创建的 Windows runner 合法 skip 该专用符号链接反例，另有普通残留测试跨四平台必跑。
+- 将源码、测试和本台账先提交于独立暂存分支，然后**只在一次合并检查点**推进 PR #113 候选 HEAD；旧 `d35eea4` 的所有测试成功不继承为新 HEAD 成功。新的完整 ABCD-v3/v4 和专项只跑新最终源，不为每条文件编辑重复触发大型 CI。
+- 状态：`R4_05_ATOMIC_TEMP_HARDENING_SUBMITTED / SAME_HEAD_CI_REQUIRED / E_INDEPENDENT_REVIEW_REQUIRED / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO`。无需且不得因此构建 ZIP。
