@@ -14,6 +14,7 @@ from .business_store import BusinessError
 @dataclass(frozen=True)
 class HostIdentity:
     principal: str
+    mutation_authorized: bool = False
 
 
 def scope_handler(connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
@@ -37,6 +38,11 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
                 url=urlsplit(self.path)
+                if '/batches/' in url.path:
+                    from .business_asset_http import asset_request
+                    status,value=asset_request(self,identity,connection_factory,cursor_key)
+                    self.respond(status,value)
+                    return
                 match=re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/release-dates/(\d{4}-\d{2}-\d{2})/(scope|quality)',url.path)
                 if match is None:raise BusinessError(404,'RESOURCE_NOT_FOUND')
                 project=unquote(match[1])
@@ -65,9 +71,24 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                 # Do not leak database, credential or resource-existence details.
                 self.respond(503,{'error':{'code':'SCOPE_SOURCE_UNAVAILABLE'}})
 
-        def do_POST(self):self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
-        do_PUT=do_POST
-        do_DELETE=do_POST
+        def asset_mutation(self):
+            if '/batches/' not in urlsplit(self.path).path:
+                self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
+                return
+            try:
+                if host_identity_provider is None:raise BusinessError(503,'HOST_IDENTITY_UNAVAILABLE')
+                identity=host_identity_provider(self)
+                if not isinstance(identity,HostIdentity) or not isinstance(identity.principal,str) or not identity.principal.strip():raise BusinessError(403,'FORBIDDEN')
+                if len(self.path)>16384:raise BusinessError(400,'INVALID_ASSET_REQUEST')
+                from .business_asset_http import asset_request
+                status,value=asset_request(self,identity,connection_factory,cursor_key)
+                self.respond(status,value)
+            except BusinessError as error:self.respond(error.status,{'error':{'code':error.code}})
+            except Exception:self.respond(503,{'error':{'code':'ASSET_SOURCE_UNAVAILABLE'}})
+        do_POST=asset_mutation
+        do_PATCH=asset_mutation
+        do_DELETE=asset_mutation
+        def do_PUT(self):self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
     return Handler
 
 
