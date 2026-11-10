@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install 'psycopg[binary]>=3.2.13,<3.3'
+      - run: pip install 'psycopg[binary]==3.2.13'
       - name: Real PostgreSQL, loopback HTTP and immutable persistent R1 fixture
         env:
           WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
