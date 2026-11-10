@@ -65,6 +65,9 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 
 
 ### C 组新增 W0 source fence 检查点（2026-11-10）
+- 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
+- artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
+- F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
 - C PR #97 维持六页面、十区、投产日期→需求→系统版本→SST 多选关系；新增源错误和迟到响应模拟，零真实 API、零假 QA_PASS。
 - 第一轮 6249f1a 的 20 Node + 真 Chromium CI PASS 不覆盖新增10项；工作流修复已提交，需要新 SHA 30/30 与浏览器截图复核，不冒用历史绿灯。
 - W0_NOT_FROZEN、C01/C02 W1_NOT_STARTED、F02_NOT_RUN、B06_NOT_IMPLEMENTED、A02_BLOCKED_LICENSE，禁止银行 ZIP。

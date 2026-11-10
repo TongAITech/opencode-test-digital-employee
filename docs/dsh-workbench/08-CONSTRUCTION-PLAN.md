@@ -143,6 +143,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 
 
 ### C 组 W0 来源响应栅栏与负向验收（2026-11-10）
+- 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
+- artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
+- F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
 - C PR #97 已重基在 A 200a96ac 的统一 W0 源树；A 的 B/E/F 账本原样保留，C 仅提交原创 source_fence.mjs 和十项反例。
 - 模拟 401/403/404/409/422/503、200 缺证据或人工审批、STALE/UNKNOWN R1；按项目/稳定批次/选中复合关联/修订/epoch 丢弃迟到响应。
 - 第一轮 6249f1a 同 SHA CI 仅 20/20 Node + 原型真 Chromium PASS（截图 artifact 13723128464），漏跑新十项。CI 已修复成 30 项正反例与真实当前 C branch 合并探针，新 HEAD 结果须核对。

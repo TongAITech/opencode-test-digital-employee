@@ -20,3 +20,8 @@
 ## 正式交付必须等待
 - A/F W0_DESIGN_FROZEN：C01 准入；B06 真 PostgreSQL、可信 Host、分页关系、用户授权：C02 准入；正式 F02 真 UI/API/错误、跨分区/SSE 恢复回归：业务 QA 准入。
 - A02 商业授权或可审计合法原创来源批准以及 FIELD_QA / Windows 离线才能考虑银行交付。
+
+## 2026-11-10 W0 source-fence 同 SHA 验证通过（仅静态原型）
+- 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
+- artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
+- F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
