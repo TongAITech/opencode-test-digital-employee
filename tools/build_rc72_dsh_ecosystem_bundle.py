@@ -270,17 +270,11 @@ def _pack_plugin(npm, spec, target, work):
     lock = target / "package-lock.json"
     if not lock.is_file():
         raise BundleBuildError("PLUGIN_DEPENDENCY_LOCK_MISSING:%s" % spec["id"])
-    bank_policy_patch = None
-    if spec["id"] == "modlens":
-        patch = target / "cordis.patch.yml"
-        patch_text = patch.read_text(encoding="utf-8")
-        plugin_line = "      name: '@liustack/modlens'"
-        if plugin_line not in patch_text:
-            raise BundleBuildError("MODLENS_CORDIS_ENTRY_MISSING")
-        if "disabled:" not in patch_text:
-            patch_text = patch_text.replace(plugin_line, plugin_line + "\\n      disabled: true", 1)
-            patch.write_text(patch_text, encoding="utf-8")
-        bank_policy_patch = "disabled until an approved internal OpenAI-compatible multimodal endpoint is configured"
+    bank_policy_patch = (
+        "staged but not registered with DSH until an approved internal OpenAI-compatible "
+        "multimodal endpoint is configured"
+        if spec["id"] == "modlens" else None
+    )
     licenses = _scan_licenses(target)
     return {
         "id": spec["id"],
