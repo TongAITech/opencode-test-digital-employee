@@ -172,3 +172,12 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - PR #116 合同源 `2343e0ff9f08f306da52b38428d7640b3409d526` 已写入02/06；真实本地 Python 合同260/260；同源 GitHub w0-contracts SUCCESS，run 42773079476/job129685163960。不是 PostgreSQL 产品验收。
 - PR #115 独立技术审查更新 `1e777123`：B/D/E职责视角 ACCEPTED_FOR_DESIGN，无新增 W0 P0/P1；不冒充历史团队新签署，F 最新联合设计源接受仍待。
 - PR #114/#115/#116 均为独立分支审查材料，尚未集成冻结；下一步核对并集成合同及报告，再对精确集成 HEAD 回归/F复验。W0_NOT_FROZEN，真实 PostgreSQL/Host/Windows/现场 NOT_RUN。
+
+
+## 当前权威检查点：W0_DESIGN_FROZEN（2026-11-10）
+- 冻结设计源：a73ed52d88425d5e60cbe07467a0ab5cbed5f708；F PR #121 / 2506b189 正式 WB-F00_DESIGN_ACCEPTED，无剩余 W0 设计 P0/P1。
+- B #119/371f43f0、D #118/9e4f6c98、E #120/278a5a58 分别正式签署；00–07/A03/locale/DAG自14534d61字节未变。WB-A01_DESIGN_SIGNED / WB-A03_CONTRACT_SIGNED / WB-W0_DESIGN_FROZEN，仅设计门禁。
+- 冻结源同SHA W0 CI SUCCESS：run42776373441/job129695699938；F独立263 Python/30 Node/9安全反例/33 D组件通过。14 SKIPPED不算PASS。后续账本HEAD不继承这些测试数字。
+- WB-D01 COMPONENT_TESTED，现场探测GET_UNAVAILABLE，BLOCKED_FIELD；不是IMPLEMENTATION_QA_PASS。
+- 下一就绪工单：B01/B02真实PostgreSQL、C01六页十区双语骨架；各组独立worktree/PR。B06未完成，C02/E01仍BLOCKED_DEPENDENCY_B06。A唯一维护08/09/10。
+- 真实PostgreSQL实例准备中；50产品功能、Host/Windows/现场QA未完成。A02_BLOCKED_LICENSE / NO_RC72_MAINLINE_MERGE / NO_BANK_ZIP。W0冻结绝非最终交付。
