@@ -14,6 +14,7 @@ on:
       - 'tests/test_rc72_qa_c01_c02_independent.py'
       - '.github/workflows/rc7.2-a-c01c02-preflight.yml'
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches:
       - work/rc7.2-abd-integration
       - work/rc7.2
@@ -28,11 +29,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: rc72-n5-proof-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: rc72-n5-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   physical-independent-n5-and-fresh-n7:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: actual-n5-n6-n7-${{ matrix.os }}-python-${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45

@@ -25,12 +25,22 @@ def verified_relation(req="R1", ver="V1", sst="SST-100"):
 
 
 def verified_scope(rows=None):
+    records = [verified_relation()] if rows is None else rows
+    source_refs = []
+    for row in records:
+        rv = row.get("source_verified_requirement_version") or {}
+        sst = row.get("source_verified_link") or {}
+        for value in (rv.get("source_link_ref"), sst.get("source_link_ref")):
+            if value and value not in source_refs:
+                source_refs.append(value)
     return {
         "project_id": "P1", "batch_id": "B1",
         "release_date": "2026-11-12",
         "relation_revision": 2, "access_scope_revision": 3,
-        "authorized_mission_ids": ["M1"],
-        "records": [verified_relation()] if rows is None else rows,
+        "source_refs": source_refs,
+        "next_page_cursor": None,
+        "warnings": [], "gap_indicators": [],
+        "records": records,
     }
 
 
@@ -95,8 +105,7 @@ class EReadOnlyScopeTests(unittest.TestCase):
     def test_same_raw_sst_id_two_versions_keep_distinct_links(self):
         rows = [verified_relation(ver="V1"), verified_relation(ver="V2")]
         out = normalize_b06_scope(verified_scope(rows),
-                                  project_id="P1", batch_id="B1",
-                                  mission_id="M1")
+                                  project_id="P1", batch_id="B1")
         self.assertEqual(2, len(out["records"]))
         refs = [item["source_verified_link_ref"] for item in out["records"]]
         self.assertEqual(2, len(set(refs)))
@@ -107,8 +116,7 @@ class EReadOnlyScopeTests(unittest.TestCase):
         rows = [verified_relation(req="R1", ver="V1", sst="S1"),
                 verified_relation(req="R2", ver="V1", sst="S2")]
         out = normalize_b06_scope(verified_scope(rows),
-                                  project_id="P1", batch_id="B1",
-                                  mission_id="M1")
+                                  project_id="P1", batch_id="B1")
         self.assertEqual([("R1", "S1"), ("R2", "S2")],
                          [(x["requirement_id"], x["sst_id"])
                           for x in out["records"]])
@@ -117,60 +125,59 @@ class EReadOnlyScopeTests(unittest.TestCase):
         row = verified_relation()
         row["source_verified_requirement_version"] = None
         self.reject("SOURCE_VERIFIED_LINK_REQUIRED", lambda: normalize_b06_scope(
-            verified_scope([row]), project_id="P1", batch_id="B1",
-            mission_id="M1"))
+            verified_scope([row]), project_id="P1", batch_id="B1"))
 
     def test_missing_sst_source_verified_link_denied(self):
         row = verified_relation()
         row["source_verified_link"]["verified_source_revision"] = ""
         self.reject("SOURCE_VERIFIED_LINK_REQUIRED", lambda: normalize_b06_scope(
-            verified_scope([row]), project_id="P1", batch_id="B1",
-            mission_id="M1"))
+            verified_scope([row]), project_id="P1", batch_id="B1"))
 
     def test_unsplit_row_valid_but_fake_sst_denied(self):
         row = verified_relation(sst=None)
         result = normalize_b06_scope(verified_scope([row]),
-                                     project_id="P1", batch_id="B1",
-                                     mission_id="M1")
+                                     project_id="P1", batch_id="B1")
         self.assertEqual("UNSPLIT", result["records"][0]["split_state"])
         self.assertIsNone(result["records"][0]["sst_id"])
         row["sst_id"] = "fake-SST"
         self.reject("UNSPLIT_MUST_NOT_INVENT_SST",
                     lambda: normalize_b06_scope(verified_scope([row]),
-                        project_id="P1", batch_id="B1", mission_id="M1"))
+                        project_id="P1", batch_id="B1"))
 
     def test_cross_project_batch_scope_rejected(self):
         self.reject("FORBIDDEN", lambda: normalize_b06_scope(
-            verified_scope(), project_id="P2", batch_id="B1",
-            mission_id="M1"))
+            verified_scope(), project_id="P2", batch_id="B1"))
         self.reject("ILLEGAL_ASSOCIATION", lambda: normalize_b06_scope(
-            verified_scope(), project_id="P1", batch_id="B2",
-            mission_id="M1"))
+            verified_scope(), project_id="P1", batch_id="B2"))
         bad = verified_scope()
         bad["records"][0]["batch_id"] = "B2"
         self.reject("CROSS_BATCH_ASSOCIATION", lambda: normalize_b06_scope(
-            bad, project_id="P1", batch_id="B1", mission_id="M1"))
+            bad, project_id="P1", batch_id="B1"))
 
-    def test_mission_ownership_missing_does_not_leak(self):
-        self.reject("FORBIDDEN", lambda: normalize_b06_scope(
-            verified_scope(), project_id="P1", batch_id="B1",
-            mission_id="M2"))
+    def test_mission_scope_is_checked_against_r1_not_b06_payload(self):
+        scope = verified_scope()
+        self.assertNotIn("authorized_mission_ids", scope)
+        wrong = legacy_overview(mission={
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B2",
+        })
+        self.reject("R1_MISSION_SCOPE_UNRESOLVED", lambda: r1_preview(
+            scope, wrong, project_id="P1", batch_id="B1", mission_id="M1"))
 
     def test_duplicate_join_and_unknown_revision_denied(self):
         row = verified_relation()
         self.reject("DUPLICATE_RELATION", lambda: normalize_b06_scope(
             verified_scope([row, copy.deepcopy(row)]),
-            project_id="P1", batch_id="B1", mission_id="M1"))
+            project_id="P1", batch_id="B1"))
         bad = verified_scope()
         bad["relation_revision"] = None
         self.reject("SCOPE_REVISION_UNAVAILABLE", lambda: normalize_b06_scope(
-            bad, project_id="P1", batch_id="B1", mission_id="M1"))
+            bad, project_id="P1", batch_id="B1"))
 
     def test_business_day_invalid_date_fail_closed(self):
         bad = verified_scope()
         bad["release_date"] = "2026-02-30"
         self.reject("INVALID_BUSINESS_DATE", lambda: normalize_b06_scope(
-            bad, project_id="P1", batch_id="B1", mission_id="M1"))
+            bad, project_id="P1", batch_id="B1"))
 
     def test_old_r1_missing_canonical_batch_must_hold(self):
         source = legacy_overview(mission={"mission_id": "M1", "release_id": "B1"})
@@ -217,7 +224,7 @@ class EReadOnlyScopeTests(unittest.TestCase):
         def deny_b06(*_args):
             raise ContractRejection("FORBIDDEN")
         self.reject("FORBIDDEN", lambda: r1_preview_from_legacy_admin(
-            deny_b06, admin, trusted_principal_id="alice", project_id="P1",
+            deny_b06, admin, project_id="P1",
             batch_id="B1", mission_id="M1"))
         self.assertEqual([], admin.projection.calls)
         self.assertEqual([], admin.writes)
@@ -228,33 +235,89 @@ class EReadOnlyScopeTests(unittest.TestCase):
         row["source_verified_link"] = None
         self.reject("SOURCE_VERIFIED_LINK_REQUIRED", lambda: r1_preview_from_legacy_admin(
             lambda *_: verified_scope([row]), admin,
-            trusted_principal_id="alice", project_id="P1",
-            batch_id="B1", mission_id="M1"))
+            project_id="P1", batch_id="B1", mission_id="M1"))
         self.assertEqual([], admin.projection.calls)
 
     def test_valid_seam_calls_read_only_projection(self):
         admin = LegacyAdminFixture()
         observed = []
-        def b06(principal, project, batch, mission):
-            observed.append((principal, project, batch, mission))
+        def b06(project, batch):
+            observed.append((project, batch))
             return verified_scope()
         p = r1_preview_from_legacy_admin(
-            b06, admin, trusted_principal_id="alice", project_id="P1",
-            batch_id="B1", mission_id="M1")
-        self.assertEqual([("alice", "P1", "B1", "M1")], observed)
+            b06, admin, project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertEqual([("P1", "B1")], observed)
         self.assertEqual([("read", "M1")], admin.projection.calls)
         self.assertEqual([], admin.writes)
         self.assertEqual("PROTOTYPE_UNQUALIFIED", p["data_quality"])
         self.assertEqual("HOLD", p["release_decision"])
 
-    def test_principal_must_be_server_derived_before_seam(self):
+    def test_seam_does_not_accept_a_client_supplied_principal(self):
         admin = LegacyAdminFixture()
-        self.reject("UNAUTHENTICATED", lambda: r1_preview_from_legacy_admin(
-            lambda *_: verified_scope(), admin,
-            trusted_principal_id="", project_id="P1",
-            batch_id="B1", mission_id="M1"))
+        observed = []
+        def b06(project, batch):
+            observed.append((project, batch))
+            return verified_scope()
+        with self.assertRaises(TypeError):
+            r1_preview_from_legacy_admin(
+                b06, admin, trusted_principal_id="attacker-admin",
+                project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertEqual([], observed)
         self.assertEqual([], admin.projection.calls)
 
+    def test_host_bound_b06_authorization_failure_precedes_r1(self):
+        admin = LegacyAdminFixture()
+        def host_bound_b06(project, batch):
+            raise ContractRejection("UNAUTHENTICATED")
+        self.reject("UNAUTHENTICATED", lambda: r1_preview_from_legacy_admin(
+            host_bound_b06, admin, project_id="P1", batch_id="B1",
+            mission_id="M1"))
+        self.assertEqual([], admin.projection.calls)
+
+
+    def test_empty_b06_relations_are_not_an_empty_success(self):
+        self.reject("ILLEGAL_ASSOCIATION", lambda: normalize_b06_scope(
+            verified_scope([]), project_id="P1", batch_id="B1"))
+
+    def test_b06_source_refs_are_required_and_must_cover_relation_links(self):
+        missing = verified_scope()
+        missing.pop("source_refs")
+        self.reject("SOURCE_REFS_REQUIRED", lambda: normalize_b06_scope(
+            missing, project_id="P1", batch_id="B1"))
+        incomplete = verified_scope()
+        incomplete["source_refs"].remove("starlink:sst:R1:V1:SST-100")
+        self.reject("SOURCE_REFERENCE_NOT_IN_SCOPE", lambda: normalize_b06_scope(
+            incomplete, project_id="P1", batch_id="B1"))
+
+    def test_duplicate_b06_source_refs_are_rejected(self):
+        duplicate = verified_scope()
+        duplicate["source_refs"].append(duplicate["source_refs"][0])
+        self.reject("SOURCE_REFS_DUPLICATE", lambda: normalize_b06_scope(
+            duplicate, project_id="P1", batch_id="B1"))
+
+    def test_missing_pagination_metadata_never_claims_scope_complete(self):
+        missing = verified_scope()
+        missing.pop("next_page_cursor")
+        out = normalize_b06_scope(missing, project_id="P1", batch_id="B1")
+        self.assertFalse(out["pagination_complete"])
+
+    def test_partial_b06_page_preserves_cursor_and_remains_hold(self):
+        partial = verified_scope()
+        partial["next_page_cursor"] = "cursor:page-2"
+        preview = r1_preview(partial, legacy_overview(),
+                             project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertEqual("cursor:page-2", preview["next_page_cursor"])
+        self.assertFalse(preview["scope_complete"])
+        self.assertIn("B06_SCOPE_PAGINATION_INCOMPLETE",
+                      preview["gap_indicators"])
+        self.assertEqual("HOLD", preview["release_decision"])
+
+    def test_preview_preserves_b06_and_r1_source_refs(self):
+        preview = r1_preview(verified_scope(), legacy_overview(),
+                             project_id="P1", batch_id="B1", mission_id="M1")
+        self.assertIn("starlink:reqver:R1:V1", preview["source_refs"])
+        self.assertIn("starlink:sst:R1:V1:SST-100", preview["source_refs"])
+        self.assertIn("rc7_admin:mission_overview:M1", preview["source_refs"])
 
     def test_real_rc7_admin_r1_mission_source_is_not_b06_batch_identity(self):
         """Real old R1 code fixture: release_id cannot be guessed to be batch."""
@@ -276,7 +339,6 @@ class EReadOnlyScopeTests(unittest.TestCase):
             self.reject("R1_MISSION_SCOPE_UNRESOLVED",
                         lambda: r1_preview_from_legacy_admin(
                             lambda *_: verified_scope(), app,
-                            trusted_principal_id="fixture-principal",
                             project_id="P1", batch_id="B1", mission_id="M1"))
             self.assertEqual(before, path.read_bytes(),
                              "Read-only preview must not append any R1 event")

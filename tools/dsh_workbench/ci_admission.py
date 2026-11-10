@@ -17,6 +17,7 @@ WORKFLOWS = {
     "q1": ".github/workflows/rc7.2-platform-qualification.yml",
     "fg17": ".github/workflows/dsh-wb-fg17-cdp-targeted.yml",
     "field": ".github/workflows/rc7-field-hardening.yml",
+    "n5": ".github/workflows/rc7.2-a-c01c02-preflight.yml",
 }
 NON_DRAFT = "if: github.event_name != 'pull_request' || github.event.pull_request.draft == false"
 PR_CANCEL = "cancel-in-progress: " + chr(36) + "{{ github.event_name == 'pull_request' }}"
@@ -73,6 +74,13 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "test_dsh_workbench*.py", "ci_admission.py", "workflow_dispatch:",
     )):
         errors.append("W0_FAST_GATE_NOT_WIRED")
+    if not all(x in sources["w0"] for x in (
+        "tests/test_dsh_workbench*.mjs",
+        "node --test tests/test_dsh_workbench_ui_w0.mjs",
+        "tests/test_dsh_workbench_c_feature_reconciliation.mjs",
+        "node-version: '22'",
+    )):
+        errors.append("W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
     if not all(x in e["l1"] for x in (
         "pull_request:", "ready_for_review", "workflow_dispatch:",
         "expected_source_sha:", "include_browser:",
@@ -109,6 +117,12 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         errors.append("FG17_EXACT_PY38_FIVE_TRIAL_OR_CROSS_VERSION_GATE_MISSING")
     if "pull_request:" not in e["field"] or "ready_for_review" not in e["field"] or NON_DRAFT not in sources["field"]:
         errors.append("FIELD_HARDENING_DRAFT_RUN_NOT_GATED")
+    if (not all(x in e["n5"] for x in ("pull_request:", "ready_for_review", "workflow_dispatch:", "paths:"))
+            or sources["n5"].count(NON_DRAFT) != 1
+            or PR_CANCEL not in sources["n5"]
+            or re.search(r"(?m)^\s+group:.*github\.sha", sources["n5"])
+            or "tests/test_rc72_qa_c01_c02_independent.py" not in sources["n5"]):
+        errors.append("N5_DRAFT_HEAVY_MATRIX_OR_REQUIRED_PROOF_LOST")
     return errors
 
 

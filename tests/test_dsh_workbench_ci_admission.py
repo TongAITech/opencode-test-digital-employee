@@ -45,6 +45,11 @@ class TestCIAdmission(unittest.TestCase):
                      "  push:\n    branches: [work/dsh-wb-w0]\n  workflow_dispatch:",
                      "W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
 
+    def test_w0_c_node_scope_negative_tests_must_run(self):
+        self.changed("w0", "node --test tests/test_dsh_workbench_ui_w0.mjs",
+                     "echo skipped C scope tests",
+                     "W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
+
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",
                      "L1_SOURCE_PIN_OR_GATES_MISSING")
@@ -61,6 +66,14 @@ class TestCIAdmission(unittest.TestCase):
     def test_n8_explicit_manual_gate_must_remain(self):
         self.changed("n8", "  workflow_dispatch:", "  disabled_manual_gate:",
                      "N8_EXPLICIT_GATE_LOST")
+
+    def test_n5_full_matrix_never_runs_on_draft_pr(self):
+        self.changed("n5", NON_DRAFT, "if: always()",
+                     "N5_DRAFT_HEAVY_MATRIX_OR_REQUIRED_PROOF_LOST")
+
+    def test_n5_old_sha_queue_must_be_cancelled(self):
+        self.changed("n5", "rc72-n5-proof-", "rc72-n5-proof-github.sha-",
+                     "N5_DRAFT_HEAVY_MATRIX_OR_REQUIRED_PROOF_LOST")
 
     def test_q1_py38_fg17_negative_proof_is_preserved(self):
         self.changed("q1", "'tests/test_rc72_c09_real_chromium_cdp_smoke.py'",

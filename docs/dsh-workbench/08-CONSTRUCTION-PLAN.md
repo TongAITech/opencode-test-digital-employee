@@ -141,19 +141,6 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
 
 
-
-### C 组 2026-11-10 W0 原创交互深化（不启动 W1）
-- F #94 已对 A 75fd2c64159db863cfd1319d41a887785b556d40 完成独立复验：C 50 项/15 Node 与 156 W0 合同为设计期通过；FG17 FLAKY_OBSERVED / ROOT_CAUSE_PENDING、FG21 work/rc7.2 merge dirty；W0_NOT_FROZEN、A02 BLOCKED_LICENSE。不得把“F 审查完成”写成“F 接受/冻结”。
-- C follow-up work/dsh-wb-ui-followup 仅做 W0 允许的原创原型深化：需求/系统版本/SST 多选关系过滤、不可变 Scope 快照、十区领域表单必填校验及 fail-closed 提交、逐区共享上下文浏览器验证。
-- 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；最新 HEAD `d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8` 的 [W0 job 129318183234](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183234) 20/20 Node + Chromium 逐区表单/多选/截图 PASS，artifact 13693719815；[B→C merge job 129318183968](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183968) 15/15 PASS。仅 W0 原型证据，C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
-
-
-### C 组 2026-11-10 来源响应栅栏与安全降级 W0 反例
-- PR #97 以 A 5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1 为最近一次集成父源；之后 A 若演进需重新精确核对，不借用旧 SHA CI。
-- 新增 source_fence.mjs、10 项失败/并发单测和 W0 UI 错误演示；维持原六页面、十项目分区及独立业务六阶段。新增模拟面板不访问 B06/R1/Host，不标正式 QA_PASS。
-- 第一轮 CI 6249f1a 存在覆盖漏跑：20/20 Node+Chrome/三截图通过，但新增10个源票据测试未被原 browser job 包含；已修工作流改为两 Job 执行 30 项，并改用本 PR 源分支；新 HEAD 必须重新核查。
-- F #101 独立结论仍 REVIEWED_WITH_BLOCKERS，FG17 定向真浏览器 PASS、FG21 源冲突解决、FG22 A CI 负向 OPEN；W0_NOT_FROZEN、A02 BLOCKED_LICENSE、C01/C02 W1_NOT_STARTED。
-
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
 - 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。
@@ -182,3 +169,22 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+
+## C follow-up PR #97（原始 W0 对账证据保留；旧 FG 状态由下文 A 最新段覆盖）
+### C 组 2026-11-10 W0 原创交互深化（不启动 W1）
+- F #94 已对 A 75fd2c64159db863cfd1319d41a887785b556d40 完成独立复验：C 50 项/15 Node 与 156 W0 合同为设计期通过；FG17 FLAKY_OBSERVED / ROOT_CAUSE_PENDING、FG21 work/rc7.2 merge dirty；W0_NOT_FROZEN、A02 BLOCKED_LICENSE。不得把“F 审查完成”写成“F 接受/冻结”。
+- C follow-up work/dsh-wb-ui-followup 仅做 W0 允许的原创原型深化：需求/系统版本/SST 多选关系过滤、不可变 Scope 快照、十区领域表单必填校验及 fail-closed 提交、逐区共享上下文浏览器验证。
+- 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；最新 HEAD `d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8` 的 [W0 job 129318183234](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183234) 20/20 Node + Chromium 逐区表单/多选/截图 PASS，artifact 13693719815；[B→C merge job 129318183968](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183968) 15/15 PASS。仅 W0 原型证据，C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
+
+## 2026-11-10 A 组：F #101 独立审查与 B/C/E follow-up 统一集成
+
+- 审查源：F PR #101 审查 A @ `b385e042c4543f5d918d61bff5e01be1d88afba7`，报告 [PR #84 审核意见](https://github.com/TongAITech/opencode-test-digital-employee/pull/84#issuecomment-6754968337)，为 `REVIEWED_WITH_BLOCKERS`；不得以 F 已审查推导 W0 已冻结。
+- FG17：A 已改为 Playwright 精确业务文本等待、保留 POST/CDP/R1/PNG；F 对 b385e04 真 Py3.8/1.48 与 Py3.11/1.62 各 31/31，同一 Py3.8 环境连续 5 次教学动作通过。为 `TARGETED_REAL_BROWSER_RECHECK_PASS`，不是全量 L2/银行现场 QA。
+- FG21：A 多父合并 RC7.2 主线 `87f956f1388f58beabf7116c937fd6fda5fae2ca`，GitHub PR #84 从 dirty→mergeable=true；`mergeable_state=unstable` 仅是检查未通过，**不准合并**。R4 32 是逻辑 roster 容量，active worker 默认 4；F R4 Python 100/100 设计/源码定向通过，现场 32 队员/活跃并发及 Windows 免安装均 NOT_RUN。
+- FG22：F 独立 164 项 W0 合同 1 FAIL，A b385e04 159 项 1 FAIL：Q1 错误码测试仍期待旧 `Q1_FG17_NEGATIVE_CHECK_REMOVED`。A 后续 `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1` 修正该负向期望并加入双条件反例；**后续 A 同 SHA CI/F 重新审查之前不得登记 PASS**。
+- B PR #95 @ `67c4fc592f290710d6242aef2d4144000e7d82fd` 交付 B_DESIGN_SIGNOFF_RECONFIRMED、B01/B02 额外 SQLite 身份与日期审计见证、B06 source_refs + 顶层 next_page_cursor、宿主可信 principal；原 B 23/23、FG18 F 反例 1/1、shared 165/165 仅属于 B 来源 SHA。
+- E PR #96 @ `c70ad0da92c5a4899a72d3096fad5e46fded74d5` 交付 B06→R1 只读消费、安全主体不得由 E 自报、Mission 显式 batch/project 对账和缺来源 fail-closed 设计/测试；原 E 47/47 合同绿灯仅属于 E 来源 SHA，E01 实现仍 BLOCKED_B06。
+- C PR #97 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 交付 W0 原创原型多选 Scope 与十区表单；早期 C 源 `d4863bab` 的 20/20 Node + 真实 Chromium/3 PNG 通过；不是正式六页十区 F02。
+- A 将 B/C/E 增量保留原来源、合入统一源码树；共享 08/09/10 **只追加设计证据**，不删除原 F 红灯；C 浏览器 CI 保持禁止仅因三账本改动而重跑，旧完整 RC7.2 V4/Q1 仍作为非 Draft/正式门禁。
+- B01/B02、C01/C02、E01 真实 PostgreSQL/HTTP/R1/DSH Host 正式实现、F02/F03/D04/F04、32 人现场、商业授权均未通过：**W0_NOT_FROZEN / W1–W4_NOT_RUN / A02_BLOCKED_LICENSE / PR #84 DRAFT / NO_BANK_ZIP**。
