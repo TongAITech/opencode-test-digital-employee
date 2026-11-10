@@ -16,7 +16,7 @@ class HostIdentity:
     principal: str
 
 
-def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
+def scope_handler(connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass
 
@@ -68,4 +68,8 @@ def create_scope_server(address,connection_factory,cursor_key,host_identity_prov
         def do_POST(self):self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
         do_PUT=do_POST
         do_DELETE=do_POST
-    return ThreadingHTTPServer(address,Handler)
+    return Handler
+
+
+def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
+    return ThreadingHTTPServer(address,scope_handler(connection_factory,cursor_key,host_identity_provider,quality_service_factory))
