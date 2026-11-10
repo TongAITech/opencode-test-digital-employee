@@ -56,7 +56,13 @@ def _read_only_get(opener, url):
             raw = response.read(MAX_BYTES + 1)
     except HostProbeError:
         raise
-    except (HTTPError, URLError, OSError, ValueError):
+    except HTTPError as error:
+        if error.code in (401, 403):
+            raise HostProbeError("HOST_PERMISSION_DENIED") from None
+        if error.code == 404:
+            raise HostProbeError("HOST_ROUTE_MISSING") from None
+        raise HostProbeError("GET_UNAVAILABLE") from None
+    except (URLError, OSError, ValueError):
         raise HostProbeError("GET_UNAVAILABLE") from None
     if len(raw) > MAX_BYTES:
         raise HostProbeError("RESPONSE_TOO_LARGE")

@@ -101,6 +101,29 @@ def _redacted_meta(blob):
     }
 
 
+def assess_compatibility(inventory, expected_version="1.18.26"):
+    """Assess declared host identity only; never infer runtime panel compatibility."""
+    if not isinstance(expected_version, str) or not _VERSION.fullmatch(expected_version):
+        raise InventoryError("EXPECTED_VERSION_INVALID")
+    hosts = [row["metadata"] for row in inventory.get("observations", [])
+             if row.get("result") == "METADATA_OBSERVED"
+             and row.get("metadata", {}).get("name") == "@deepseek-ai/dsh"]
+    versions = {row["version"] for row in hosts}
+    if not hosts:
+        status = "HOST_IDENTITY_NOT_OBSERVED"
+    elif len(versions) != 1:
+        status = "HOST_VERSION_CONFLICT"
+    elif versions != {expected_version}:
+        status = "HOST_VERSION_MISMATCH"
+    else:
+        status = "DECLARED_VERSION_MATCH_RUNTIME_UNVERIFIED"
+    return {"expected_version": expected_version, "host_version_status": status,
+            "client_export_declared": any(row["client_export_declared"] for row in hosts),
+            "panel_compatibility": "CAPABILITY_UNKNOWN",
+            "field_status": "BLOCKED_FIELD", "field_verified": False,
+            "bank_final": False}
+
+
 def inspect(root, relative_paths=MANIFESTS):
     """Pure read-only observation, explicit allowlist. Never returns raw package data."""
     if not isinstance(root, (str, Path)):
@@ -168,6 +191,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         output = inspect(args.root, tuple(args.manifest) if args.manifest else MANIFESTS)
+        output["compatibility_assessment"] = assess_compatibility(output)
         rc = 0 if output["result"] == "METADATA_OBSERVED" and all(
             x["result"] in ("METADATA_OBSERVED", "NOT_FOUND")
             for x in output["observations"]
