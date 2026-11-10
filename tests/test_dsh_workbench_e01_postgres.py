@@ -5,6 +5,8 @@ from pathlib import Path
 from dataclasses import asdict
 import threading
 import unittest
+from unittest.mock import patch
+from rc7_admin.projection import AdminProjection
 import test_dsh_workbench_b_scope_postgres as prior
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.models import Mission
@@ -51,7 +53,18 @@ class E01(prior.Scope):
     def test_e01_legacy_binding_rejected_and_partial_r1_fails_closed(self):
         self.scope_seed();self.setup_r1(False);origin=self.quality_server()
         path='/api/workbench/v1/projects/P1/release-dates/2026-11-12/quality?batch_id=B1&mission_id=M1'
-        self.assertEqual(self.http(origin,path)[0],403)
+        calls=[]
+        class ObservedProjection(AdminProjection):
+            def __init__(self, truth):
+                original=truth.query
+                def query(kind,**filters):
+                    calls.append(kind)
+                    return original(kind,**filters)
+                truth.query=query
+                super().__init__(truth)
+        with patch('tools.dsh_workbench.e01_service.AdminProjection',ObservedProjection):
+            self.assertEqual(self.http(origin,path)[0],403)
+        self.assertEqual(calls,['rc7_mission'])
         self.r1.write_bytes(self.before+b'{truncated')
         self.assertEqual(self.http(origin,path)[0],503)
         self.assertEqual(self.r1.read_bytes(),self.before+b'{truncated')
@@ -64,5 +77,7 @@ class Integrity(unittest.TestCase):
             row={'evidence_id':'E1','content_ref':file.as_uri(),'content_hash':'sha256:'+hashlib.sha256(b'actual').hexdigest()}
             self.assertEqual(service._evidence(row)['integrity'],'HASH_VERIFIED_ONLY')
             file.write_bytes(b'tampered');self.assertEqual(service._evidence(row)['integrity'],'HASH_MISMATCH')
+            link=root/'escape';link.symlink_to('/etc/passwd')
+            row['content_ref']=link.as_uri();self.assertEqual(service._evidence(row)['integrity'],'CONTENT_UNAVAILABLE')
             row['content_ref']='file:///etc/passwd';self.assertEqual(service._evidence(row)['integrity'],'CONTENT_UNAVAILABLE')
             row['content_ref']='https://example.test/private';self.assertEqual(service._evidence(row)['integrity'],'CONTENT_UNAVAILABLE')
