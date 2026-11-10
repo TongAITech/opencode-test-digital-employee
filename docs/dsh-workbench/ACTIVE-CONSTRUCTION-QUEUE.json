@@ -77,6 +77,20 @@
       "source_sha": "79ff9823fe8bdc67a1b4cbc0a69d710664ef1840",
       "state": "INTEGRATED_F232_EXACT",
       "next_action": "Long-ID375 P2 closed only at79ff; full C04/C05 not qualified."
+    },
+    {
+      "ticket": "B_PROJECT_METADATA_PROTOCOL_CODEC",
+      "owner": "B",
+      "worktree": "b-project-metadata-codec",
+      "branch": "work/dsh-wb-b-project-metadata-codec",
+      "state": "CODE_IN_PROGRESS",
+      "next_action": "Pure request/name codec then F exact source; no DB authority/NO_CHANGE claim. Actual PG implementation follows separately reviewed migration/permissions."
+    },
+    {
+      "ticket": "D_MISSION_BINDING_WRITER_INVENTORY",
+      "owner": "D",
+      "state": "SOURCE_INVESTIGATION",
+      "next_action": "Actual official model/reader/writer/session entry closure, not local guard as global fence."
     }
   ],
   "accepted_integrated_components": [

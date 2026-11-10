@@ -70,3 +70,9 @@ W1 验收必须在真实 PostgreSQL 执行：迁移与回滚、同需求多版�
 
 ## B07 业务草稿资产增量（待职责评审，不改变R1边界）
 新增草稿Case/Obligation、缺陷说明、报告草稿、知识、会议纪要和里程碑的统一合法Scope/版本化资产设计，见[WB-B07-DRAFT-ASSET-API-CONTRACT.md](WB-B07-DRAFT-ASSET-API-CONTRACT.md)。业务保存/退役/恢复不能形成正式Case、Defect、报告或R1执行结论；精确源B/E/D评审后才实现新增CRUD。
+
+## M1 已治理根项目名称增量（2026-11-11，隔离实施候选）
+
+按[D211](WB-D-PROJECT-METADATA-BOARD-INCREMENT.md)、[B230](WB-B-PROJECT-METADATA-M1-NAMESPACE-CANDIDATE-20261111.md)与[A决策](WB-A-PROJECT-METADATA-M1-DECISION-20261111.md)执行有界M1：只允许完整行政治理并激活命名域中的已有根PROJECT改名；project_id不变、project.name单一文本事实、独立metadata_revision、规范UTF8精确字节唯一键。未知legacy域/旧冲突保持只读，不按可见列表判重，不授创建/成员/目录/父子能力。完整名称规则及治理分母以被审B230精确a21b82fe+A9a41b145为准。
+
+D235/E233/F234已接受该有界设计进入隔离候选施工，并非新SQL或产品验收。009候选显式依赖001–007，008留正式绑定；禁止空008、隐式跳checksum或部署自动学习profile。具体runner/SQL/列权限/RLS/一致性/history/result/outbox及新固定profile须另审实库精确源。metadata不改DATE/batch/BRV/BRVS或R1正式事实。历史均NOT_RUN/REVIEW_PENDING文字仅追溯其原提案检查点，当前资格按08–10精确源证据核对，不向本增量转签。

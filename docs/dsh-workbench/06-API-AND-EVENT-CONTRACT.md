@@ -106,3 +106,11 @@ GET `/api/workbench/v1/projects`只列可信Host当前principal经RLS可读项�
 GET `/api/workbench/v1/projects/{project_id}/release-dates`先项目授权；records字段为project_id/batch_id/release_date（DATE原值）/date_revision/relation_revision/access_scope_revision。稳定batch_id改期不变。授权空列表可records=[]；无权项目403、缺Host/DB503。均不新增项目或ACL写接口。
 两端点仅接受page_size(1–100)/page_cursor，拒绝客户端principal及重复标量参数。响应schema=`dsh-workbench/business-directory/v1`，含directory_revision（当前完整可见快照SHA256）、records、顶层next_page_cursor（末页null）、warnings/gap_indicators；日期目录另含project_id/access_scope_revision。
 签名cursor绑定主体、目录类型/project、page_size、完整可见项目/ACL或日期/修订指纹与位置；增授、撤权、改期、目录可见数据变化旧cursor409。每页真实PG REPEATABLE READ/RLS，无R1 fallback、无虚构统计；不改变R1权威。实现及现场资格分别独立验收，FIELD_NEEDS_BANK_TRANSFER。
+
+## M1 项目改名协议增量（2026-11-11，尚未接入HTTP）
+
+被审协议见[B230](WB-B-PROJECT-METADATA-M1-NAMESPACE-CANDIDATE-20261111.md)及[A决策](WB-A-PROJECT-METADATA-M1-DECISION-20261111.md)。拟议metadata GET/PATCH为已有project改名，不接纳principal/namespace/role/parent等权威字段。新metadata revision和expected revision使用规范正十进制字符串，不转JS Number；当前Host mutation、CSRF/Origin、原主体write-context、项目can_write及服务端治理状态共同约束。已提交原K同digest经当前重授权后返回原历史回执，优先于当前CAS；UI另读当前状态，不能把旧receipt回滚新name。NO_CHANGE须权威数据库判定并持久回执，纯codec不能断言。
+
+PROJECT级outbox不得填假batch冒充BATCH事件或SSE；名称变更不触碰R1。Directory摘要须包含metadata_revision防ABA，具体项目wire兼容另审，不顺带改批次/Scope协议或清合法Scope。受审现有协议仍可只读；本增量尚无产品功能PASS。
+
+SQL冻结前须选择兼容现request_log FK/claim的锁级或统一顺序，真实PG两连接覆盖同K metadata与既有asset/batch跨动作、ACL/治理竞态、死锁及完整回滚。当前project FOR UPDATE先于claim的反向等待是源码审查假设，未实证为现存缺陷。D/E/F设计接受不替代具体SQL/runner/profile及客户端实现精确验收。
