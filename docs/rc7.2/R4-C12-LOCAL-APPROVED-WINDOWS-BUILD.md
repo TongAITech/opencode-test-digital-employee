@@ -37,7 +37,7 @@ python -m rc7_release.rc72_c12_local_portable build `
   --dsh-file $dshFile --dsh-sha256 $dshSha256 --approval-record $approval
 ```
 
-**重要：** 新解压的包内 Node 可执行文件必须在真实 Windows 构建机的受控隔离环境中具备有效的出站阻断（可参考原 GitHub Actions 的 Windows Firewall 专用 Node 规则）；构建器执行 `--require-windows-outbound-block`，不会自动修改宿主防火墙。网络阻断未生效时必须失败并删除最终 ZIP，不能跳过该核验。Windows pip-mirror 验证需要构建机的受控 Python/pytest 组件和真实离线物料。
+**重要：** 仅在**银行批准的 Windows 管理员权限、专用临时构建 VM**上运行完整构建。完成全新解压后，脚本对新包内 Node 的准确 exe 路径自动添加单程序 Windows Defender 出站阻断规则，必须保证主机防火墙各 Profile 已启用，并在执行 Q2 后无论成功或失败都清理该规则；若缺少权限、无法添加/清理、Q2 仍可出站，构建失败并拒绝留下最终合格 ZIP。**不要在共享生产 PC 上运行此构建。** Windows pip-mirror 验证仍需要受控 Python/pytest 与真实离线物料。
 
 ## 工程执行顺序
 
