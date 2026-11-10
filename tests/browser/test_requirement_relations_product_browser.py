@@ -22,8 +22,9 @@ class RequirementRelationsBrowser(unittest.TestCase):
    import_verified_sst_link(db.owner,'P1','B1','R2','V1','SST2','source:link2','link-r2')
    revision=db.relations.attach_sst('alice','P1','B1','R2','V1','SST2',7,'attach2')
    hostile='source:<img src=x onerror=window.injected=true>'
+   long_id='REQ <img src=x onerror=window.fInjected=1>'
    for i in range(3,102):
-    req='R%03d'%i
+    req=long_id if i==101 else 'R%03d'%i
     db.relations.create_requirement('alice','P1',req,'src','prod',req,'r1','source:'+req,'create:'+req)
     revision=db.relations.attach_member('alice','P1','B1','requirement',req,revision,'member:'+req)
     import_verified_requirement_version(db.owner,'P1','B1',req,'V1',hostile if i==101 else 'source:rv:'+req,'rv-revision:'+req)
@@ -54,6 +55,23 @@ class RequirementRelationsBrowser(unittest.TestCase):
      article=panel.locator('article').filter(has=page.locator('h4',has_text=row[0]+' →'))
      for value in row[3:]:
       if value is not None:self.assertIn(value,article.inner_text())
+    # Legal long IDs must not expand the shared Scope controls in either section/locale.
+    for locale in ['zh-CN','en-US']:
+     page.select_option('#locale',locale)
+     for section in ['requirements','overview']:
+      page.locator('#sections [data-id='+section+']').click()
+      self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'),375)
+      for selector in ['#business-scope label','#business-scope select']:
+       self.assertTrue(page.locator(selector).evaluate_all('(elements)=>elements.every(el=>el.getBoundingClientRect().right<=375 && el.getBoundingClientRect().left>=0)'))
+      option=page.get_by_role('option',name=long_id,exact=True)
+      self.assertEqual(option.text_content(),long_id)
+      self.assertEqual(option.get_attribute('value'),long_id)
+    page.select_option('#locale','zh-CN');page.locator('#sections [data-id=requirements]').click()
+    requirement_select=page.locator('[data-scope=requirement]');requirement_select.focus();page.keyboard.press('End')
+    self.assertIn(long_id,requirement_select.evaluate('(el)=>[...el.selectedOptions].map(option=>option.value)'))
+    self.assertIn(long_id,panel.inner_text());self.assertEqual(keys(),[[long_id,'V1',None]])
+    page.keyboard.press('Tab');self.assertNotEqual(page.evaluate('document.activeElement.tagName'),'BODY')
+    page.select_option('[data-scope=requirement]',[])
     self.assertIn('待拆分（UNSPLIT）',panel.inner_text());self.assertEqual(panel.locator('img').count(),0);self.assertIsNone(page.evaluate('window.injected'))
     page.select_option('[data-scope=requirement]',['R1','R2']);self.assertEqual(keys(),[['R1','V1','SST1'],['R2','V1','SST2']])
     page.select_option('[data-scope=version]',['V1']);page.select_option('[data-scope=sst]',['SST2']);self.assertEqual(keys(),[['R2','V1','SST2']])
@@ -88,7 +106,7 @@ class RequirementRelationsBrowser(unittest.TestCase):
     page.locator('#business-scope button').click();page.wait_for_selector('#business-scope[data-scope-status=ERROR]');clear()
     page.locator('[name=release_date]').fill('2026-11-13');load();self.assertEqual(json.loads(panel.get_attribute('data-relation-scope')),['P1','B1','2026-11-13']);self.assertEqual(len(keys()),101)
     self.assertTrue(all(method=='GET' for method,url in requests));self.assertFalse(any('/api/' in url and '/api/workbench/v1/' not in url for method,url in requests));self.assertEqual(errors,[])
-    self.assertNotIn('R101',page.evaluate('localStorage.getItem("dsh-workbench-settings")'))
+    self.assertNotIn(long_id,page.evaluate('localStorage.getItem("dsh-workbench-settings")'))
     browser.close()
   finally:
    if server:server.shutdown();server.server_close()

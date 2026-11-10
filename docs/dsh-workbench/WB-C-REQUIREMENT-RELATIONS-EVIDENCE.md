@@ -28,3 +28,15 @@ The existing ScopeClient tests continue to qualify source/revision drift, incomp
 ## Acceptance limits
 
 This is one C04 read-only association slice, not complete requirement management, formal obligation creation or end-to-end test coverage. Synthetic fixture relation provisioning does not establish production data creation or runtime Mission binding. Native DSH 1.18.26, Windows, bank-network and offline acceptance still require the bank environment. No release acceptance is inferred. Only A may integrate; F must independently review the final exact source.
+
+## Shared Scope long-ID mobile correction after F228
+
+F report `cb2ac4ea83dbeea1d04c0f8a86b05f1a6930d746` functionally accepted the exact relation projection at `26257eae` while retaining an inherited P2: a legal long requirement ID made the shared Scope LABEL/SELECT overflow at 375px, including Overview. Its entire diagnostic `/tmp/f_requirements_layout_diagnostic.py` was read and executed unchanged against the old source. Actual retained failure: Requirements width **390**, Overview width **390**, LABEL/SELECT right edge **382.703125**, assertion `390 <= 375` failed (4.649 seconds). No old-source mobile pass is transferred.
+
+The correction constrains Scope labels to the container less their margins, permits select controls to shrink within those labels, allows option text to wrap normally, and removes the main flex item's minimum-content width constraint. No business ID/value/text, selection, relation logic, API or persistence changes. There is no global overflow-hidden workaround or ellipsis. Full option names and values remain in the native accessible controls; the selected exact ID is also rendered in the wrapping relation details.
+
+The unchanged independent diagnostic now passes (2.934 seconds): Requirements width **375**, Overview width **375**, overflow elements **[]**. Its full original functional, pagination/drift, native fetch, storage and keyboard checks remain active. The component's real-PG/native-browser test now includes the same legal long ID in the 101-row fixture and checks both locales on Requirements and Overview, label/select bounds, exact accessible option name/value, native End-key selection of the complete ID, exact resulting tuple, subsequent Tab focus and absence from saved settings. The targeted strengthened case passed in 7.361 seconds before the final whole-suite regression.
+
+Final regression after the strengthened fixture: Node **124 passed**, zero skips (0.723 seconds); real PostgreSQL/HTTP/native browser **10 passed**, zero skips (51.861 seconds).
+
+This correction closes no gate until F reviews the new exact frozen source; it is not full C05 or field acceptance.
