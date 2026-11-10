@@ -15,7 +15,7 @@ It does not implement B06, authorize a principal, add an HTTP endpoint, or quali
 
 - DSH Host/D supplies the authenticated server-side principal. Browser JSON, prompt text, UI state, and request-body `principal`/`authorization` fields are never identity sources. E invokes a B06 port bound to that server-side request context; the E adapter accepts project+batch only and does not accept/pass a raw principal argument.
 - B06 owns the project + stable batch + verified Requirement/SystemVersion/SST relation query. Its request is scoped by project/batch (or project/business date) plus explicit ID filters and pagination. It is **not** a Mission authorization endpoint and must not be asked to infer Mission membership.
-- E owns the R1 read-only projection and must verify the selected Mission against explicit R1 `project_id` and `batch_id` bindings after B06 has authorized the project/batch. Missing legacy bindings remain `R1_MISSION_SCOPE_UNRESOLVED`; `release_id`, names, or labels must never be treated as a batch ID.
+- E owns the R1 read-only projection and must use a **scope-first** read: resolve only the selected Mission identity, require explicit R1 `project_id` and `batch_id` to match the B06-authorized scope, and only then query Tasks/Executions/Evidence. The unscoped `mission_overview(mission_id)` is prohibited for this seam. Missing or mismatched legacy bindings remain `R1_MISSION_SCOPE_UNRESOLVED`; `release_id`, names, or labels must never be treated as a batch ID.
 - E calls the host-bound B06 port first. On 401/403/404/409/422/503 or malformed/unverified scope, E must not query R1. The adapter never calls `dispatch_post`, `append_atomic`, or any R1 write API.
 
 ## 2. B06 response fields consumed by E
@@ -36,9 +36,10 @@ If `next_page_cursor` is present and non-null, the page is incomplete and E must
 ## 3. R1 read-only mapping
 
 After B06 succeeds:
-1. Read the exact Mission overview from the in-process R1 projection.
-2. Require `mission_id`, `project_id`, and `batch_id` to match the selected Scope.
-3. Require each Task/Execution/Evidence row to retain the same `mission_id`; reject duplicate IDs or malformed collections.
+1. Call the R1 `mission_overview_scoped(project_id, batch_id, mission_id)` port only.
+2. Resolve the minimal Mission identity first and require explicit `mission_id`, `project_id`, and `batch_id` to match. A missing or cross-scope identity is rejected before any related query.
+3. Only after the identity match, load Tasks/Executions/Evidence and require each row to retain the same `mission_id`; reject duplicate IDs or malformed collections.
+4. Never fall back to the old `mission_overview(mission_id)` method, which reads related details before E can check scope.
 4. Preserve B06 source refs and append the R1 projection source ref; never replace one provenance domain with the other.
 5. Keep Attempt result `UNKNOWN_UNQUALIFIED`, Evidence `UNVERIFIED_NO_CONTENT_READ`, NodeGate `UNKNOWN`, and release decision `HOLD`. A declared hash is not a verified hash until bytes are read and recomputed.
 
@@ -76,3 +77,24 @@ B confirmed the exact `source_refs` and `next_page_cursor` semantics on E PR #96
 - B remains responsible for actual cursor signature and DB snapshot isolation; this E adapter cannot cryptographically establish cursor authenticity. E preserves fail-closed statuses even when the complete B06 projection fixture succeeds.
 
 The new `tests/test_dsh_workbench_e_pages.py` exercises the positive and negative page-chain protocol. No real Host, R1 production lineage, migration, HTTP server, command, SSE, or browser execution has been integrated by these fixture tests.
+
+## 7. E source revision fence across B06 pages (2026-11-10)
+
+The first consumer implementation checked that each row includes a verified requirement-version source link and that relation/access scope revisions remain stable across pages. This **did not yet ensure** that two SPLIT rows for the *same* `(requirement_id, system_version_id)` across different pages refer to one consistent authoritative BRV source identity/revision.
+
+The consumer now captures `(source_link_ref, source_revision)` for each `(requirement_id, system_version_id)` across the entire B06 response chain. If another SST row for the same parent has a different tuple, it fails with `B06_REQUIREMENT_VERSION_SOURCE_DRIFT` **before any R1 mission overview read**. This applies within a page and across pages. Two different system versions are intentionally different parents, so re-used raw SST IDs or independent revisions across versions remain legal.
+
+The E protocol tests cover stable same-parent multi-SST joins, both reference and revision drift, same-page contradictions, and valid cross-version independent provenance. This is a consumer-side defensive check **in addition to**, not instead of, B06 PostgreSQL snapshot isolation and source-trace FK enforcement. It does not authenticate the originating source or establish a bank Host ACL. The release decision stays `HOLD` and E01 remains `BLOCKED_DEPENDENCY_B06`.
+
+## 8. F #111 P1: R1 Mission scope must precede related-detail reads (2026-11-10)
+
+F independently reviewed E HEAD `917f597d11daa1ae0bfc0caa07066bd45ad64ffa` and accepted the B06 BRV source-revision fence, but found that the E consumer still called legacy `mission_overview(mission_id)` before `r1_preview` checked Mission `project_id/batch_id`. The old AdminProjection queried the Mission and then Tasks/Executions/Evidence without scope filtering. A rejected cross-project request could therefore cause related details to be read before rejection.
+
+**Remediation:**
+- E now requires `mission_overview_scoped(project_id, batch_id, mission_id)`; no unscoped fallback is permitted.
+- The legacy in-process AdminProjection performs a minimal `truth.get("rc7_mission", mission_id)` identity lookup first. It compares explicit Mission `project_id` and `batch_id` against the authorized B06 scope; missing, unbound, or mismatched identities all fail with `R1_MISSION_SCOPE_UNRESOLVED` without disclosing whether another-scope Mission exists.
+- Only after the identity matches does it query the selected Mission's Tasks, Executions, and Evidence. It returns only the three identity fields required by E, not the complete Mission row. It intentionally does not call `refresh()`, because that rebuilds the whole event projection before scope validation.
+- Both E read seams (single-scope prototype and complete paginated consumer) call the same scope-first helper. A legacy object exposing only `mission_overview(mission_id)` is rejected with `R1_SCOPED_READ_UNAVAILABLE`; the unsafe method is never invoked.
+- Negative tests cover cross-project, cross-batch, missing legacy bindings, old unscoped-only projection, and actual inherited RC7 AdminProjection. They assert zero related Tasks/Executions/Evidence queries before rejection. Positive fixtures assert the identity check happens before related reads.
+
+**Limit:** inherited RC7 `Mission` currently has no canonical `project_id/batch_id` fields. Such old records now fail closed and cannot be previewed until an independently governed migration or authoritative scope binding exists. This method is a legacy in-process scope guard, not production PostgreSQL row-level security or a substitute for DSH Host principal authorization. B06 still must authorize the project/batch using the Host-bound principal; production R1 must provide a transactional scope-filtered identity/detail read. E01 remains `BLOCKED_DEPENDENCY_B06` / `IMPLEMENTATION_QA_NOT_RUN`.

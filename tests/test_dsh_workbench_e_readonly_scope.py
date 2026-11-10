@@ -64,12 +64,25 @@ def legacy_overview(mission=None, related=None):
 
 class LegacyProjectionFixture:
     def __init__(self, overview=None):
-        self.calls = []
+        self.identity_calls = []
+        self.related_calls = []
+        self.unscoped_calls = []
         self.overview = overview if overview is not None else legacy_overview()
 
-    def mission_overview(self, mission_id):
-        self.calls.append(("read", mission_id))
+    def mission_overview_scoped(self, *, mission_id, project_id, batch_id):
+        self.identity_calls.append((project_id, batch_id, mission_id))
+        mission = self.overview.get("mission")
+        if (not isinstance(mission, dict)
+                or mission.get("mission_id") != mission_id
+                or mission.get("project_id") != project_id
+                or mission.get("batch_id") != batch_id):
+            raise ContractRejection("R1_MISSION_SCOPE_UNRESOLVED")
+        self.related_calls.append(mission_id)
         return copy.deepcopy(self.overview)
+
+    def mission_overview(self, mission_id):
+        self.unscoped_calls.append(mission_id)
+        raise AssertionError("unscoped mission_overview must never be called")
 
 
 class LegacyAdminFixture:
@@ -226,7 +239,9 @@ class EReadOnlyScopeTests(unittest.TestCase):
         self.reject("FORBIDDEN", lambda: r1_preview_from_legacy_admin(
             deny_b06, admin, project_id="P1",
             batch_id="B1", mission_id="M1"))
-        self.assertEqual([], admin.projection.calls)
+        self.assertEqual([], admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
         self.assertEqual([], admin.writes)
 
     def test_b06_invalid_source_does_not_query_r1(self):
@@ -236,7 +251,9 @@ class EReadOnlyScopeTests(unittest.TestCase):
         self.reject("SOURCE_VERIFIED_LINK_REQUIRED", lambda: r1_preview_from_legacy_admin(
             lambda *_: verified_scope([row]), admin,
             project_id="P1", batch_id="B1", mission_id="M1"))
-        self.assertEqual([], admin.projection.calls)
+        self.assertEqual([], admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
 
     def test_valid_seam_calls_read_only_projection(self):
         admin = LegacyAdminFixture()
@@ -247,10 +264,55 @@ class EReadOnlyScopeTests(unittest.TestCase):
         p = r1_preview_from_legacy_admin(
             b06, admin, project_id="P1", batch_id="B1", mission_id="M1")
         self.assertEqual([("P1", "B1")], observed)
-        self.assertEqual([("read", "M1")], admin.projection.calls)
+        self.assertEqual([("P1", "B1", "M1")],
+                         admin.projection.identity_calls)
+        self.assertEqual(["M1"], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
         self.assertEqual([], admin.writes)
         self.assertEqual("PROTOTYPE_UNQUALIFIED", p["data_quality"])
         self.assertEqual("HOLD", p["release_decision"])
+
+    def test_scoped_projection_rejects_cross_project_before_related_reads(self):
+        admin = LegacyAdminFixture(legacy_overview(mission={
+            "mission_id": "M1", "project_id": "P2", "batch_id": "B1",
+        }))
+        self.reject("R1_MISSION_SCOPE_UNRESOLVED", lambda:
+            r1_preview_from_legacy_admin(
+                lambda *_: verified_scope(), admin,
+                project_id="P1", batch_id="B1", mission_id="M1"))
+        self.assertEqual([("P1", "B1", "M1")],
+                         admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
+
+    def test_scoped_projection_rejects_cross_batch_before_related_reads(self):
+        admin = LegacyAdminFixture(legacy_overview(mission={
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B2",
+        }))
+        self.reject("R1_MISSION_SCOPE_UNRESOLVED", lambda:
+            r1_preview_from_legacy_admin(
+                lambda *_: verified_scope(), admin,
+                project_id="P1", batch_id="B1", mission_id="M1"))
+        self.assertEqual([("P1", "B1", "M1")],
+                         admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+
+    def test_unscoped_legacy_projection_is_not_used_as_fallback(self):
+        class UnsafeProjection:
+            def __init__(self):
+                self.calls = []
+
+            def mission_overview(self, mission_id):
+                self.calls.append(mission_id)
+                raise AssertionError("unsafe unscoped read")
+
+        admin = type("Legacy", (), {})()
+        admin.projection = UnsafeProjection()
+        self.reject("R1_SCOPED_READ_UNAVAILABLE", lambda:
+            r1_preview_from_legacy_admin(
+                lambda *_: verified_scope(), admin,
+                project_id="P1", batch_id="B1", mission_id="M1"))
+        self.assertEqual([], admin.projection.calls)
 
     def test_seam_does_not_accept_a_client_supplied_principal(self):
         admin = LegacyAdminFixture()
@@ -263,7 +325,9 @@ class EReadOnlyScopeTests(unittest.TestCase):
                 b06, admin, trusted_principal_id="attacker-admin",
                 project_id="P1", batch_id="B1", mission_id="M1")
         self.assertEqual([], observed)
-        self.assertEqual([], admin.projection.calls)
+        self.assertEqual([], admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
 
     def test_host_bound_b06_authorization_failure_precedes_r1(self):
         admin = LegacyAdminFixture()
@@ -272,7 +336,9 @@ class EReadOnlyScopeTests(unittest.TestCase):
         self.reject("UNAUTHENTICATED", lambda: r1_preview_from_legacy_admin(
             host_bound_b06, admin, project_id="P1", batch_id="B1",
             mission_id="M1"))
-        self.assertEqual([], admin.projection.calls)
+        self.assertEqual([], admin.projection.identity_calls)
+        self.assertEqual([], admin.projection.related_calls)
+        self.assertEqual([], admin.projection.unscoped_calls)
 
 
     def test_empty_b06_relations_are_not_an_empty_success(self):
@@ -317,7 +383,7 @@ class EReadOnlyScopeTests(unittest.TestCase):
                              project_id="P1", batch_id="B1", mission_id="M1")
         self.assertIn("starlink:reqver:R1:V1", preview["source_refs"])
         self.assertIn("starlink:sst:R1:V1:SST-100", preview["source_refs"])
-        self.assertIn("rc7_admin:mission_overview:M1", preview["source_refs"])
+        self.assertIn("rc7_admin:mission_overview_scoped:M1", preview["source_refs"])
 
     def test_real_rc7_admin_r1_mission_source_is_not_b06_batch_identity(self):
         """Real old R1 code fixture: release_id cannot be guessed to be batch."""
@@ -335,11 +401,19 @@ class EReadOnlyScopeTests(unittest.TestCase):
                 mission_id="M1", release_id="B1", goal="fixture only"),
                 release_id="B1")
             before = path.read_bytes()
+            related_queries = []
+            original_query = app.truth.query
+            def observed_query(artifact_type, **filters):
+                related_queries.append((artifact_type, filters))
+                return original_query(artifact_type, **filters)
+            app.truth.query = observed_query
             # B06 is a fixture too; test does NOT grant production authorization.
             self.reject("R1_MISSION_SCOPE_UNRESOLVED",
                         lambda: r1_preview_from_legacy_admin(
                             lambda *_: verified_scope(), app,
                             project_id="P1", batch_id="B1", mission_id="M1"))
+            self.assertEqual([], related_queries,
+                             "unbound legacy Mission must be rejected before related reads")
             self.assertEqual(before, path.read_bytes(),
                              "Read-only preview must not append any R1 event")
 

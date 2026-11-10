@@ -118,3 +118,23 @@ Tests `tests/test_dsh_workbench_e_pages.py` are synthetic B06 page port and isol
 Latest F independent audit [PR #101](https://github.com/TongAITech/opencode-test-digital-employee/pull/101) against A W0 `b385e042c4543f5d918d61bff5e01be1d88afba7` remained `REVIEWED_WITH_BLOCKERS/W0_NOT_FROZEN` after FG22 CI negative policy failure. A subsequently committed `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1` to fix FG22; **that new HEAD requires F independent recheck**. FG17 targeted real Chromium and FG21 Git merge conflict received narrower positive review, not field QA. A02 `BLOCKED_LICENSE` remains.
 
 This E own-design/signoff addition intentionally does not edit A-owned `08/09/10` shared ledgers. A must integrate and record its own source-sha and F signoff separately.
+
+## 10. F #106 latest W0 review and E source-revision cross-page hardening
+
+F PR [#106](https://github.com/TongAITech/opencode-test-digital-employee/pull/106) independently tested the precise A W0 integrated source `a3555b187eb35d27a2d712313dd8ea7daa28915f`: 206/206 W0 Python, 30/30 C Node, FG18 1/1, FG16 2/2, CI admission 21/21, and real Chromium prototype PASS. F accepted `C_W0_PROTOTYPE_REVIEW_PASS`, `FG23_CLOSED`, and `FG20_DESIGN_RECONCILIATION_PASS`. **F did not sign W0 global freeze, E01 product QA, commercial license or bank field deployment.**
+
+After E #102 was integrated into that source, E added a new cross-page source revision fence to `e_b06_page_consumer.py`: the same requirement-version BRV parent must preserve its verified `source_link_ref + source_revision` across multiple SST rows/pages; conflicting provenance rejects before R1. The source key is scoped by requirement **and** system_version, so legitimate SST raw-ID reuse across different versions is not blocked. New E negative and positive tests prove rejection and no R1 read. Real B06 PostgreSQL/DSH Host verification remains a dependency; this is E pre-B06 protocol hardening only.
+
+E owns this isolated change; A owns 08/09/10 integrated ledger updates. W0 `NOT_FROZEN`; A02 `BLOCKED_LICENSE`; E01 `BLOCKED_DEPENDENCY_B06`; E02–E06 `NOT_STARTED`; E07 `OPTIONAL_NOT_ADMITTED`; no ZIP/mainline deployment.
+
+## 11. F #111 P1 remediation — R1 scope-first read before related details
+
+F PR #111 independently reviewed E #107 at exact HEAD `917f597d11daa1ae0bfc0caa07066bd45ad64ffa`. It accepted `E107_SOURCE_DRIFT_GUARD_PASS` but issued `E01_SECURITY_ADMISSION_BLOCKED`: the E adapter called old `mission_overview(mission_id)`, which loaded Tasks/Executions/Evidence before the caller compared Mission project/batch membership.
+
+E remediation is implemented on the follow-up source:
+- New required port `mission_overview_scoped(project_id, batch_id, mission_id)`; no unscoped fallback.
+- `AdminProjection` performs a minimal Mission identity lookup first, verifies exact explicit project+batch binding, then and only then queries Tasks/Executions/Evidence. Missing or mismatched bindings return the same `R1_MISSION_SCOPE_UNRESOLVED` result. It returns only the required identity tuple.
+- Both E adapters share `read_scoped_r1_mission_overview`. Tests cover cross-project, cross-batch, missing binding, old unsafe-only projection, and actual inherited RC7 AdminProjection; all rejection cases assert zero related-detail queries.
+- Legacy Mission model currently lacks project/batch bindings, so actual old Missions correctly fail closed. No release_id inference is added.
+
+This closes the identified **pre-read ordering defect in the prototype contract**, pending F review of the new exact source. It does not implement Host principal ACL, production B06/PostgreSQL, a canonical Mission migration, or E01 production QA. E01 remains blocked until those dependencies and same-HEAD field/API tests exist.

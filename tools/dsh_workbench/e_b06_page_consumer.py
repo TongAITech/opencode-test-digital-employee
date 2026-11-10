@@ -12,7 +12,9 @@ from copy import deepcopy
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from .e_contract_oracle import ContractRejection
-from .e_readonly_scope_prototype import normalize_b06_scope, r1_preview
+from .e_readonly_scope_prototype import (
+    normalize_b06_scope, r1_preview, read_scoped_r1_mission_overview,
+)
 
 
 def _require(ok: bool, code: str) -> None:
@@ -50,6 +52,10 @@ def collect_authorized_b06_pages(
     gaps = []
     seen_relations = set()
     split_state_by_parent = {}
+    # One authoritative BRV source identity/revision for the SAME
+    # (requirement, system_version) across all SST rows and pages.
+    # Distinct system versions must remain distinct even with same raw SST ID.
+    source_by_parent = {}
     for _page_number in range(max_pages):
         page = page_fetcher(project_id, batch_id, page_size, cursor)
         _require(isinstance(page, Mapping), "SCOPE_SOURCE_UNAVAILABLE")
@@ -74,8 +80,14 @@ def collect_authorized_b06_pages(
                      first["relation_revision"], "B06_RELATION_REVISION_CHANGED")
             _require(normalized["access_scope_revision"] ==
                      first["access_scope_revision"], "B06_ACCESS_REVISION_CHANGED")
-        for row in normalized["records"]:
+        for row, raw_row in zip(normalized["records"], page["records"]):
             parent = (row["requirement_id"], row["system_version_id"])
+            source = raw_row["source_verified_requirement_version"]
+            identity = (source["source_link_ref"], source["source_revision"])
+            previous_source = source_by_parent.get(parent)
+            _require(previous_source is None or previous_source == identity,
+                     "B06_REQUIREMENT_VERSION_SOURCE_DRIFT")
+            source_by_parent[parent] = identity
             key = parent + (row["sst_id"],)
             _require(key not in seen_relations,
                      "B06_DUPLICATE_RELATION_ACROSS_PAGES")
@@ -133,8 +145,8 @@ def r1_preview_after_full_b06_scope(
         page_fetcher, project_id=project_id, batch_id=batch_id,
         page_size=page_size, max_pages=max_pages)
     projection = getattr(legacy_admin, "projection", None)
-    method = getattr(projection, "mission_overview", None)
-    _require(callable(method), "TRUTH_SOURCE_UNAVAILABLE")
-    overview = method(mission_id)
+    overview = read_scoped_r1_mission_overview(
+        projection, project_id=project_id, batch_id=batch_id,
+        mission_id=mission_id)
     return r1_preview(scope, overview, project_id=project_id,
                       batch_id=batch_id, mission_id=mission_id)

@@ -64,11 +64,24 @@ class FixtureLegacyAdmin:
     class Projection:
         def __init__(self, overview):
             self.overview = overview
-            self.calls = []
+            self.identity_calls = []
+            self.related_calls = []
+            self.unscoped_calls = []
+
+        def mission_overview_scoped(self, *, mission_id, project_id, batch_id):
+            self.identity_calls.append((project_id, batch_id, mission_id))
+            mission = self.overview.get("mission")
+            if (not isinstance(mission, dict)
+                    or mission.get("mission_id") != mission_id
+                    or mission.get("project_id") != project_id
+                    or mission.get("batch_id") != batch_id):
+                raise ContractRejection("R1_MISSION_SCOPE_UNRESOLVED")
+            self.related_calls.append(mission_id)
+            return copy.deepcopy(self.overview)
 
         def mission_overview(self, mission_id):
-            self.calls.append(mission_id)
-            return copy.deepcopy(self.overview)
+            self.unscoped_calls.append(mission_id)
+            raise AssertionError("unscoped mission_overview must never be called")
 
     def __init__(self, mission=None):
         self.projection = self.Projection({
@@ -105,7 +118,8 @@ class EPageConsumerContractTests(unittest.TestCase):
             callback()
         self.assertEqual(code, ctx.exception.code)
         if no_r1:
-            self.assertEqual([], self.r1.projection.calls)
+            self.assertEqual([], self.r1.projection.related_calls)
+            self.assertEqual([], self.r1.projection.unscoped_calls)
         self.assertEqual([], self.r1.writes)
 
     def test_two_pages_are_combined_before_any_r1_read(self):
@@ -113,7 +127,10 @@ class EPageConsumerContractTests(unittest.TestCase):
         result = self.run_read(port)
         self.assertEqual([("P1", "B1", 2, None),
                           ("P1", "B1", 2, "opaque-next")], port.calls)
-        self.assertEqual(["M1"], self.r1.projection.calls)
+        self.assertEqual([("P1", "B1", "M1")],
+                         self.r1.projection.identity_calls)
+        self.assertEqual(["M1"], self.r1.projection.related_calls)
+        self.assertEqual([], self.r1.projection.unscoped_calls)
         self.assertEqual(3, len(result["records"]))
         self.assertTrue(result["scope_complete"])
         self.assertEqual("HOLD", result["release_decision"])
@@ -193,6 +210,61 @@ class EPageConsumerContractTests(unittest.TestCase):
         self.assertEqual(["V1", "V2"],
                          [r["system_version_id"] for r in result["records"]])
 
+    def test_same_requirement_version_split_across_pages_stable_source(self):
+        """Multiple SSTs may share exactly one verified BRV source revision."""
+        port = self.fixture([
+            page([link(sst="S1")], "next"),
+            page([link(sst="S2")]),
+        ])
+        result = self.run_read(port)
+        self.assertEqual(["M1"], self.r1.projection.calls)
+        self.assertEqual(["S1", "S2"],
+                         [r["sst_id"] for r in result["records"]])
+        self.assertEqual("HOLD", result["release_decision"])
+
+    def test_cross_page_same_parent_source_revision_drift_is_rejected(self):
+        """A joined BRV may not silently change source rev while paging SST."""
+        second = page([link(sst="S2")])
+        second["records"][0]["source_verified_requirement_version"][
+            "source_revision"] = "rv-v4"
+        self.rejected("B06_REQUIREMENT_VERSION_SOURCE_DRIFT",
+                      lambda: self.run_read(self.fixture([
+                          page([link(sst="S1")], "next"), second])))
+
+    def test_cross_page_same_parent_source_ref_drift_is_rejected(self):
+        """A different verified link_ref with same revision is also drift."""
+        second = page([link(sst="S2")])
+        second["records"][0]["source_verified_requirement_version"][
+            "source_link_ref"] = "source:rv:OTHER"
+        # Keep B06's own page provenance consistent so this test reaches
+        # the stricter *cross-page* BRV source identity check.
+        second["source_refs"] = [
+            "source:rv:OTHER" if ref == "source:rv:R1:V1" else ref
+            for ref in second["source_refs"]
+        ]
+        self.rejected("B06_REQUIREMENT_VERSION_SOURCE_DRIFT",
+                      lambda: self.run_read(self.fixture([
+                          page([link(sst="S1")], "next"), second])))
+
+    def test_within_page_same_parent_source_revision_drift_is_rejected(self):
+        second = link(sst="S2")
+        second["source_verified_requirement_version"][
+            "source_revision"] = "rv-v4"
+        self.rejected("B06_REQUIREMENT_VERSION_SOURCE_DRIFT",
+                      lambda: self.run_read(self.fixture([
+                          page([link(sst="S1"), second])])))
+
+    def test_different_system_versions_independent_verified_source_revisions(self):
+        second = link(ver="V2", sst="SST-100")
+        second["source_verified_requirement_version"][
+            "source_revision"] = "rv-v4"
+        result = self.run_read(self.fixture([
+            page([link(ver="V1", sst="SST-100")], "next"),
+            page([second])]))
+        self.assertEqual(2, len(result["records"]))
+        self.assertEqual(["V1", "V2"],
+                         [r["system_version_id"] for r in result["records"]])
+
     def test_second_page_missing_verified_link_rejected(self):
         bad = page([link(ver="V2")])
         bad["records"][0]["source_verified_link"] = None
@@ -235,8 +307,49 @@ class EPageConsumerContractTests(unittest.TestCase):
             "mission_id": "M1", "release_id": "B1",
         })
         self.rejected("R1_MISSION_SCOPE_UNRESOLVED",
-                      lambda: self.run_read(self.fixture()), no_r1=False)
-        self.assertEqual(["M1"], self.r1.projection.calls)
+                      lambda: self.run_read(self.fixture()))
+        self.assertEqual([("P1", "B1", "M1")],
+                         self.r1.projection.identity_calls)
+        self.assertEqual([], self.r1.projection.related_calls)
+
+    def test_cross_project_mission_rejected_before_related_r1_reads(self):
+        self.r1 = FixtureLegacyAdmin(mission={
+            "mission_id": "M1", "project_id": "P2", "batch_id": "B1",
+        })
+        self.rejected("R1_MISSION_SCOPE_UNRESOLVED",
+                      lambda: self.run_read(self.fixture()))
+        self.assertEqual([("P1", "B1", "M1")],
+                         self.r1.projection.identity_calls)
+        self.assertEqual([], self.r1.projection.related_calls)
+
+    def test_cross_batch_mission_rejected_before_related_r1_reads(self):
+        self.r1 = FixtureLegacyAdmin(mission={
+            "mission_id": "M1", "project_id": "P1", "batch_id": "B2",
+        })
+        self.rejected("R1_MISSION_SCOPE_UNRESOLVED",
+                      lambda: self.run_read(self.fixture()))
+        self.assertEqual([("P1", "B1", "M1")],
+                         self.r1.projection.identity_calls)
+        self.assertEqual([], self.r1.projection.related_calls)
+
+    def test_unsafe_unscoped_projection_is_never_used_as_fallback(self):
+        class UnscopedOnly:
+            def __init__(self):
+                self.calls = []
+
+            def mission_overview(self, mission_id):
+                self.calls.append(mission_id)
+                raise AssertionError("unsafe method must not be called")
+
+        legacy = type("Legacy", (), {})()
+        legacy.projection = UnscopedOnly()
+        with self.assertRaises(ContractRejection) as raised:
+            r1_preview_after_full_b06_scope(
+                self.fixture(), legacy, project_id="P1", batch_id="B1",
+                mission_id="M1")
+        self.assertEqual("R1_SCOPED_READ_UNAVAILABLE",
+                         raised.exception.code)
+        self.assertEqual([], legacy.projection.calls)
 
     def test_no_raw_principal_parameter_accepted(self):
         port = self.fixture()
@@ -262,14 +375,19 @@ class EPageConsumerContractTests(unittest.TestCase):
                 mission_id="M1", release_id="B1", goal="synthetic only"),
                 release_id="B1")
             original = event_path.read_bytes()
-            calls = []
-            read = app.projection.mission_overview
+            identity_calls = []
+            original_get = app.truth.get
+            def observed_get(artifact_type, entity_id):
+                identity_calls.append((artifact_type, entity_id))
+                return original_get(artifact_type, entity_id)
+            app.truth.get = observed_get
 
-            def observed_read(mission_id):
-                calls.append(mission_id)
-                return read(mission_id)
-
-            app.projection.mission_overview = observed_read
+            related_queries = []
+            original_query = app.truth.query
+            def observed_query(artifact_type, **filters):
+                related_queries.append((artifact_type, filters))
+                return original_query(artifact_type, **filters)
+            app.truth.query = observed_query
             valid_b06 = self.fixture()
             with self.assertRaises(ContractRejection) as raised:
                 r1_preview_after_full_b06_scope(
@@ -277,7 +395,9 @@ class EPageConsumerContractTests(unittest.TestCase):
                     mission_id="M1", page_size=2)
             self.assertEqual("R1_MISSION_SCOPE_UNRESOLVED",
                              raised.exception.code)
-            self.assertEqual(["M1"], calls)
+            self.assertEqual([("rc7_mission", "M1")], identity_calls)
+            self.assertEqual([], related_queries,
+                             "scope mismatch must precede every related detail query")
             self.assertEqual(2, len(valid_b06.calls))
             self.assertEqual(original, event_path.read_bytes())
 
@@ -301,7 +421,7 @@ class EPageConsumerContractTests(unittest.TestCase):
             def forbidden_read(_):
                 raise AssertionError("R1 read before complete B06 ACL proof")
 
-            app.projection.mission_overview = forbidden_read
+            app.projection.mission_overview_scoped = forbidden_read
             bad_page = page([link(ver="V2")])
             bad_page["project_id"] = "P2"
             port = self.fixture([page([link()], "next"), bad_page])
