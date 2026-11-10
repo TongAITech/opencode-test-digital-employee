@@ -170,3 +170,12 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | FG20/ScopeReadFence | C #97 `b2a64df` W0 六页十区 30 Node 合同 PASS；浏览器已在 C SHA 用真实 Playwright+PNG 跑通，但 A 新 SHA Browser L1 尚未运行 | W0_PREVIEW_ONLY / F_VISUAL_SIGNOFF_PENDING |
 | FG21/FG17/FG22 | FG21 Git 冲突已解；FG17 Py3.8 定向证据是旧 A b385e；FG22 新 A 旧源码错误码回归已修且单源再绿 | L2+F 同 SHA full qualification 仍 required |
 | 许可/现场发布 | BLOCKED_LICENSE、DSH Host1.18.26/W1-W4 FIELD_QA_NOT_RUN | RELEASE_BLOCKED/NO_BANK_ZIP |
+
+## 2026-11-10 F #106 接受 C 原型，A01 双语未实施的独立缺口
+| GAP | 当前状态 | 核销事实与剩余退出要求 |
+|---|---|---|
+| WB-FG23 | **CLOSED / F_VERIFIED_SOURCE_a3555b1** | F #106 同 SHA 206 Python/30 Node/21 CI 负向、Chromium+3 PNG，原 183/1 FAIL 保留；仅 Browser CI 路径设计关闭 |
+| WB-FG20 | DESIGN_RECONCILIATION_PASS / PRODUCT_NOT_RUN | C 50 项设计对齐通过，正式 50/50 用户动作仍 NOT_RUN |
+| WB-A01-I18N | `RETAIN_ZH_EN_FULL_PRODUCT_SCOPE / DESIGN_GATE_SUBMITTED` | P05-03/X01-01 继续属于 50 条 O 类；上游确有 i18n 词典/开关，但 W0 当前演示仅中文，正式产品双语六页十区/QA Skill 文案/切换状态测试 NOT_RUN。须 W1 C/D 实施 + F02 双语截图及负向真实 QA |
+| WB-A02 | BLOCKED_LICENSE | naodeng PolyForm Noncommercial 未取得适用商业授权或独立原创和 SBOM 法务签署；设计 CI 不解除阻断 |
+| W0 总门禁 | NOT_FROZEN / F_GLOBAL_DESIGN_SIGNOFF_PENDING | F #106 仅接受 C 范围和 FG23，未经 A03/F 全局设计接受不启动依赖 W1、不合入 RC7.2，不构建银行 ZIP |
