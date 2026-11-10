@@ -55,7 +55,7 @@ rc7_admin/projection.py:159 mission_overview_scoped先query(rc7_mission,mission_
 
 ### 4.1 完整字段与严格类型
 
-外层既有Mission的mission_id/release_id语义不变；新 `scope_binding` 是一个整体对象。下表所有字段恰好必填，不允许额外键，不允许null或缺键；对象键顺序无语义。所有text为合法Unicode非空白字符串，原样保留，不trim/Unicode归一化；拒绝未配对surrogate。所有integer要求type为整数且不是bool，正revision范围1..9223372036854775807；schema_version固定整数1。digest为恰好64位小写hex SHA256。date固定合法YYYY-MM-DD。JSON解析拒绝任意层重复键、NaN/Infinity、浮点/指数数字token。未知schema不按旧版猜解。
+外层既有Mission的mission_id/release_id语义不变；新 `scope_binding` 是一个整体对象。下表所有字段恰好必填，不允许额外键，不允许null或缺键；对象键顺序无语义。所有text为合法Unicode非空白字符串，原样保留，不trim/Unicode归一化；拒绝未配对surrogate。所有integer要求type为整数且不是bool，正revision范围1..9223372036854775807；schema_version固定整数1。digest为恰好64位小写hex SHA256。date固定合法YYYY-MM-DD。新纯模块的raw JSON入口在任意层拒绝重复键、NaN/Infinity；这只是该新入口的严格策略，不改旧正式reader/replay。浮点/指数数字token拒绝限定于scope_binding（含K/mapping）及其受管scope镜像/身份字段，数值字段也拒绝bool；未知outer的有限浮点/指数留给原模型，纯scope模块不改变或校验其语义。未知schema不按旧版猜解。
 
 | scope_binding键 | 类型/精确语义 |
 |---|---|
@@ -90,7 +90,7 @@ operation_ref存在只表示结构中有一个预分配标识，不证明PREPARE
 
 ### 4.3 解析分类与稳定拒绝矩阵
 
-以下分类供新纯模块返回稳定结果；仅模块内诊断，不向HTTP泄漏内部存在性。错误优先顺序为：外层结构/必需mission_id与release_id类型→重复JSON键/token错误→绑定出现状态→绑定schema与键/类型→内部身份一致→外层镜像一致；原始JSON语法错误始终在得到对象之前拒绝。既有外层Mission运行字段由原正式模型负责；纯模块只检查作用域相关字段，不将自己当完整Mission validator，也不得删改未知外层运行字段。
+以下分类供新纯模块返回稳定结果；仅模块内诊断，不向HTTP泄漏内部存在性。plain DTO入口仅检查scope相关域，未知outer字段（包括有限float）不参与scope分类/比较，不被重编码或修改；raw入口先解析JSON，再按同样域边界检查，不能使用全局parse_float=reject。错误优先顺序为：外层结构/必需mission_id与release_id类型→重复JSON键/token错误→绑定出现状态→绑定schema与键/类型→内部身份一致→外层镜像一致；原始JSON语法错误始终在得到对象之前拒绝。既有外层Mission运行字段由原正式模型负责；纯模块只检查作用域相关字段，不将自己当完整Mission validator，也不得删改未知外层运行字段。
 
 | 输入 | 纯结果/错误码 | 兼容及未来动作 |
 |---|---|---|
@@ -104,11 +104,23 @@ operation_ref存在只表示结构中有一个预分配标识，不证明PREPARE
 | 完整typed但flat镜像缺任一/类型错/不相等 | BINDING_MIRROR_CONFLICT | 拒绝，不依据flat接受或在parse时自动补镜像 |
 | 完整typed且内部/外层/镜像一致 | BOUND_STRUCTURAL_ONLY | 仅结构通过；不代表来源、PREPARE、正式创建事件或Host权威通过 |
 
+兼容向量（raw/DTO均不得修改原输入；raw返回的解析值保留未知outer字段，scope serializer只输出作用域片段，不序列化或“修复”整个Mission）：
+
+| 精确向量 | 预期scope结果/serializer |
+|---|---|
+| `{"mission_id":"M1","release_id":"R1","diagnostic_score":0.5}`，无binding/镜像 | LEGACY_UNBOUND，作用域serializer `{}`；0.5仍归原模型 |
+| `{"mission_id":"M1","release_id":"R1","diagnostic_score":1e3}`，无binding/镜像 | LEGACY_UNBOUND，作用域serializer `{}`；raw数字token允许，其有限解析值不进入scope域 |
+| 本节完整bound示例增加未知outer `diagnostic_score:0.5`或`diagnostic_score:1e3` | 仍BOUND_STRUCTURAL_ONLY；作用域serializer与未加字段时相同，不包含diagnostic_score |
+| 完整bound中scope_binding.date_revision的raw token为`1e0`（DTO值1.0），或true | BINDING_STRUCTURE_INVALID；不以数值等于1接受 |
+| 完整bound中mapping.schema_version为`1e0`/true，或K/flat镜像应为text却为数值 | BINDING_STRUCTURE_INVALID（镜像错误按BINDING_MIRROR_CONFLICT）；不可降legacy |
+
+未知outer JSON指数是否由原模型保留词法写法不属于scope模块承诺；它只承诺不重写整个Mission、不变更传入DTO，不把该值纳入scope摘要或比较。未知outer NaN/Infinity被新raw入口全局拒绝，plain DTO中的未知outer语义仍留给原模型；这不改变旧模型或旧正式reader已有接受策略。
+
 typed对象缺schema_version归structure错误；存在合法integer但非1归schema不支持。候选serializer接受已结构核验的typed不可变值，产生scope_binding+两个flat镜像的新detached片段；legacy值产生{}，绝不写scope_binding:null。它不覆盖调用者已有外层片段，merge时必须另做一致性拒绝；失败和成功均不修改原输入。日志中的旧flat-only/partial保持原字节不迁移；未来写路径应在任何副作用前拒绝，不把它们反序列化为None后写回。
 
 ### 4.4 不可变比较及独立实现范围
 
-scope_binding全部字段和外层mission_id/release_id均属不可变域；flat镜像由同域派生。比较先严格解析双方及一致性，再按本紧凑wire规范结构相等：无浮点、对象键排序、UTF8、控制字符转义沿V3 codec规范；不能把scope_digest当本对象摘要。LEGACY_UNBOUND→LEGACY_UNBOUND可正常保留；BOUND_STRUCTURAL_ONLY→相同绑定可结构上保留；legacy→bound、bound→legacy、任一字段改变为BINDING_IMMUTABLE_CONFLICT。任一解析错误先返回其分类，不生成补丁。纯相等不是并发CAS：正式writer仍须持锁重读旧行和artifact_version后验证，不然不授写权。
+scope_binding全部字段和外层mission_id/release_id均属不可变域；flat镜像由同域派生。比较先严格解析双方受管scope域及一致性，再按本紧凑wire规范结构相等：该scope域无浮点、对象键排序、UTF8、控制字符转义沿V3 codec规范；不能把scope_digest当本对象摘要。LEGACY_UNBOUND→LEGACY_UNBOUND可正常保留；BOUND_STRUCTURAL_ONLY→相同绑定可结构上保留；legacy→bound、bound→legacy、任一字段改变为BINDING_IMMUTABLE_CONFLICT。任一解析错误先返回其分类，不生成补丁。纯相等不是并发CAS：正式writer仍须持锁重读旧行和artifact_version后验证，不然不授写权。
 
 建议独立模块仅有严格parse、返回detached/immutable结构、serialize作用域片段和比较函数；模块不import models/overlay/control/reader，不读文件/DB/网络，不持Host token、不开正式writer，也不调用完整Scope codec来伪装来源已验证。可直接复用既签纯编码原语，但不把紧凑绑定重新定义为完整Scope快照。该模块的精确实现仍须本候选B/D/E/F审阅后另单准入。
 
