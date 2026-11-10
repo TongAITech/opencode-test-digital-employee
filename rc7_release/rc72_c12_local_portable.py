@@ -132,6 +132,32 @@ def _safe_extract_zip(archive, destination, required_folder):
         inp.extractall(str(destination))
 
 
+def _within(path, directory):
+    try:
+        return os.path.commonpath([str(Path(path).resolve()),
+                                   str(Path(directory).resolve())]) == str(Path(directory).resolve())
+    except ValueError:
+        # Windows drive letters may differ. Different drives are not nested.
+        return False
+
+
+def _qualify_extracted(*, python, extracted, repo, source_commit, evidence_path):
+    _run(python, "-m", "rc7_release.rc72_package", "verify",
+         "--package-root", extracted,
+         "--expected-source-commit", source_commit, cwd=extracted)
+    _run(python, "-m", "rc7_release.runtime_delivery_contract",
+         "--package-root", extracted, cwd=extracted)
+    _run(python, "-m", "rc7_release.rc72_complete_payload_inventory",
+         "--package-root", extracted, cwd=extracted)
+    _run(python, "-m", "rc7_release.rc72_windows_clean_qualification",
+         "--package-root", extracted,
+         "--output", evidence_path,
+         "--require-pass", cwd=extracted)
+    _run(sys.executable, str(repo / "tools/rc72_qa_offline_audit.py"),
+         "--package-root", extracted,
+         "--expected-source-commit", source_commit, cwd=repo)
+
+
 def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
           approval_record):
     inspection = preflight(
@@ -149,11 +175,13 @@ def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
     package_name = rc72_package.RC72_PACKAGE_NAME
     zip_path = out / ("RC72-PORTABLE-WIN10-" + commit[:12] + ".zip")
     package_root = out / package_name
-    if package_root.exists() or zip_path.exists() or Path(str(zip_path) + ".sha256").exists():
+    receipt_path = out / ("RC72-PORTABLE-WIN10-" + commit[:12] + ".receipt.json")
+    if (package_root.exists() or zip_path.exists()
+            or Path(str(zip_path) + ".sha256").exists() or receipt_path.exists()):
         raise LocalC12Error("C12_OUTPUT_ALREADY_EXISTS_NO_OVERWRITE")
-    if os.path.commonpath([str(out.resolve()), str(Path(dsh_file).resolve())]) == str(out.resolve()):
+    if _within(dsh_file, out):
         raise LocalC12Error("C12_MAIN_SOURCE_CANNOT_BE_IN_BUILD_OUTPUT")
-    if os.path.commonpath([str(out.resolve()), str(Path(approval_record).resolve())]) == str(out.resolve()):
+    if _within(approval_record, out):
         raise LocalC12Error("C12_APPROVAL_CANNOT_BE_IN_BUILD_OUTPUT")
     out.mkdir(parents=True, exist_ok=True)
     # Same real pipeline as GitHub-hosted rc7.2-portable-transport.yml.
@@ -182,20 +210,11 @@ def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
             py = extracted / "workspace-template/runtime/python/python.exe"
             if not py.is_file():
                 raise LocalC12Error("C12_PACKAGE_LOCAL_PYTHON_MISSING")
-            _run(py, "-m", "rc7_release.rc72_package", "verify",
-                 "--package-root", extracted,
-                 "--expected-source-commit", commit, cwd=extracted)
-            _run(py, "-m", "rc7_release.runtime_delivery_contract",
-                 "--package-root", extracted, cwd=extracted)
-            _run(py, "-m", "rc7_release.rc72_complete_payload_inventory",
-                 "--package-root", extracted, cwd=extracted)
-            _run(py, "-m", "rc7_release.rc72_windows_clean_qualification",
-                 "--package-root", extracted,
-                 "--output", out / "c12-clean-runtime.json",
-                 "--require-pass", cwd=extracted)
-            _run(sys.executable, str(repo / "tools/rc72_qa_offline_audit.py"),
-                 "--package-root", extracted,
-                 "--expected-source-commit", commit, cwd=repo)
+            _qualify_extracted(
+                python=py, extracted=extracted, repo=repo,
+                source_commit=commit, evidence_path=out / "c12-clean-runtime.json")
+        if _hash(approval_record) != inspection["external_approval_record_sha256"]:
+            raise LocalC12Error("C12_APPROVAL_RECORD_CHANGED_DURING_BUILD")
         receipt = dict(
             inspection, schema="RC72_LOCAL_APPROVED_WINDOWS_Q2_V1",
             status="PHYSICAL_Q2_CANDIDATE_ONLY",
@@ -206,7 +225,6 @@ def build(*, repo_root, output, source_commit, dsh_file, dsh_sha256,
             field_verified=False,
             bank_final=False,
         )
-        receipt_path = out / ("RC72-PORTABLE-WIN10-" + commit[:12] + ".receipt.json")
         # Output record is outside the sealed package and carries only hashes.
         with receipt_path.open("x", encoding="utf-8") as stream:
             json.dump(receipt, stream, sort_keys=True, indent=2)
