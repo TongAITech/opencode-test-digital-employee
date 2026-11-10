@@ -1,0 +1,21 @@
+{
+  "provider": "openai",
+  "providers": {
+    "openai": {
+      "baseUrl": "",
+      "apiKey": "",
+      "model": "",
+      "proxy": ""
+    }
+  },
+  "reuse": {
+    "claude": false,
+    "codex": false,
+    "opencode": false,
+    "pi": false,
+    "grok": false
+  },
+  "guards": {
+    "denyWhenUnknown": true
+  }
+}
