@@ -101,3 +101,17 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-05 / Q3–Q6 现场签章准入补强（2026-11-10）
+
+- 发现源码安全问题：原 FieldQualificationService._is_trusted_for_gate 仅验证 provider:// 或 human:// URI 字符串和 ReleaseBatch 关联。任意 R1 写入者可凭借这些可伪造字段提交 Q3–Q6 FIELD PASS，甚至原有测试未使用真实签章。此情况不符合 Field Evidence 真伪门禁。
+- 修复为 Gate-specific 银行 Host 信任根（trusted_gate_authorities）。对 R1 Evidence 实施 HMAC-SHA256 精确绑定：Gate、Batch、source_commit、platform_family、platform_release、architecture、python_version、Evidence ID/Kind、source/content reference、content hash、subject_refs 与 artifact_version；少签、错签、跨批/跨平台重放、无可信 Host 时必须 HOLD。Q6 保留独立 human:// 和 CASE_HUMAN_GATE_APPROVAL 类型，并要求银行审批侧受信签章。
+- 明确安全边界：源码单测内的 signing key 只是隔离测试夹具，不能替代行内信任根、真实审批、4A 或物理 Evidence 真实性。银行 Host 必须在确认原始 Provider/人审/被签文件后才签发，且密钥不能注入 Agent Prompt/Worker 或随包分发。
+- 增加 4 平台（Windows/Linux × Python3.8/3.11）独立专项 CI；不重复构建 ZIP。此轮仅更新 Q3–Q6 的安全准入，不宣称 R4-01～07 Field、C12 或 Bank Final 通过。
+
+当前：FIELD_APPROVAL_SIGNATURE_HARDENING_PR / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO.
+
+### PR #99 完整 Chromium 继承回归失败分析与修复
+- 两个完整 Chromium 继承 job 均执行 `2938 passed, 4 skipped`，仅有 2 个失败，定位在 `tests/test_rc72_q7_admission.py` 的 Q7 正向准入 fixture：测试仍使用原先无签章 `provider://` / `human://` 字符串模拟 Q3–Q6 PASS，触发新安全门禁后正确 HOLD。该失败不是通过放松生产校验解决。
+- 已修正 Q7 admission 测试夹具：每个 Gate 使用隔离的测试 Host authority，先对 Gate/Batch/source SHA/平台/Evidence 全字段签章，再调用 FieldQualificationService；保留 Q7 对 `field_verified=false` / `bank_final=false` 的原有断言。无签章与伪造场景的拒绝测试仍保留。
+- 修复 commit `3b167018415f3a9e651e8d3e1538fb025ba38f0a`，触发 PR #99 同 HEAD 新 CI；在同 HEAD 全部回归通过前不合并。测试 key 仅用于测试，不能代表真实银行 Host 授权。
