@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -132,6 +133,7 @@ class ModelResilienceTests(unittest.TestCase):
                 '{"schema":"rc7.1-model-rate-window-v1","timestamps":[NaN]}',
                 '{"schema":"rc7.1-model-rate-window-v1","timestamps":[-1]}',
                 '{"schema":"rc7.1-model-rate-window-v1","timestamps":[true]}',
+                '{"schema":"rc7.1-model-rate-window-v1","timestamps":[],"timestamps":[1]}',
             )
             for raw in bad_states:
                 state_path.write_text(raw, encoding="utf-8")
@@ -140,7 +142,9 @@ class ModelResilienceTests(unittest.TestCase):
                         AgentRuntimeError, "MODEL_RATE_GOVERNOR_STATE_UNVERIFIED"):
                     governor.reserve()
                 self.assertEqual(state_path.read_bytes(), original)
-                self.assertFalse(governor.lock_path.exists())
+                # The lock file is persistent; the OS lock is released on
+                # every failure and never unlinked (avoids inode split-brain).
+                self.assertTrue(governor.lock_path.is_file())
             # A valid owned snapshot remains usable; recovery is explicit.
             state_path.write_text(json.dumps({
                 "schema": "rc7.1-model-rate-window-v1",
@@ -148,6 +152,73 @@ class ModelResilienceTests(unittest.TestCase):
             }), encoding="utf-8")
             self.assertTrue(governor.reserve().admitted)
             self.assertFalse(governor.reserve().admitted)
+
+
+    def test_governor_cross_process_admission_is_serialized(self):
+        with tempfile.TemporaryDirectory() as root:
+            repo_root = Path(__file__).resolve().parents[1]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(repo_root), env.get("PYTHONPATH", "")])
+            script = (
+                "import json,sys; from pathlib import Path; "
+                "from rc7_runtime.model_resilience import PersistentSlidingWindowGovernor; "
+                "g=PersistentSlidingWindowGovernor(Path(sys.argv[1]), "
+                "max_requests=3, window_seconds=600); "
+                "r=g.reserve(); print(json.dumps({'admitted':r.admitted,"
+                "'count':r.request_count}))"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", script, root],
+                    cwd=str(repo_root), env=env,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                for _ in range(8)
+            ]
+            rows = []
+            for process in processes:
+                stdout, stderr = process.communicate(timeout=30)
+                self.assertEqual(process.returncode, 0, stderr)
+                rows.append(json.loads(stdout.strip()))
+            self.assertEqual(sum(1 for row in rows if row["admitted"]), 3)
+            self.assertEqual(max(row["count"] for row in rows), 3)
+            self.assertTrue(
+                (Path(root) / "model-governor" / "shared-window.lock").is_file())
+
+    def test_governor_kernel_lock_is_released_after_owner_process_dies(self):
+        with tempfile.TemporaryDirectory() as root:
+            repo_root = Path(__file__).resolve().parents[1]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(repo_root), env.get("PYTHONPATH", "")])
+            script = (
+                "import os,sys; from pathlib import Path; "
+                "from rc7_runtime.model_resilience import PersistentSlidingWindowGovernor; "
+                "g=PersistentSlidingWindowGovernor(Path(sys.argv[1])); "
+                "g._lock(); os._exit(0)"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script, root],
+                cwd=str(repo_root), env=env, timeout=30)
+            self.assertEqual(completed.returncode, 0)
+            governor = PersistentSlidingWindowGovernor(Path(root), max_requests=1)
+            self.assertTrue(governor.reserve().admitted)
+            self.assertTrue(governor.lock_path.is_file())
+
+    def test_governor_rejects_symlinked_lock_file_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as root:
+            governor = PersistentSlidingWindowGovernor(Path(root), max_requests=1)
+            target = Path(root) / "external-lock-target"
+            target.write_text("keep", encoding="utf-8")
+            try:
+                governor.lock_path.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("file symlink creation not permitted on this runner")
+            with self.assertRaisesRegex(
+                    AgentRuntimeError, "MODEL_RATE_GOVERNOR_LOCK_PATH_UNVERIFIED"):
+                governor.reserve()
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+            self.assertTrue(governor.lock_path.is_symlink())
 
     def test_r4_corrupt_rate_ledger_blocks_actual_launcher_before_model_io(self):
         with tempfile.TemporaryDirectory() as root:
@@ -173,6 +244,9 @@ class ModelResilienceTests(unittest.TestCase):
         self.assertTrue(classify_failure('SSE stream ended without [DONE]; {"code":502}').retryable)
         self.assertEqual(classify_failure("LLMRequestError 网络波动或模型处理超时").category, "PROVIDER_TIMEOUT")
         self.assertEqual(classify_failure("HTTP 429 Too Many Requests").category, "RATE_LIMIT")
+        self.assertEqual(classify_failure("502 Bad Gateway").category, "HTTP_502")
+        self.assertEqual(classify_failure("upstream gateway timeout").category, "HTTP_504")
+        self.assertEqual(classify_failure("task id 1502").category, "UNKNOWN_MODEL_FAILURE")
 
     def test_tool_side_effect_classifier_is_token_aware(self):
         self.assertTrue(_tool_is_read_only("mcp__pfc_aitest_rc6__runtime_status"))
