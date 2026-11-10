@@ -36,6 +36,12 @@ K=(project_id,principal,request_id) stays in the shared request namespace with a
 
 Namespace→project→binding→request-result locking and administrative operations' compatible ordering remain a concrete SQL/concurrency acceptance gate. Namespace and binding are reread after locks; a moved domain must rollback/retry, not proceed under an old lock. The earlier D generic sketch is not an alternative lock order to implement alongside B's refined protocol. Actual two-connection CAS, hidden duplicate race, revoke/domain-stop race, faults at key/history/outbox and restart/connection-pool behavior must be tested on exact PostgreSQL implementation.
 
+## Additional cross-action lock-order implementation condition
+
+A supplied a concrete source-level concurrency concern during review. F checked BusinessStore._claim: it inserts the shared request_log key before later business locks; AssetStore.mutate calls it before locking the batch. request_log has a project FK. B's proposed metadata order instead acquires project FOR UPDATE before claiming that same K. A concurrent asset action and metadata action with the same project/principal/request_id may therefore interact through speculative/unique-key waiting and the FK parent KEY SHARE lock in the opposite order. **No deadlock was reproduced in this review**, and no new permission/concurrency attack experiment was run; this is a source-supported design risk requiring SQL proof, not a fabricated defect result.
+
+Before freezing SQL, B must resolve the lock compatibility/order explicitly across existing claim-first actions and the new metadata action. A suggested project FOR NO KEY UPDATE (when no key changes) or a consistent claim/parent order are candidate approaches, not automatically accepted fixes. The exact chosen SQL must have real two-connection same-K cross-action tests, different-K controls, rollback/retry/no-prefix checks and ACL/governance ordering tests. Merely demonstrating two concurrent metadata renames is insufficient. This condition does not block pure name codec or isolated candidate implementation; unresolved SQL cannot be signed for runtime deployment. It strengthens the existing requirement for reviewed lock order rather than silently changing D/B/A contracts in this F report.
+
 ## Limited actual regression in this review
 
 No new permission/attack experiment was run. Only existing necessary tests were executed from the isolated worktree rooted at9a41b145:
