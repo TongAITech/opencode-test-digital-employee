@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/dsh_workbench/ui_w0_prototype/**'
       - 'tests/test_dsh_workbench_ui_w0.mjs'
+      - 'tests/test_dsh_workbench_ui_source_fence.mjs'
       - 'tests/test_dsh_workbench_c_feature_reconciliation.mjs'
       - 'docs/dsh-workbench/WB-A01-ATOMIC-FEATURE-REGISTER.md'
       - 'docs/dsh-workbench/WB-C-W0-50-FEATURE-DELTA.md'
@@ -46,7 +47,7 @@ jobs:
           git merge --no-edit --no-ff origin/work/dsh-wb-domain
           git merge --no-edit --no-ff origin/work/dsh-wb-ui
           echo 'FG19_C_B_THEN_C_MERGE_OK (not D/E/full A merge)'
-          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
   original-w0-probe:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Original W0 probe (not W1 QA)
@@ -57,9 +58,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax, fourteen multi-select Scope tests and six 50-item feature reconciliation tests
+      - name: Syntax, fourteen Scope plus ten source-fence plus six feature reconciliation tests
         run: |
           node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
           node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
           node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
       - uses: actions/setup-python@v5
