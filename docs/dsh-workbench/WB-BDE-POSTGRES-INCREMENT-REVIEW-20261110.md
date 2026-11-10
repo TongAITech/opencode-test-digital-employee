@@ -1,6 +1,6 @@
 # PostgreSQL 增量合同 B/D/E 技术评审
 
-状态：REVIEW_IN_PROGRESS / 新增量待固定源 SHA；不是历史团队代签，不是 F 验收。
+状态：INDEPENDENT_BDE_TECHNICAL_REVIEW_ACCEPTED_FOR_DESIGN / 历史团队新签署待取得；不是 F 验收。
 评审日期：2026-11-10；执行者：本轮独立合同技术审查 Agent。
 
 ## 当前远端与历史签署范围
@@ -28,3 +28,18 @@ P1 设计文字歧义：06 最后 B06 段和 A03 历史段写“R1 读取后验�
 ## 门禁
 
 新增量完成后固定完整 SHA，再逐条落结论。当前不能记 B/D/E 新增量签齐或 W0_DESIGN_FROZEN；W1 真数据库、Host、API、Windows 和现场仍 NOT_RUN。未修改 A 的 08/09/10，也未改 RC7.2 主线。
+
+
+## 固定新增量审查结论
+
+精确被审提交：`2343e0ff9f08f306da52b38428d7640b3409d526`，范围仅为 02/06 PostgreSQL 增量附录。通过 git show 逐条审查真实提交；未修改实现，未运行 PostgreSQL，未把文档审查记成真库验收。
+
+| 责任视角 | 本轮独立技术结论 | 源合同依据与保留 |
+|---|---|---|
+| B | ACCEPTED_FOR_DESIGN | PostgreSQL正式业务库、project复合FK、来源连边、DATE及日期历史、CAS/审计/outbox同事务、迁移校验和/备份/dry-run/回滚及真实PG测试覆盖均明确；SQL实现与真实来源导入NOT_RUN |
+| D | ACCEPTED_FOR_DESIGN | 宿主可信主体、连接池每事务设置清理身份、RLS+API双层隔离及撤权游标失效明确；既有D禁止第二套模型/会话事实仍适用；真实Host接口及身份撤销联验NOT_RUN |
+| E | ACCEPTED_FOR_DESIGN | R1仍唯一正式Mission/Attempt/Evidence/NodeGate事实；最小身份校验先于details、无unscoped fallback，PG/R1无原子事务假设、持久幂等对账与未知副作用HOLD、证据字节外置与hash校验明确；正式命令/恢复NOT_RUN |
+
+此前P1文字歧义已由新增量明确消解：应以附录的最小身份先验与零越权明细读取要求解释历史文字。未发现该新增量引入新的W0 P0/P1设计阻断。B业务资产持久化中的缺陷、报告及用例不得覆盖R1正式运行事实；引用/投影及草稿业务数据按既有权威边界解释，实现验收仍需证明没有双写事实。
+
+本结论是本轮独立Agent按B/D/E职责的技术审查，不冒充原B/D/E团队在GitHub上的正式新签署。A须将本精确源意见交由各责任方确认，并取得F对最新联合设计HEAD的明确接受后才可冻结；新合并源还需同SHA检查。W1测试列表是未来验收要求，当前数据库、Host、R1生产控制面、Windows与现场均NOT_RUN。
