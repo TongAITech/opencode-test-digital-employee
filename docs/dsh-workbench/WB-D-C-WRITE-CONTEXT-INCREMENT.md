@@ -15,3 +15,13 @@ C首次新写前读取当前context，若失败不得发资产写。pending捕�
 D职责结论：D_DESIGN_ACCEPTED_FOR_SUBJECT_BINDING_ONLY（待B确认接口/服务端顺序）。C实现只在此增量确认后接入。真实PG/browser验收必须包含Alice已提交丢响应→Bob合法同项目写权→旧pending被拒且资产数不增→刷新/切语仍HOLD→Alice恢复同key对账无重复；缺token/伪token/provider缺失、CSRF/ACL仍拒绝。fixture不是现场，不允许让缺实现动作accepted。
 
 B已独立审查精确设计提交6661e80de31292fbbc766c37fbe008bae41dfd65，结论B_DESIGN_ACCEPTED_FOR_SUBJECT_BINDING_ONLY，无接口异议。固定schema为dsh-workbench/write-context/v1，token前缀wctx1；header拒绝必须发生在DB连接/幂等读取前。此段记录收到的本轮B意见，不代B实现验收；独立服务端实现PR另作证据。
+
+## 固定实现与真实验证
+
+B服务端独立PR161固定3fc3c1a4f25b033b1743a0d0507f90d4851f1a72；C只修改milestone-panel与浏览器反例，独立分支合入该固定依赖做联合验证，没有改B服务端实现或08/09/10。
+
+C每次新写先以同源GET读取可信context，schema/缺失/读取错误failclosed，未取得context不发asset写。pending在首次写绑定opaque context；刷新、Scope、语言、导航及错误不改token，显式重试只发送原X-DSH-Write-Context。Bob新context不会被补进Alice旧pending，也不会以当前上下文重建request_id。
+
+真实product_server/PG/Chromium测试新增Alice→Bob→Alice：Alice提交已成功响应丢失，Bob被可信fixture provider映射且拥有P1写权，旧pending重放HTTP409、资产仍2；Bob读刷新后新保存继续禁用，Alice重新授权原Scope后同key核对且资产仍2。保留403/409/422/503、CSRF、Scope隔离及丢响应原key反例。四个真实浏览器/PG/HTTP测试4/4与Node24/24通过。本测试结论是组件恢复主体域绑定，不是SSO/现场认证，不宣称完整C03/C04完成，FIELD_NEEDS_BANK_TRANSFER。
+
+F在da1a7e82发现的Bob重放新增第三资产历史P1保留，旧绿灯不覆盖本修复。新精确源远端检查和F独立复验另取。
