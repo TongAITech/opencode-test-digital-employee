@@ -10,6 +10,7 @@ import re
 from urllib.parse import parse_qs,unquote,urlsplit
 from .business_scope import ScopeStore
 from .business_store import BusinessError
+from .write_context import SCHEMA,subject_write_context
 
 @dataclass(frozen=True)
 class HostIdentity:
@@ -38,6 +39,10 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_SCOPE')
                 url=urlsplit(self.path)
+                if url.path=='/api/workbench/v1/write-context':
+                    if url.query:raise BusinessError(400,'INVALID_WRITE_CONTEXT_REQUEST')
+                    self.respond(200,{'schema':SCHEMA,'write_context':subject_write_context(cursor_key,identity.principal)})
+                    return
                 if '/batches/' in url.path:
                     from .business_asset_http import asset_request
                     status,value=asset_request(self,identity,connection_factory,cursor_key)

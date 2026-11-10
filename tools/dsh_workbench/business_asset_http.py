@@ -4,6 +4,7 @@ import re
 from urllib.parse import parse_qs,unquote,urlsplit
 from .business_assets import AssetStore
 from .business_store import BusinessError
+from .write_context import require_write_context
 
 
 def asset_request(handler,identity,connection_factory,cursor_key):
@@ -14,6 +15,7 @@ def asset_request(handler,identity,connection_factory,cursor_key):
     if any(x is not None and (not x or '/' in x) for x in (project,batch,asset)):raise BusinessError(400,'INVALID_ASSET_REQUEST')
     writing=handler.command!='GET'
     if writing and getattr(identity,'mutation_authorized',False) is not True:raise BusinessError(403,'MUTATION_AUTH_REQUIRED')
+    if writing:require_write_context(handler.headers,cursor_key,identity.principal)
     with connection_factory() as connection:
         store=AssetStore(connection,cursor_key)
         # Do not parse an object's body or query before current project permission.
