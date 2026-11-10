@@ -1,0 +1,11 @@
+# 同源工作台挂载实现与边界证据
+
+基线574b54e1754c2c7b6de876ce4feb3c0f2870a12c，E140已由F142接受。本次不改变B06/E01查询语义，将business_http已有handler导出scope_handler；standalone create_scope_server复用同一factory。
+
+product_server.create_server新增可选keyword-only workbench_handler，默认使用Host provider缺失handler；/api/workbench/v1及其子路径全部专属处理，不回落旧AdminApplication或静态SPA。/workbench和/workbench/同源页面直接fetch同origin工作台API，旧/api/meta与既有admin保留。没有新增SSO猜测、环境变量principal、浏览器header/body身份兜底。服务端显式配置连接工厂、稳定cursor key、可信Host provider及E01Service factory，实际Host适配未具备时默认503。配置不是通过浏览器或任意动态import字符串提供。
+
+真实测试tests/browser/test_same_origin_workbench.py使用临时PG数据库、非owner runtime角色与显式fixture Host cookie映射，真实Chromium加载product_server页面、通过同源B06 Scope查询与E01质量接口；DB关联行作Oracle，质量HOLD、跨Mission403、R1原字节不变；DB撤权后ERROR清空与恢复。默认无provider时X-Principal/伪Bearer/query principal皆503，工作台POST405；配置fixture后X-Principal仍403、principal query400；旧/api/meta200。Token/cookie为测试fixture，不能当DSH现场授权证据。
+
+本地实际结果：同源真PG/HTTP/browser1/1、C01browser1/1；E01真PG回归35/35；W0合同回归另见运行日志。新增远端C02 PG浏览器job同时运行真实同源测试。当前真实DSH1.18.26 provider/Windows/F01 FIELD仍未验，不授予现场或最终发布资格。
+
+同PR另含D对B07@22fc88ff2884dea92ff6139bf9a56aa1474331e6的正式设计签署，范围独立。未改08/09/10或R1事实。

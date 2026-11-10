@@ -41,12 +41,18 @@ def _static_root() -> Path:
     return Path(__file__).resolve().parent / "static"
 
 
-def _handler(application: ProductAdminApplication):
-    class Handler(BaseHTTPRequestHandler):
+def _handler(application: ProductAdminApplication, workbench_handler=None):
+    if workbench_handler is None:
+        from tools.dsh_workbench.business_http import scope_handler
+        workbench_handler = scope_handler(None, None)
+    class Handler(workbench_handler):
         server_version = "RC7AdminProduct/4"
         def log_message(self, format: str, *args: Any) -> None: return
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
+            if parsed.path == "/api/workbench/v1" or parsed.path.startswith("/api/workbench/v1/"):
+                workbench_handler.do_GET(self)
+                return
             if parsed.path.startswith("/api/"):
                 try:
                     self._json(HTTPStatus.OK, application.dispatch_get(parsed.path, parse_qs(parsed.query)))
@@ -58,6 +64,9 @@ def _handler(application: ProductAdminApplication):
             self._static(parsed.path)
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
+            if parsed.path == "/api/workbench/v1" or parsed.path.startswith("/api/workbench/v1/"):
+                workbench_handler.do_POST(self)
+                return
             if not parsed.path.startswith("/api/"):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"}); return
             try:
@@ -87,8 +96,8 @@ def _handler(application: ProductAdminApplication):
     return Handler
 
 
-def create_server(application: ProductAdminApplication, host: str = "127.0.0.1", port: int = 4097) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), _handler(application))
+def create_server(application: ProductAdminApplication, host: str = "127.0.0.1", port: int = 4097, *, workbench_handler=None) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), _handler(application, workbench_handler))
 
 
 def main(argv: Optional[list] = None) -> int:
