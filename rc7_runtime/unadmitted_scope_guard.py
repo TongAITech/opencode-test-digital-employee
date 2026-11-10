@@ -8,6 +8,7 @@ import inspect
 
 from .control_plane import TaskScheduler, GapRepairPlanner, ControlPlaneError, _stable_id
 from .gap_router import GapRouter
+from .rc72_scheduler_integration import EconomyAwareTaskSchedulerAdapter
 
 RESERVED = frozenset(('project_id', 'batch_id', 'scope_binding'))
 HOLD = 'MISSION_SCOPE_NOT_ADMITTED'
@@ -19,6 +20,16 @@ _PLANNER = {name: getattr(GapRepairPlanner, name) for name in vars(GapRepairPlan
 from .control_plane import load_execution_terminal_receipt as _TERMINAL_LOAD
 
 _ROUTE = GapRouter.route
+_ADAPTER = {name: getattr(EconomyAwareTaskSchedulerAdapter, name)
+            for name in vars(EconomyAwareTaskSchedulerAdapter)
+            if name != '__init__' and callable(getattr(EconomyAwareTaskSchedulerAdapter, name))}
+
+
+def _bound(actual, method, receiver):
+    if getattr(actual, '__func__', None) is not None:
+        return actual.__func__ is method and actual.__self__ is receiver
+    return actual is method  # staticmethod, no receiver
+
 
 
 def reject_reserved(value, error=ControlPlaneError):
@@ -40,25 +51,42 @@ def check_missions(truth, mission_ids, error=ControlPlaneError, allow_new=()):
 
 
 def _trusted_components(control, error, leasing=False):
-    from .rc72_scheduler_integration import EconomyAwareTaskSchedulerAdapter
     scheduler = control.scheduler
     if type(scheduler) is EconomyAwareTaskSchedulerAdapter:
-        if any(name in vars(scheduler) for name in ('ready_tasks','lease_next','lease_task','_plan')):
+        if type(scheduler.delegate) is not TaskScheduler:
             raise error(UNRESOLVED)
+        if any(name in vars(scheduler) for name in set(_SCHEDULER) | set(_ADAPTER)):
+            raise error(UNRESOLVED)
+        if (scheduler.truth is not control.truth or scheduler.release_id != control.release_id or
+                EconomyAwareTaskSchedulerAdapter.__getattr__ is not _ADAPTER['__getattr__']):
+            raise error(UNRESOLVED)
+        for name, method in _ADAPTER.items():
+            if not _bound(getattr(scheduler, name), method, scheduler):
+                raise error(UNRESOLVED)
+        for name, method in _SCHEDULER.items():
+            if name not in _ADAPTER and not _bound(getattr(scheduler, name), method, scheduler.delegate):
+                raise error(UNRESOLVED)
         if leasing:
             from .rc72_critical_path import CanonicalCriticalPathResolver
             from .rc72_economy_scheduler import EconomyAwareReadySelector
             resolver = scheduler.descriptor_resolver
+            owner = getattr(resolver, '__self__', None)
             if (type(getattr(resolver, '__self__', None)) is not CanonicalCriticalPathResolver or
                     getattr(resolver, '__func__', None) is not CanonicalCriticalPathResolver.resolve or
                     type(scheduler.selector) is not EconomyAwareReadySelector or
-                    'plan' in vars(scheduler.selector)):
+                    'plan' in vars(scheduler.selector) or
+                    owner.truth is not control.truth or owner.release_id != control.release_id or
+                    owner.schedule_semantics.truth is not control.truth or
+                    owner.schedule_semantics.release_id != control.release_id or
+                    owner is not getattr(control, 'critical_path', None) or
+                    owner.schedule_semantics is not getattr(control, 'schedule_semantics', None)):
                 raise error(UNRESOLVED)
         scheduler = scheduler.delegate
     if type(scheduler) is not TaskScheduler or type(control.gap_planner) is not GapRepairPlanner:
         raise error(UNRESOLVED)
     if (scheduler.truth is not control.truth or scheduler.release_id != control.release_id or
             control.gap_planner.truth is not control.truth or
+            control.gap_planner.release_id != control.release_id or
             control.gap_planner.scheduler is not control.scheduler):
         raise error(UNRESOLVED)
     from . import control_plane as original_control
@@ -66,20 +94,19 @@ def _trusted_components(control, error, leasing=False):
         raise error(UNRESOLVED)
     for name, method in _SCHEDULER.items():
         actual = getattr(scheduler, name)
-        if getattr(actual, '__func__', actual) is not method:
+        if not _bound(actual, method, scheduler):
             raise error(UNRESOLVED)
     for name, method in _PLANNER.items():
-        if getattr(getattr(control.gap_planner, name), '__func__', None) is not method:
+        if not _bound(getattr(control.gap_planner, name), method, control.gap_planner):
             raise error(UNRESOLVED)
     if (type(control.gap_planner.router) is not GapRouter or
-            getattr(control.gap_planner.router.route, '__func__', None) is not _ROUTE):
+            not _bound(control.gap_planner.router.route, _ROUTE, control.gap_planner.router)):
         raise error(UNRESOLVED)
 
 
 class Targets:
     def __init__(self, truth, error):
         self.truth, self.error, self.ids = truth, error, set()
-        self.seen = set()
 
     def mission(self, value):
         if not isinstance(value, str) or not value.strip():
@@ -121,19 +148,30 @@ class Targets:
             if field in row:
                 self.entity(row[field])
 
-    def task(self, task_id, required=True):
+    def task(self, task_id, required=True, required_gaps=False):
         row = self.old('rc7_task', 'task_id', task_id, required)
         if row:
             for gap_id in row.get('gap_refs', []):
-                self.old('rc7_gap', 'gap_id', gap_id)
+                self.old('rc7_gap', 'gap_id', gap_id, required=required_gaps)
         return row
 
-    def batch(self, mission_id):
+    def batch(self, mission_id, leasing_caps=None):
         # Ready refresh and source reactivation operate only within this Mission.
         for row in self.truth.query('rc7_task', mission_id=mission_id):
-            self.task(row['task_id'])
+            needs_gaps = (leasing_caps is not None and row.get('state') == 'READY' and
+                          row.get('task_type') in ('REPAIR', 'QUALIFY_DEFECT') and
+                          set(row.get('required_capabilities', ())).issubset(leasing_caps))
+            self.task(row['task_id'], required_gaps=needs_gaps)
         for row in self.truth.query('rc7_gap', mission_id=mission_id):
             self.old('rc7_gap', 'gap_id', row['gap_id'], True)
+
+    def reactivation(self, mission_id, repaired_gap_ids):
+        repaired = set(repaired_gap_ids)
+        for row in self.truth.query('rc7_task', mission_id=mission_id):
+            if (row.get('task_type') != 'REPAIR' and
+                    row.get('state') in ('REPAIR_REQUIRED', 'BLOCKED') and
+                    repaired.intersection(row.get('gap_refs', ()))):
+                self.task(row['task_id'], required_gaps=True)
 
     def planned_gap(self, control, gap, evaluation=None):
         # Default router/source inspection is read-only; never execute plan().
@@ -205,6 +243,8 @@ def protected(method):
                 raise ControlPlaneError('TASK_NOT_RUNNING')
             if task.lease_owner != output.worker_ref:
                 raise ControlPlaneError('TASK_LEASE_OWNER_MISMATCH')
+        if name == 'lease_next':
+            bound.arguments['capabilities'] = tuple(bound.arguments['capabilities'])
         targets = Targets(self.truth, error)
         targets.mission(self.mission_id)
         for key, value in values.items():
@@ -218,15 +258,21 @@ def protected(method):
             targets.task(values['output'].task_id)
         if name in ('register_task','refresh_ready','lease_next','accept_evaluation',
                     'accept_defect_resolution','_resolve_source_gaps','_reactivate_source_tasks'):
-            targets.batch(self.mission_id)
+            targets.batch(self.mission_id, set(values['capabilities']) if name == 'lease_next' else None)
         if name == '_resolve_source_gaps':
             targets.task(values['task'].task_id)
         if name == '_reactivate_source_tasks':
             for gap_id in values['repaired_gap_ids']:
                 targets.old('rc7_gap','gap_id',gap_id)
+            targets.reactivation(self.mission_id, values['repaired_gap_ids'])
+        if name == 'accept_defect_resolution':
+            targets.task(values['task_id'], required_gaps=True)
         if name == 'accept_evaluation':
             evaluation = values['evaluation']
             task = self.scheduler.task(values['task_id'])
+            if task.task_type == 'REPAIR' and evaluation.result.value == 'PASS':
+                targets.task(task.task_id, required_gaps=True)
+                targets.reactivation(self.mission_id, task.gap_refs)
             if (task.state.value == 'OUTPUT_PRODUCED' and
                     evaluation.mission_id == task.mission_id and evaluation.node == task.node and
                     evaluation.evaluator_ref != task.lease_owner and
@@ -235,8 +281,5 @@ def protected(method):
                 for gap in values.get('gaps', ()):
                     targets.planned_gap(self, gap, evaluation)
         check_missions(self.truth, targets.ids, error)
-        if name == 'lease_next':
-            # Materialize a one-shot iterable once; reused by real scheduler.
-            bound.arguments['capabilities'] = tuple(bound.arguments['capabilities'])
         return method(*bound.args, **bound.kwargs)
     return guarded

@@ -227,3 +227,107 @@ def test_scoped_actions_never_reach_writer(tmp_path,monkeypatch):
     unchanged(truth,lambda:first.start('T1',worker_ref='w'))
     unchanged(truth,lambda:first._persist_mission(Mission('M1','R','M1')))
     assert calls==[]
+
+
+@pytest.mark.parametrize('kind',['REPAIR','QUALIFY_DEFECT'])
+def test_missing_reachable_gap_before_lease_no_prefix(tmp_path,kind):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth)
+    first.register_task(Task('T1','M1','TEST_DESIGN',kind,'work',gap_refs=['MISSING']))
+    unchanged(truth,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert truth.query('rc7_task',task_id='T1')[0]['state']=='READY'
+
+
+def test_future_gap_refs_not_blindly_required(tmp_path):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth)
+    first.register_task(Task('T1','M1','TEST_DESIGN','REPAIR','future',gap_refs=['MISSING'],required_capabilities=['future']))
+    first.refresh_ready()  # Neither registration nor ready refresh touches a Gap.
+    assert first.lease_next(worker_ref='w',capabilities=iter(())) is None
+    assert truth.query('rc7_task',task_id='T1')[0]['state']=='READY'
+    # A new legitimate Gap is not required to have an old row.
+    incoming=gap();first._persist_gap(incoming)
+    assert truth.query('rc7_gap',gap_id='G1')
+
+
+def test_repair_pass_missing_gap_and_source_reactivation_preflight(tmp_path):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth)
+    first.register_task(Task('T1','M1','TEST_DESIGN','REPAIR','work',gap_refs=['MISSING']))
+    # Explicit raw scheduler setup is a disclosed residual, not the tested API.
+    first.scheduler.lease_next('M1',worker_ref='w',capabilities=[])
+    first.start('T1',worker_ref='w');first.submit_worker_output(WorkerOutput('T1','w'))
+    ev=Evaluation('EV','M1','TEST_DESIGN',[],EvaluationResult.PASS,'reviewer')
+    unchanged(truth,lambda:first.accept_evaluation('T1',evaluation=ev),ev,code=UNRESOLVED)
+    source=Task('SOURCE','M1','TEST_DESIGN','PRODUCE','source',gap_refs=['MISSING'])
+    first.register_task(source)
+    row=truth.query('rc7_task',task_id='SOURCE')[0];row.update(state='BLOCKED',artifact_version=row['artifact_version']+1)
+    truth.append_atomic('RC7_TASK_UPSERTED',row)
+    unchanged(truth,lambda:first._reactivate_source_tasks(('MISSING',)),source,code=UNRESOLVED)
+
+
+@pytest.mark.parametrize('method',['register','refresh_ready','ready_tasks','lease_next','lease_task',
+                                   'task','start','submit_worker_output','persist_evaluated_task',
+                                   '_row','_required_row','_persist_task','_inputs_valid','_task_from_row'])
+def test_every_outer_forwarding_override_rejected_without_invocation(tmp_path,method):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first)
+    calls=[]
+    def forbidden(*args,**kwargs):
+        calls.append(method)
+        pytest.fail('unknown outer adapter method invoked')
+    setattr(first.scheduler,method,forbidden)
+    unchanged(truth,first.refresh_ready,code=UNRESOLVED)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('location',['outer','delegate','planner','router'])
+def test_wrong_bound_methods_rejected_for_real_receivers(tmp_path,location):
+    a=TruthRuntime(tmp_path/'a');b=TruthRuntime(tmp_path/'b')
+    first=control(a);other=control(b);task(first);task(other)
+    first.lease_next(worker_ref='w',capabilities=[]);other.lease_next(worker_ref='w',capabilities=[])
+    scope(b)
+    if location=='outer':first.scheduler.start=other.scheduler.start
+    elif location=='delegate':first.scheduler.delegate.start=other.scheduler.delegate.start
+    elif location=='planner':first.gap_planner.plan=other.gap_planner.plan
+    else:first.gap_planner.router.route=other.gap_planner.router.route
+    before=b.store.path.read_bytes();projection=copy.deepcopy(b.projection.snapshot())
+    unchanged(a,lambda:first.start('T1',worker_ref='w'),code=UNRESOLVED)
+    assert b.store.path.read_bytes()==before and b.projection.snapshot()==projection
+
+
+@pytest.mark.parametrize('dependency',['delegate','planner','resolver','schedule_semantics'])
+def test_same_class_foreign_truth_dependencies_rejected(tmp_path,dependency):
+    a=TruthRuntime(tmp_path/'a');b=TruthRuntime(tmp_path/'b')
+    first=control(a);other=control(b);task(first);task(other)
+    if dependency=='delegate':first.scheduler.delegate=other.scheduler.delegate
+    elif dependency=='planner':first.gap_planner=other.gap_planner
+    elif dependency=='resolver':first.scheduler.descriptor_resolver=other.critical_path.resolve
+    else:first.critical_path.schedule_semantics=other.schedule_semantics
+    before=b.store.path.read_bytes()
+    unchanged(a,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert b.store.path.read_bytes()==before
+
+
+def test_unknown_delegate_is_not_queried_during_adapter_validation(tmp_path):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first)
+    class Tripwire:
+        def __getattr__(self,name):
+            pytest.fail('unknown delegate queried: '+name)
+    first.scheduler.delegate=Tripwire()
+    unchanged(truth,first.refresh_ready,code=UNRESOLVED)
+
+
+def test_missing_gap_defect_resolution_no_prefix(tmp_path):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth)
+    first.register_task(Task('T1','M1','DEFECT','QUALIFY_DEFECT','work',gap_refs=['MISSING']))
+    first.scheduler.lease_next('M1',worker_ref='w',capabilities=[])
+    first.start('T1',worker_ref='w');first.submit_worker_output(WorkerOutput('T1','w'))
+    # Missing target must be resolved before this action's downstream writes.
+    class DefectInput:
+        mission_id='M1'
+    ev=Evaluation('EV','M1','DEFECT',[],EvaluationResult.PASS,'reviewer')
+    unchanged(truth,lambda:first.accept_defect_resolution('T1',defect=DefectInput(),evaluation=ev),ev,code=UNRESOLVED)
+
+
+def test_nonownership_task_future_gap_ref_does_not_block_legal_lease(tmp_path):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth)
+    first.register_task(Task('T1','M1','TEST_DESIGN','PRODUCE','work',gap_refs=['FUTURE']))
+    assert first.lease_next(worker_ref='w',capabilities=[]).task_id=='T1'
+    assert truth.query('rc7_task',task_id='T1')[0]['state']=='LEASED'

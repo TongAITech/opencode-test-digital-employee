@@ -23,3 +23,15 @@
 最终pytest受影响组合 **100/100，2.91s**：新增32项guard（18种键/值与冷恢复、旧两反例、output/evaluation/gap、末项Scoped evidence/gap/derived planner/source reactivation零前缀、输入vars/full binding、unknown targets/callbacks、caps、旧错误、重复bank resume、真实N1有效先验两个分支、writer spy零调用及明确raw residual），加旧closed-loop/core/control/多Case缺陷桥、bank/start/autopilot/turnkey、N1 dispatch、economy scheduler/critical path、session、N2 revision、Q2b/Windows源码资格合同。git diff --check通过。
 
 现有SOURCE_DIRS递归携带rc7_runtime；新增helper纳入REQUIRED_PRODUCT_FILES并测试其存在，避免源码包漏依赖；没有重建Windows最终包、没有现场证据。新增CI为实际Python3.8/3.11、显式checkout PR head SHA；代码/测试/证据一次提交后冻结，CI结果由A记录PR body/主台账不改候选HEAD。Draft PR交F对完整实现SHA独立验收，真实Host/Windows仍FIELD_NEEDS_BANK_TRANSFER；本实现仅防损失HOLD，不称生产绑定修复。
+
+## F224实际红例修复（不覆盖fd9失败）
+
+完整读取F224/af9cc8ed报告及34例代码，在旧fd9实际重复执行：28过6失败、1.29s，与F结果一致。两项P1保留：缺Gap引用在lease写Task后才报错；outer economy adapter的refresh_ready/task/start/output替换被执行。首轮100个绿测试不能抵消它们。
+
+另按A要求先实证wrong-bound风险：两个临时R1、相同Task ID，本地delegate.start绑到另一同类不同truth delegate.start，旧fd9实际令远端Scoped Task RUNNING且远端bytes改变。这个新增实证不是未经验证的推测；不将router/其他依赖上的同类假设直接命名新P1。
+
+修复：对本次lease中READY、capability可达的REPAIR/QUALIFY_DEFECT所有Gap refs要求存在；repair PASS与实际source-reactivation的Gap足迹同样首写前完整解析。新Task注册、普通ready refresh及不触Gap的PRODUCE lease不会盲目要求未来Gap已存在；caps不匹配候选不扩大成实际Gap写目标；新Gap创建仍不要求旧row。缺失实际目标统一TARGET_UNRESOLVED，日志/投影/输入无前缀变化。
+
+outer adapter全部已知自有和转发方法在调用前逐一校验（不只四个vars），再核delegate、planner、router的函数与真实__self__ receiver；静态方法保持原函数身份。delegate类型在任何forwarded属性读取前检查，未知Tripwire不试执行。truth/release、planner.scheduler、canonical resolver及schedule_semantics依赖关联检查阻止同类不同truth混接。合法clock仍允许，预检不调用它。没有执行plan()探路，没有改变writer/模型/reader或Scope授权。
+
+实际复验：F原34例全部绿，联合当时新增guard为94/94、1.99s；最终仓内受影响组合**129/129、3.70s**（原68 legacy+现61 guard），包括全部outer public转发/私有查找tripwire、wrong-bound outer/delegate/planner/router零调用、同类foreign truth依赖、missing ownership Gap与repair PASS/source-reactivation/defect、未来refs/新Gap/普通PRODUCE lease/caps合法对照。diff检查通过，源码包helper必需资格保留。CI继续使用既有显式HEAD 3.8/3.11矩阵，结果交A记body/主台账；本单次修复提交后冻结不追加CI证据HEAD。raw/并发/Field-start/mtime残余没有掩盖，仍不能称全writer或生产绑定完成。
