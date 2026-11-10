@@ -101,3 +101,11 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-01 / C07 DSH AgentTeams provider 自签名门禁加固（2026-11-10）
+
+- 源码审计发现：configured_agentteams_host_bindings 允许 provider_module 按调用方字符串动态导入，且 CaptainProviderWiring 可以同时返回其自行构造的 membership_authority 和 host_authority。若不要求独立银行 Host 提前锁定信任根，provider 的自签名可能被当作真实 AgentTeams Captain。
+- 增加 BankCaptainTrustRoots：调用方必须由银行可信 Host 预先注入受批准 provider_module 名称及彼此独立的 membership/host authority；在导入模块前拒绝 provider 名称不匹配、缺少受信根及共享密钥。provider 返回的 authority 必须是预先注入的同一对象，不能自签自验。LocalDshAgentTeamsHost 继续检查真实 loopback DSH session/status、HMAC、准确 R1 Batch 和 Captain 身份。
+- 新增独立负例：缺少受信根或未批准模块不得 import，独立对象共用同一签名 key 必须拒绝，provider 自带的任意双 key 不得创建 Captain，签名缺失即使 trust root 正确仍不写 R1。
+- 这只能证明受控 Host 源码的准入条件，不代表银行真实 module 文件身份、私有信任根、DSH 进程及 32/33 人 Field 已实测。provider 的真实来源、供应链校验、银行密钥保管及行内单点签章均依旧属于现场准入。不能将模拟测试密钥直接复制到交付包。
+- 目标：Windows/Linux Python3.8/3.11 定向回归，仅一次源码工程批次验收，不构建 ZIP，FIELD_VERIFIED=false / BANK_FINAL=NO。
