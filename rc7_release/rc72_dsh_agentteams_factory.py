@@ -7,9 +7,13 @@ not JSON/model text. The package itself verifies local DSH session liveness
 and creates or reenters an R1 Captain with existing signed Host contracts.
 Without the trusted provider, this route fails closed.
 """
-import importlib
+import hashlib
+import importlib.util
 import hmac
+import os
 import re
+from pathlib import Path
+import stat
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -28,6 +32,8 @@ class BankCaptainTrustRoots:
     of the object does not prove the physical module is bank-approved.
     """
     approved_provider_module: str
+    approved_provider_path: str
+    approved_provider_sha256: str
     membership_authority: RC72AuthorityRuntime
     host_authority: RC72AuthorityRuntime
 
@@ -63,8 +69,39 @@ def configured_agentteams_host_bindings(
                 bank_trust_roots.membership_authority._sign(marker),
                 bank_trust_roots.host_authority._sign(marker))):
         raise ContractError('C07_DSH_HOST_SEPARATE_BANK_SIGNERS_REQUIRED')
+    # A module name alone is not an executable-code trust anchor: sys.path
+    # shadowing or a preloaded sys.modules entry could run a different provider
+    # before its identity is checked. The bank Host therefore pins an absolute
+    # file path and SHA-256 in its pre-import trust roots.
+    pinned_path = bank_trust_roots.approved_provider_path
+    pinned_digest = bank_trust_roots.approved_provider_sha256
+    if (not isinstance(pinned_path, str) or not os.path.isabs(pinned_path)
+            or not isinstance(pinned_digest, str)
+            or not re.fullmatch(r'[0-9a-f]{64}', pinned_digest)):
+        raise ContractError('C07_DSH_HOST_PROVIDER_FILE_PIN_REQUIRED')
+    path = Path(pinned_path)
+    absolute = Path(os.path.abspath(str(path)))
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        if current.is_symlink():
+            raise ContractError('C07_DSH_HOST_PROVIDER_PATH_SYMLINK_FORBIDDEN')
     try:
-        module = importlib.import_module(provider_module)
+        if not stat.S_ISREG(absolute.stat().st_mode):
+            raise ContractError('C07_DSH_HOST_PROVIDER_FILE_REQUIRED')
+        source = absolute.read_bytes()
+    except OSError:
+        raise ContractError('C07_DSH_HOST_PROVIDER_FILE_UNAVAILABLE') from None
+    if not hmac.compare_digest(hashlib.sha256(source).hexdigest(), pinned_digest):
+        raise ContractError('C07_DSH_HOST_PROVIDER_DIGEST_MISMATCH')
+    try:
+        spec = importlib.util.spec_from_file_location(provider_module, str(absolute))
+        if spec is None:
+            raise ImportError('provider spec unavailable')
+        module = importlib.util.module_from_spec(spec)
+        # Execute the exact bytes that were hashed above; do not ask an import
+        # loader to reopen a mutable path after the digest check.
+        exec(compile(source, str(absolute), 'exec'), module.__dict__)
     except Exception as exc:
         raise ContractError('C07_DSH_HOST_PROVIDER_LOAD_FAILED:' +
                             type(exc).__name__) from None
@@ -74,7 +111,9 @@ def configured_agentteams_host_bindings(
     try:
         wiring = factory(truth=truth, release_id=release_id,
                          source_commit=source_commit,
-                         release_batch_id=release_batch_id)
+                         release_batch_id=release_batch_id,
+                         membership_authority=bank_trust_roots.membership_authority,
+                         host_authority=bank_trust_roots.host_authority)
     except Exception as exc:
         raise ContractError('C07_DSH_HOST_PROVIDER_OBSERVATION_FAILED:' +
                             type(exc).__name__) from None
