@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "73cdb971541e0fec951cbe48bb6c9988010f2262",
+    "last_tested_code_sha": "b4eb06be3622b54ac0c96d692dcc0b6849bbdd83",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -27,9 +27,9 @@
       "worktree": "c-gates-ui",
       "branch": "work/dsh-wb-c-gates-ui",
       "pr": 215,
-      "source_sha": "60f013d95171ad0c54851adcc5a87a8872fd77e4",
-      "state": "CODE_COMPLETE_F_PENDING",
-      "next_action": "Independent F at exact HEAD; no publish/approval command and no production binding claim."
+      "source_sha": "074b2f17eb36b49222e48058c6fbd4fd9bd0693f",
+      "state": "INTEGRATED_F222_EXACT",
+      "next_action": "Preserve F221 native fetch failure; fixed default transport accepted only at new source."
     },
     {
       "ticket": "B_SCOPE_POLICY_PROFILE",
@@ -38,23 +38,25 @@
       "worktree": "b-scope-policy-qualification",
       "branch": "work/dsh-wb-b-scope-policy-qualification",
       "pr": 216,
-      "source_sha": "f93e4ab17b7b4947990da3b0561d8979d6de65e4",
-      "state": "CODE_COMPLETE_F_PENDING",
-      "next_action": "Independent F; profile is MATCHED_AS_OF/admission_authorized=false, not a DDL/role fence."
+      "source_sha": "f4985abf93d35b94fdcacd2193e65808e5d9816b",
+      "state": "INTEGRATED_F226_NARROW_COMPONENT",
+      "next_action": "As-of profile only; no admission/DDL-role fence; keep F220 failures."
     },
     {
       "ticket": "E_SCOPE_LOSS_HOLD_GUARD",
       "owner": "E",
       "agent": "/root/e_scope_binding",
       "worktree": "e-scope-hold-guard",
-      "pr": 212,
-      "source_sha": "9623f30c1baf81d1a78490cca373689e42ceed80",
-      "state": "DESIGN_B_D_F_EXACT_REVIEW",
+      "pr": 223,
+      "source_sha": "1b85493fabf5db4e402d77036ee58b534da575fd",
+      "state": "F_NEW_P1_CALLABLE_IDENTITY_SPOOF_BLOCKED",
       "historical_failure_prs": [
         213,
-        214
+        214,
+        224,
+        227
       ],
-      "next_action": "Collect B/D/F exact design acceptance then implement only guarded entry points; actual target Mission union and full batch preflight before first write. Do not implement self-only ce6."
+      "next_action": "Preserve new exact F failure; fix trusted method identity without probing unknown callable; no failed implementation merge."
     },
     {
       "ticket": "PROJECT_METADATA_BOARD_INCREMENT",
@@ -64,6 +66,14 @@
       "source_sha": "1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2",
       "state": "CANDIDATE_A_B_E_REVIEW",
       "next_action": "Freeze naming namespace/normalization and migration/API contract before writes. project+batch cards; first five phases are plan metadata, RELEASED needs canonical N10/Evidence/Human; mutation boolean cannot authorize create or members."
+    },
+    {
+      "ticket": "C_REQUIREMENTS_RELATIONS",
+      "owner": "C",
+      "pr": 225,
+      "source_sha": "26257eaed8f78857ce9d22b8325a4cffb419b67f",
+      "state": "F_FUNCTIONAL_ACCEPTANCE_PENDING_REPORT_P2_MOBILE",
+      "next_action": "Fix common Scope select long ID 375px overflow; F new exact source recheck before integration."
     }
   ],
   "accepted_integrated_components": [
@@ -131,6 +141,17 @@
       "jobs_passed": 5,
       "status": "SUCCESS",
       "scope": "Complete inherited RC7/RC7.2 plus real Chromium and four Ubuntu/Windows Python3.8/3.11 jobs; source qualification only, not bank field/offline delivery."
+    },
+    {
+      "sha": "2b94d2361fbc92cb56ad06cc8046e4474b86ca12",
+      "node": 120,
+      "real_pg_browser": 9,
+      "pure_modules": 20
+    },
+    {
+      "sha": "b4eb06be3622b54ac0c96d692dcc0b6849bbdd83",
+      "real_pg_profile": 27,
+      "profile_artifact": 2
     }
   ],
   "rules": [
