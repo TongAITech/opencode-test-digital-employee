@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -31,6 +32,69 @@ _MEMBER = re.compile(r"^( *)(maxMembers):[ \t]*([0-9]+)([ \t]*(?:#.*)?)$")
 
 def _digest(content):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _reject_symlink_components(root: Path, candidate: Path, reason: str) -> None:
+    """Reject every symlink from an attested profile root to a candidate."""
+    root = Path(root)
+    candidate = Path(candidate)
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        raise TeamProfileCapacityError(reason) from None
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise TeamProfileCapacityError(reason)
+
+
+def _safe_report_destination(output: str) -> Path:
+    """Never let a diagnostic path overwrite any DSH profile or its contents."""
+    raw = Path(output).expanduser()
+    if not raw.is_absolute():
+        raw = Path.cwd() / raw
+    if raw.is_symlink():
+        raise TeamProfileCapacityError("R4_CAPACITY_REPORT_SYMLINK_FORBIDDEN")
+    try:
+        destination = raw.resolve()
+        profiles_root = (dsh_runtime_profile._dsh_home() / "profiles").resolve()
+        destination.relative_to(profiles_root)
+    except ValueError:
+        pass
+    except (OSError, RuntimeError):
+        raise TeamProfileCapacityError("R4_CAPACITY_REPORT_PATH_UNVERIFIED") from None
+    else:
+        raise TeamProfileCapacityError("R4_CAPACITY_REPORT_MUST_BE_OUTSIDE_DSH_PROFILES")
+    return destination
+
+
+def _write_report_atomic(destination: Path, report) -> None:
+    destination = _safe_report_destination(str(destination))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.is_dir():
+        raise TeamProfileCapacityError("R4_CAPACITY_REPORT_DESTINATION_NOT_FILE")
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="\n",
+                prefix=".rc72-team-capacity-report-", suffix=".tmp",
+                dir=str(destination.parent), delete=False) as output:
+            temp = Path(output.name)
+            output.write(json.dumps(
+                report, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        # Revalidate immediately before replacing the destination. The final
+        # path is resolved, so a parent symlink cannot redirect this write.
+        if _safe_report_destination(str(destination)) != destination:
+            raise TeamProfileCapacityError("R4_CAPACITY_REPORT_PATH_CHANGED")
+        if destination.is_symlink():
+            raise TeamProfileCapacityError("R4_CAPACITY_REPORT_SYMLINK_FORBIDDEN")
+        os.replace(str(temp), str(destination))
+    finally:
+        if temp is not None and temp.exists():
+            temp.unlink()
 
 
 def _rewrite_exact_agentteams_row(source: str, members: int) -> str:
@@ -111,11 +175,17 @@ def apply_cloned_profile_capacity(*, runtime_profile="rc7.2-bank", base_profile=
     dsh_runtime_profile._safe_runtime_name(runtime_profile)
     if base_profile not in dsh_plugins.protected_profiles():
         raise TeamProfileCapacityError("R4_PROTECTED_BASE_PROFILE_REQUIRED")
+    profiles_root = dsh_runtime_profile._dsh_home() / "profiles"
+    if profiles_root.is_symlink() or not profiles_root.is_dir():
+        raise TeamProfileCapacityError("R4_PROFILE_ROOT_SYMLINK_OR_MISSING")
     base = dsh_runtime_profile._runtime_profile_path(base_profile)
     target = dsh_runtime_profile._runtime_profile_path(runtime_profile)
+    _reject_symlink_components(profiles_root, base,
+                               "R4_PROFILE_BASE_PATH_SYMLINK_FORBIDDEN")
+    _reject_symlink_components(profiles_root, target,
+                               "R4_PROFILE_TARGET_PATH_SYMLINK_FORBIDDEN")
     marker = target / dsh_runtime_profile.PROFILE_MARKER
-    if (not base.is_dir() or not target.is_dir() or base.is_symlink()
-            or target.is_symlink() or marker.is_symlink() or not marker.is_file()):
+    if (not base.is_dir() or not target.is_dir() or marker.is_symlink() or not marker.is_file()):
         raise TeamProfileCapacityError("R4_ISOLATED_CLONE_OR_ORIGIN_MISSING")
     before = dsh_runtime_profile.profile_snapshot(base_profile)
     try:
@@ -130,7 +200,11 @@ def apply_cloned_profile_capacity(*, runtime_profile="rc7.2-bank", base_profile=
 
     package = target / "node_modules" / "@nanmicoder" / "dsh-agent-teams" / "package.json"
     config = target / "cordis.patch.yml"
-    if package.is_symlink() or config.is_symlink() or not package.is_file() or not config.is_file():
+    _reject_symlink_components(
+        target, package, "R4_AGENTTEAMS_PACKAGE_PATH_SYMLINK_FORBIDDEN")
+    _reject_symlink_components(
+        target, config, "R4_AGENTTEAMS_CONFIG_PATH_SYMLINK_FORBIDDEN")
+    if not package.is_file() or not config.is_file():
         raise TeamProfileCapacityError("R4_AGENTTEAMS_PLUGIN_OR_CONFIG_MISSING")
     try:
         installed = json.loads(package.read_text(encoding="utf-8"))
@@ -182,16 +256,27 @@ def main(argv=None):
     parser.add_argument("--base-profile", default="web")
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
+    # Validate the report destination BEFORE touching the isolated clone. A
+    # caller must never be able to redirect a JSON HOLD/PASS report into the
+    # protected bank profile or any other active DSH profile.
+    try:
+        destination = _safe_report_destination(args.output)
+    except TeamProfileCapacityError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     try:
         report = apply_cloned_profile_capacity(
             runtime_profile=args.runtime_profile, base_profile=args.base_profile)
-    except (TeamProfileCapacityError, dsh_runtime_profile.DshRuntimeProfileError) as exc:
+    except (TeamProfileCapacityError, dsh_runtime_profile.DshRuntimeProfileError,
+            OSError) as exc:
         report = {"status": "HOLD", "reason": str(exc),
                   "field_verified": False, "bank_final": False}
-    destination = Path(args.output)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-                           encoding="utf-8")
+    try:
+        _write_report_atomic(destination, report)
+    except (TeamProfileCapacityError, OSError) as exc:
+        print(str(exc) if isinstance(exc, TeamProfileCapacityError)
+              else "R4_CAPACITY_REPORT_WRITE_FAILED", file=sys.stderr)
+        return 2
     return 0 if report["status"] == "SOURCE_CONFIG_APPLIED_NOT_RUNTIME_VERIFIED" else 2
 
 

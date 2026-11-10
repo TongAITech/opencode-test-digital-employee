@@ -101,3 +101,16 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-07 路径安全补强：容量配置工具不能通过路径重定向触碰银行配置（2026-11-10）
+- 新增源码审计缺口：`apply_cloned_profile_capacity` 直接调用时只检查 base/target 最末级是否 symlink，未拒绝 `DSH_HOME/profiles` symlink 及 clone 下 `node_modules/@nanmicoder/dsh-agent-teams` 中间目录 symlink；可能把插件身份读取重定向到 clone 外部路径。
+- 原 CLI `--output` 直接 `write_text`，若目标指向 `~/.dsh/profiles/web/cordis.patch.yml` 或指向它的 symlink，会把 JSON 报告写入银行受保护配置，违背只改隔离 clone 的合同。
+- 修复分支 `work/rc7.2-r4-capacity-path-hardening-20261110`：拒绝 profiles root/base/target/package/config 路径上的任一 symlink；在修改 clone 前解析并拒绝任何 DSH profile 内的报告目标；报告采用同目录临时文件 + flush/fsync + atomic replace，并在替换前重新校验。
+- 新增 4 个反例：profiles root symlink、node_modules 祖先 symlink、报告直接指向 web profile、报告 symlink 指向 web profile；必须在任何 profile/config 写入前 HOLD/拒绝。现有克隆配置正向、原配置保留、幂等与 Windows/Linux Python3.8/3.11 四平台合同继续保留。
+- 本修复只证明路径/文件写入隔离，不证明 DSH 运行进程已加载 32 成员配置，更不证明 32 名真实 Agent/第 33 名拒绝。`SOURCE_PENDING_CI / FIELD_PENDING / BANK_FINAL=NO`。
+
+## 第四轮 CI 新模式：草稿 PR 专项先行，Ready PR 才执行完整 ABCD（2026-11-10）
+- 用户要求减少“每个小修复都跑 40–60 分钟完整 Chromium/继承回归”的浪费。v3/v4 原 workflow 对所有 `pull_request` 无条件启动 4 平台完整工程 + 2 套 Chromium/全继承测试。
+- 已调整 v3/v4：Draft PR 只执行对应专项合同工作流（如 R4-07 capacity32、C07 trust、Q3–Q6 signature）；ABCD 工程矩阵与完整 Chromium/RC7+RC7.2 继承套件仅在 PR Ready for Review 时执行。`ready_for_review` 事件已加入，转 Ready 会自动触发；Ready PR 后续每次 synchronize 仍执行完整回归。push 与 workflow_dispatch 行为不变。
+- 本 PR #105 保持 Draft，因此新 HEAD 只应执行 R4-07 四平台专项，不重复启动完整产品回归；原已启动的本 PR 旧 SHA 完整作业由 PR 并发策略取消。PR #99 当前非 Draft，已承担本轮一次完整产品回归，不再为同一代码批次额外复制完整回归。
+- 此策略不删除任何测试、不缩减测试集合；仅把全量回归放到集成检查点，专项测试仍在每个 Draft PR 上运行。
