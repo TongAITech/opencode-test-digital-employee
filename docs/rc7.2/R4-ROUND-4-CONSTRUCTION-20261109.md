@@ -183,3 +183,11 @@
 - 通过门禁仅表示 `SOURCE_MERGE_ADMISSIBLE`；输出仍强制 `field_verified=false / bank_final=false`。C12 approved DSH main / 银行真实 32 roster + 33rd 拒绝 / Q3–Q9 / 4A / BSK / 真实 N8-N9-N10 仍 HOLD。不得借此绕开 Issue #79 或制造虚假 ZIP。
 
 施工采取独立支线先做源码和定向 CI，再**一次性**将本批集成到 PR #113，不在每个文件提交后触发两轮大 Chromium。现阶段 `R4_E_REVIEW_GATE_SOURCE_SUBMITTED / QA_SOURCE_PENDING / E_INDEPENDENT_REVIEW_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO`。
+
+## 第四轮独立准入门禁再次加固 — PR 所属身份不可借同 SHA 混用（2026-11-10）
+
+- 最新统一候选 `work/rc7.2-r4-consolidated-1to5-20261110@1e7195383506f2a53e9361fc8db7a739e5363653` 的 **18 项**同 HEAD 工作流核验：原 16 项工程回归 + 4 平台 merge-gate 源码专项共 **17 SUCCESS**；独立 E 准入门禁 1 FAIL，按设计拒绝不存在 E Review 的合并，不是生产功能的假 FAIL。E 组仍未正式 Review，未合入 `work/rc7.2`。
+- 源码准入审计补充：只按 `head_sha` 搜索 Actions 仍有跨 PR 借用相同 commit 的风险。现在必需工作流同时关联 GitHub REST 的原生 `pull_requests[].number` 到 **当前候选 PR**，如有 `head_branch` 还必须一致；候选 PR 编号和源分支不可缺失/错配，严拒 `pull_requests=[]` 等无法证明来源的记录。新增对抗测试覆盖跨 PR 同 SHA、无原生关联、错源分支、错编号及缺少源分支。不能从 PR 文案或 agent 输出代替 GitHub API 证明。
+- GitHub 的 `pull_request_review` 自动事件对 workflow 是否存在于**默认分支**有额外平台触发条件；当前仅在 RC7.2 候选源码存在，不得声称独立 Review 提交后必会自动重新评估。实际审批后可由有权限人员在当前 HEAD 的失败 Admission 工作流点 **Re-run failed jobs**，使读取实时 Github Review API 的门禁再评估；管理员应审查/配置默认分支触发策略与 RC7.2 目标分支 required check，未经确认不得报自动化审查链完全闭环。
+- 此修复先在隔离施工分支，完成 Python3.8/3.11 × Windows/Linux 四平台定向 CI 后才纳入 #113。纳入即产生新 HEAD，原先 17 项 PASS 只作历史证据；新的完整 ABCD 全量源资格需重新核销。
+- 合入资格仍由**真实独立 E 组身份/签名 Review**及所有必要 CI 决定；不得由 A 自我代签，不能为了变绿将审查门禁改为 SKIP。现场 Q3–Q9、DSH Agent Teams 32+第33人阻断、C12 已批准可分发 DSH 主程序及独立 SHA256 均仍 HOLD。BANK_FINAL=NO。
