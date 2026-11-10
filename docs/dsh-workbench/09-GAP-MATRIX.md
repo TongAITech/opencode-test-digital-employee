@@ -78,6 +78,15 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA；原版受限源码不得进入银行交付。
 
 
+
+### C 组 W0 原型深化后状态（2026-11-10）
+| GAP | 当前状态 | 本轮进展 | 未关闭条件 |
+|---|---|---|---|
+| WB-CG01 六页面/十分区 | W0_PROTOTYPE_EXPANDED / W1_NOT_STARTED | 十区逐个增加领域字段表单与原生必填校验，提交 fail-closed；六页导航与六阶段保留 | C01 正式 Host/API 实现、全量原版交互与 F02 |
+| WB-CG02 Scope | W0_MULTISELECT_PROBE / B06_BLOCKED | 多需求/多版本/多 SST 关系联动、无效组合原子拒绝、级联清理、只读快照 | B06 真实 PostgreSQL/API/ACL/分页/SSE + C02 联调 |
+| WB-CG03 浏览器证据 | W0_PROBE_CI_PASS / F_VISUAL_REVIEW_PENDING | SHA `d4863ba` 同 HEAD 20/20 Node、真实 Chromium 逐区表单/多选、3 PNG artifact 13693719815；B→C 合并探针 15/15 | F 对新 SHA 视觉复核；正式 F02 UI/API/Host QA |
+| WB-CG04 设计/许可门禁 | BLOCKED | F 仍 W0_NOT_FROZEN；A02 BLOCKED_LICENSE；FG17/FG21 仍 OPEN | A/F 正式 W0 冻结、授权或原创来源审计；RC7.2 merge gate |
+
 ## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
 | E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
 |---|---|---|---|---|
@@ -114,3 +123,15 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 A 组 A03/B06/C 原型/E 可信主体集成增量
+| GAP | 状态（最终 F 尚未重新签） | 当前集成候选边界 |
+|---|---|---|
+| FG17 / P0 | F: TARGETED_REAL_BROWSER_PASS；FINAL_L2_PENDING | F #101 审核 A@b385e：Py3.8 真 Chrome 31/31 + 5 次教学录制，Py3.11 31/31；完整候选源同 SHA Q1/L2 与行内仍待。原失败证据保留 |
+| FG18 / P0 | F: DESIGN_RECHECK_PASS；B: DESIGN_SIGNOFF_RECONFIRMED | B06 真实关联可追踪来源、跨版本 raw SST key 复用仅设计 SQL；W1 PostgreSQL/迁移/回滚/权限仍未验 |
+| FG20 / P1 | DESIGN_REGISTER_RECONCILED / C W0 PROTOTYPE ONLY | 50 功能候选（35 O/A+15 N），源码来源 fence、真实 Chromium 十区原型；全部正式功能仍未验 |
+| FG21 / P0 | SOURCE_MERGE_CONFLICT_RESOLVED / PR_UNSTABLE | F #101 核对 PR #84 Git mergeable=true，旧 dirty 已解决；未核销全部 required checks / release gates，不得合入 RC7.2 |
+| FG22 / P1 | A_FIX_SUBMITTED / F_RECHECK_PENDING | `5bba94c` 修复 validator 错误码与负向测试一致性，保留删除 Q1 真 CDP、允许 Draft 的独立反例；同一最终 HEAD CI 前不写 CLOSED |
+| WB-B06/E01 可信 principal 协议 | W0_DESIGN_DELTA / IMPLEMENTATION_BLOCKED | request-context Host principal，不接受 adapter 原始 principal；B06 顶层 next_page_cursor、来源验证、E R1 Mission 显式 Scope 一致；真实 API/Host/R1 NOT_RUN |
+| WB-A02 | BLOCKED_LICENSE | 未取得 naodeng/dsh-qa PolyForm Noncommercial 商业适用授权，原创来源检查也不能自行代替法务批准；禁止复制受限源码/银行交付 |
+| WB-W0 | NOT_FROZEN | F #101 已审核旧 A 源，当前 ABCDE 新 SHA 必须 F 独立重新审核；B/C/D/E W1–W4 皆不得提前记录 QA_PASS |

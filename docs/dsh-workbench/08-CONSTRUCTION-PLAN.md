@@ -141,6 +141,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
 
 
+
+### C 组 2026-11-10 W0 原创交互深化（不启动 W1）
+- F #94 已对 A 75fd2c64159db863cfd1319d41a887785b556d40 完成独立复验：C 50 项/15 Node 与 156 W0 合同为设计期通过；FG17 FLAKY_OBSERVED / ROOT_CAUSE_PENDING、FG21 work/rc7.2 merge dirty；W0_NOT_FROZEN、A02 BLOCKED_LICENSE。不得把“F 审查完成”写成“F 接受/冻结”。
+- C follow-up work/dsh-wb-ui-followup 仅做 W0 允许的原创原型深化：需求/系统版本/SST 多选关系过滤、不可变 Scope 快照、十区领域表单必填校验及 fail-closed 提交、逐区共享上下文浏览器验证。
+- 新增 5 项 Scope 单测（累计 14 项）和 Playwright 逐区表单/多选/无结果搜索测试；最新 HEAD `d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8` 的 [W0 job 129318183234](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183234) 20/20 Node + Chromium 逐区表单/多选/截图 PASS，artifact 13693719815；[B→C merge job 129318183968](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42662706264/job/129318183968) 15/15 PASS。仅 W0 原型证据，C01/C02 不标 W1 完成，不连接旧 API 或 mock B06。
+
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
 - 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。
@@ -169,3 +175,11 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 A 组统一 W0 增量集成候选（F 最新审核后的实质施工）
+- 此段从 A 基线 `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1` 与 B #95 `42ed885d1f46c7a3f93ad0e378cb558cbb2dd231`、E #96 `c70ad0da92c5a4899a72d3096fad5e46fded74d5`、C #97 `70e0bc9a5d049160c7631a411ffe2107e89f1935` 精确来源组装；三个组增量均有原 commit 父链，可独立审计。D #90 原设计签收保留，不伪造 D 现场验收。
+- B：23 项设计 SQL 见证、B06 专属响应 `source_refs`、`page_cursor` 请求与顶层 `next_page_cursor`、稳定内部 SST identity/来源追踪；B 负责项目+批次+真实关系授权。B 在 #95 明确 `B_DESIGN_SIGNOFF_RECONFIRMED=ACCEPTED`，仅 W0 设计。
+- E：只消费由 DSH Host middleware 绑定可信 request principal 的 B06 port，拒绝 E adapter 接受裸 principal；R1 Mission 必须显式 project_id/batch_id 与 B06 Scope 相同，不能由 release_id/名称推断。仍是 pre-B06 原型，无真实 PostgreSQL/API/持久 R1。
+- C：六页面/十详情区、原版 50 个功能登记、多选需求/版本/SST 合法关系与级联清理、每区表单输入校验/无效提交 fail-closed、原创源码 source-fence 与截图脚本；代码仅 W0 原创原型，不等于 C01/C02/F02 正式实现。
+- F 最新独立复验 #101 针对 A `b385e042c4543f5d918d61bff5e01be1d88afba7`：FG17 定向真实 Chromium 通过，FG21 主线 Git 冲突已消解，R4 roster32 源码回归 100/100 通过；新增 FG22 是 CI 策略错误码/负向测试不一致。A 随后提交 `5bba94c` 修正拒绝码并增加移除真 CDP 测试及允许 Draft 两类反例，**须依最终集成 HEAD 的 CI 与 F 新审查核销**。
+- 只运行一次集成候选轻量合同、Node 源码/Scope、真实 Chromium 原型与 Q1 定向测试；未获正式 F 签署不标 W0 冻结；A02 非商业许可证限制保持 BLOCKED_LICENSE，严禁发布银行 ZIP 或提交受限第三方源码。

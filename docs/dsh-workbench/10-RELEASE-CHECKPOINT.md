@@ -63,6 +63,13 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。
 
 
+
+### C 组 2026-11-10 W0 follow-up 检查点
+- 源基线 75fd2c64159db863cfd1319d41a887785b556d40；本轮仅新增原创 W0 原型交互，正式 C01/C02 未启动。
+- 十区领域表单、必填字段、fail-closed 提交；多选 Scope 的合法关系过滤/级联清理/原子拒绝/不可变查询快照；浏览器脚本逐区核验共享上下文。
+- 最新源 SHA d4863bab1cc65ed78b5c3d7edbf8e6e242c7b6a8 已获得同 HEAD W0 probe 20/20 Node + Chromium + 3 PNG 成功（run 42662706264，artifact 13693719815），以及 B→C merge probe 15/15 成功（job 129318183968）。F 对本 follow-up 新交互的独立视觉复核仍待；不得借用上一轮 A HEAD 的 L0 结果作为本 HEAD 证据。
+- W0_NOT_FROZEN / A02 BLOCKED_LICENSE / FG17 ROOT_CAUSE_PENDING / FG21 MAINLINE_MERGE_DIRTY；无主线合并、无银行 ZIP、无 W1 QA_PASS。
+
 ## 2026-11-09 E 组来源审计及 W0 设计签署（需 A/F 复核）
 - W0 PR #84 审核来源 HEAD `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`；F PR #85 仍 REVIEWED_WITH_BLOCKERS。E 施工分支 `work/dsh-wb-runtime` 对独立控制面协议形成 `E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`，详见 `WB-E-A03-DESIGN-SIGNOFF.md`。E 分支实际提交 SHA/CI 必须以创建 PR 后同 HEAD API 结果更新，不借用 A 的历史 success。
 - 已核对真实 `rc7_admin/server.py`, `product_server.py`, `projection.py`, `rc6_runtime/truth.py`, `rc7_runtime/rc72_domain.py`, `rc72_linkage.py`, `models.py`, `truth_overlay.py`, `derived.py` 的 blob SHA；旧 HTTP 没有可信项目 ACL、正式命令、SSE 或 `/api/workbench/v1`；R1 是 JSONL 原子事实源；Evidence content_hash 可选。对应实现 HOLD 见 09。
@@ -88,3 +95,10 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - D PR #90 `a332e6c575cac9d2b6ef0b2038615b276dcfa602`：13/13 基线合同、宿主 allowlisted manifest 检测、真实 loopback GET 负向，近期 D 同 SHA 30/30 局部 CI；不是行内 DSH1.18.26 FIELD PASS。
 - E PR #91 `8401ab85cefb2876ce4451252d3d9a6e7d14704c`：新增旧 Admin R1 的只读合成/拒绝测试、B06 source-verified 合法关系 DTO 原型；无 /api/workbench/v1、SQL、SSE 或执行。E 新共享合同改为独立 `WB-E-A03-LEDGER-MERGE-HANDOFF.md`，A 上次已保留 E 原 08/09/10 增量。
 - 上述改动需要 **统一合并树同 HEAD CI 和 F 独立复核**。FG17 CDP 定向测试仍须真实通过，不可通过 W0 轻量 CI 代替完整 CI。W0 NOT_FROZEN；BLOCKED_LICENSE；不推送运行主线、不出银行 ZIP。
+
+## 2026-11-10 A 组统一 W0 候选交付检查点（非发行）
+- A 基线 `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1`，包含 R4 AgentTeams32 名册/默认 active4，FG17 定向源修复、FG21 Git 冲突消解、FG22 A 拒绝码修复。F #101 针对其旧 A 基线 b385e 完成 review，结论 REVIEWED_WITH_BLOCKERS；不得把 F 对旧 SHA 的 PASS 转移到新集成 SHA。
+- 本次后续组来源：B PR #95@42ed885d、E PR #96@c70ad0da、C PR #97@70e0bc9a。B/E 可信 request principal+source_refs+分页协议、C 原创交互/源 guard、D 原宿主合同保留。合并提交保持精确父 SHA，源 blob 由 Git 校验。
+- Gate：FG17 F 定向 PASS（历史红仍保留）；FG18/FG20 设计 PASS；FG21 Git source merge conflict resolved，但 PR #84 unstable；FG22 A_SOURCE_FIX_SUBMITTED / F_NEW_HEAD_RECHECK_REQUIRED。后续同源 CI 逐项回填。
+- 真实 B06 PostgreSQL/API/ACL、E01 控制/R1 事件、D 银行 DSH1.18.26/Session/Skills/32 名册现场、C01 正式六页十区、Windows Git Bash 离线、F01–F04 工程/现场 QA 均 NOT_RUN。
+- 法务/许可 A02 BLOCKED_LICENSE。W0_NOT_FROZEN / RC7.2 MAINLINE_NOT_MERGED / BANK_PACKAGE_NOT_AUTHORIZED。未经 F 新 HEAD 独立复核不得冻结 W0；未获商业许可或审计可接受的合法来源批准不得复制受限源码与输出银行发行包。

@@ -1,10 +1,10 @@
 # WB-A03 W0 业务/API/事件跨组签收候选
-状态：A_RECONCILED_CANDIDATE / B_DESIGN_SIGNOFF_WITH_FG18_HOLD / D_DESIGN_SIGNOFF_ISSUED / E_DESIGN_SIGNOFF_WITH_IMPLEMENTATION_HOLDS / F_RECHECK_REQUIRED。各组仅签 W0 设计合同；B 原 SQL 约束 FG18 修复由 A 集成待 B/F 复核；真实产品 QA 尚未执行。
+状态：A_RECONCILED_CANDIDATE / B_DESIGN_SIGNOFF_RECONFIRMED_WITH_FG18_DESIGN_PASS / D_DESIGN_SIGNOFF_ISSUED / E_DESIGN_SIGNOFF_WITH_IMPLEMENTATION_HOLDS / F_RECHECK_REQUIRED。各组仅签 W0 设计合同；B 原 SQL 约束 FG18 修复由 A 集成待 B/F 复核；真实产品 QA 尚未执行。
 参照 F 组 PR #85 的 FG02–05、FG10、FG13；W0 Python 合同测试只验证内存 oracle。
 
 | 组 | 签署范围 | 必须带回的可复核证据 | 结论 |
 |---|---|---|---|
-| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：审查 [B DESIGN_SIGNOFF](WB-B-A03-DESIGN-SIGNOFF.md)、跨版本原始 SST ID 的版本限定 UNIQUE 及 T1–T8 反例；W1：真实 PostgreSQL/422 回滚/重启验收 | B_FG18_CORRECTION_SUBMITTED / F_RECHECK_REQUIRED / IMPLEMENTATION_QA_NOT_RUN |
+| B | Batch 日期唯一/改期、复合 FK、SST 来源、事务与迁移方案、Scope 真 join | W0：审查 [B DESIGN_SIGNOFF](WB-B-A03-DESIGN-SIGNOFF.md)、跨版本原始 SST ID 的版本限定 UNIQUE 及 T1–T8 反例；W1：真实 PostgreSQL/422 回滚/重启验收 | B_DESIGN_SIGNOFF_RECONFIRMED / F_FG18_DESIGN_RECHECK_PASS / IMPLEMENTATION_QA_NOT_RUN |
 | D | DSH1.18.26 认证主体/原生会话、命令技能附件、权限和断线恢复 | W0：[D DESIGN_SIGNOFF](WB-D00-DESIGN-SIGNOFF-AND-D01-HOST-DELTA.md)，可信主体、PROJECT/BATCH_COMMAND/WORKER 三会话、host 失败语义；W1+：行内真实会话/并发/恢复另验 | D_SIGNOFF_ISSUED / FIELD_QA_NOT_RUN |
 | E | R1 只读真相/NodeGate、命令幂等/人审、batch SSE/恢复 | W0：[E DESIGN_SIGNOFF](WB-E-A03-DESIGN-SIGNOFF.md)，明确旧 /api/workbench/v1 不存在与六项实现 HOLD；W1+：真实 API/Evidence/持久幂等/SSE 另验 | E_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS / IMPLEMENTATION_QA_NOT_RUN |
 | F | 独立检查合同遗漏、版权安全与设计退出门槛 | W0：审查设计合同、反例、来源锚点与分层 Gate；W1+：仅按真实证据签 IMPLEMENTATION/INTEGRATION/FIELD_QA_PASS | DESIGN_RECHECK_REQUIRED |
@@ -58,3 +58,9 @@ F 组在 PR #85 的 WB-F00-HEAD-DELTA-6EDB9FB.md 指出：旧 A03 要求 W1 实�
 
 ## FG18 正式 B 组修订来源（待 F 核销）
 B 组最新 PR #89 HEAD `98bac426a35063a306f4eaa4b43c80cf0a0a1745` 已新增 sst stable internal ID、version-scoped source uniqueness 和 source_trace(源 namespace/revision/ref)。此段只接受 B 更新后的 W0 设计合同进入 A 集成，不能用 SQLite 内存 SQL 代替 W1 PostgreSQL/真实合法来源导入。E/D 的签署须以联合源 SHA 复核含义是否保持。
+
+## 2026-11-10 B06 ↔ E01 ↔ D Host 签收补充（仅 W0）
+- 来源 B #95@42ed885d（B 已正式差量复签），E #96@c70ad0da（E pre-B06 consumer），C #97@70e0bc9a（仅原创 UI 原型），A base 5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1。F #101 的独立审核仅覆盖 A@b385e04/R4，未审查此联合 SHA。
+- B06 service 响应的 `source_refs` 是去重非空字符串数组，涵盖真实 BRV 与 SPLIT SST source_verified_link；请求 `page_cursor`，响应顶层 `next_page_cursor`（null 表示末页），无外层分页 envelope。只有遍历到 null，才可称 Scope 查询完整；缺页/权限或关系修订后不得报告完整。
+- 请求 `principal` 由已认证 DSH Host middleware 绑定服务端 request context；不能从 JSON body/query 或 E adapter 函数裸参数接收。B06 负责项目+投产批次+可信真实关系 ACL，不接收 Mission allow-list。E 必须读取正式 R1 后对 Mission 显式 project_id/batch_id 双字段逐一核对；缺失或错配 HOLD/拒绝，不得从 release_id 推断。
+- B 复签只承认 W0 设计，并不证明 B06 真实 PostgreSQL/HTTP；E proto 不是正式 E01/R1；D 现有 Host 契约未经行内 DSH1.18.26 实测。原 A03 F_RECHECK_REQUIRED 仍生效，W0_NOT_FROZEN、A02_BLOCKED_LICENSE、NO_BANK_PACKAGE。
