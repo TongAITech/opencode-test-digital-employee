@@ -78,6 +78,16 @@ F 在审查 `4349ee6` 时查出 W4 DAG 放行可以跳过 F02 六页十区原能
 C 组局部纯函数测试不能抵扣 FG01、FG07、FG10、FG13/14 或 F02 QA；原版受限源码不得进入银行交付。
 
 
+
+### C 组 W0 新增反例与待核销缺口（2026-11-10）
+| WB-FG23 C Browser CI trigger | C_CODE_FIXED / EXACT_HEAD_CI_PASS / F_RECHECK_PENDING | C SHA `7fa4d0c` 删除 Chromium PR 的 08/09/10 账本触发路径，保留 30 Node、浏览器、workflow_dispatch 与非 Draft；[run 42733902992](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992) 三检查成功 | F 重新运行 A+B+C 同源 183/183 Python W0 CI 与路径策略负例，最终 A/F W0 签收 |
+- C #97 源 15d37ec 同 SHA W0 Node 30/30、真 Chromium + PNG、B→C 30/30 已 PASS；F02 真业务仍 NOT_RUN。
+| GAP | 现状 | 核销条件 |
+|---|---|---|
+| WB-CG05 异步响应跨 Scope | W0_PROBE_CI_PASS（SHA 15d37ec），epoch + 项目/批次/修订拒绝旧响应；正式 SSE/ACL 未接 | B06、E SSE、D Host 实际并发/撤权回归及 F02 |
+| WB-CG06 业务真相不可伪 PASS | W0_PROBE_CI_PASS（SHA 15d37ec）；401/403/404/409/422/503、缺 Evidence/Human Review、STALE/UNKNOWN 不作 PASS；十项单测 CI 待新 HEAD | R1 真 Evidence/人审/控制面 HTTP + F02 |
+| WB-FG22 A-owned CI admission | F #101 独立旧源曾发现错误码负向断言红，C 不代修 A CI | A 最新 HEAD 同源 L0 + F 独立复核 |
+
 ## 2026-11-09 E 组 W0 合同审查的实现 HOLD（非新功能已通过）
 | E GAP | 级别 | 可复核来源与实际缺失 | 关闭门槛 | owner/status |
 |---|---|---|---|---|
@@ -138,3 +148,14 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | R4-32 | F #101 源码定向 100/100 | ROSTER32_SOURCE_PASS / ACTIVE4_DEFAULT | DSH1.18.26 真实 32 名册/资源并发/断线恢复/Windows Git Bash 现场 |
 
 权限、合同门禁：B06 由 DSH Host 会话派生可信 principal；response source_refs、records、next_page_cursor 单一规范，E 仅读来源验证和 R1 拥有权。B01/B02/E01/C01/C02 **不准**以 W0 见证伪报实现 QA。BUSINESS_TZ 与真实来源映射 HOLD；A02 非商业许可与原创来源审计 BLOCKED_LICENSE；W0_NOT_FROZEN、W1–W4 NOT_RUN。
+
+
+## A/F FG23 最新 Source CI 反例整改与 W0 准入差量（2026-11-10）
+| GAP | 新源/真实证据 | 当前状态 | 退出条件 |
+|---|---|---|---|
+| FG23 C 账本触发 Chromium | F #104 A+B+C 183/1 FAIL；C #97 `b2a64df` 仅移除 08/09/10 pull_request.paths，C 同 SHA 3/3 jobs PASS | C_CODE_FIXED / F_INTEGRATED_RECHECK_REQUIRED | A 最新单源 CI 通过且 F 独立确认，不能把 C 局部绿灯当 F 全局核销 |
+| FG18 SST 来源追踪 | B #95 `50bd16d` 来源复合 FK、空白/跨版本冒用负例；26/26 SQL + FG18 PASS | W0_DESIGN_PROVENANCE_CANDIDATE | F 同源负向签收；W1 真实 DB+ACL+事务资格独立核销 |
+| E01 B06→R1 完整消费 | E #102 `26b2dea` Py3.8/3.11 各68/68；禁止未读完所有页就 R1/假完整 Scope | W0_PROTOCOL_CANDIDATE / E01_IMPL_NOT_RUN | B06 真 PostgreSQL/HTTP/Host ACL+R1 独立 QA |
+| FG17, FG21, FG22 | F FG17 定向真实 Py3.8 PASS，PR84 R4 Git merge conflict resolved，A200 W0 180/180 Node20/20 | PREVIOUS_HEAD_CI_EVIDENCE / NEW_HEAD_RECHECK | FG17 新源资格、FG21 所有 required checks、FG22/23 F 同源核销 |
+| C01/C02 50功能与source fence | C W0 原创六页十区模拟验证、30 Node、3 PNG；source fence 只验证只读 preview/失败拒绝 | W0_PROTOTYPE_ONLY / F_VISUAL_REVIEW_PENDING | 真实 DSH Host/B06、完整 50 原子 F02 UI/API/Evidence |
+| A02 授权与交付 | PolyForm Noncommercial 上游源码不得商业复制；来源审计/法务尚未通过 | BLOCKED_LICENSE | LEGAL_LICENSE_RELEASE_APPROVED + F04 FIELD_QA + W1-W4 正式 QA |

@@ -67,3 +67,10 @@ B 组最新 PR #89 HEAD `98bac426a35063a306f4eaa4b43c80cf0a0a1745` 已新增 sst
 - F PR #101 @ A `b385e042` 接受 FG18 设计与 FG17/R4 targeted，发现 **FG22 W0 CI 失败**；A 修复提交 `5bba94c` 后仍需用新同 SHA CI 和 F 独立重检。
 - D DESIGN_SIGNOFF 既有附件不替代 DSH1.18.26 实际宿主 qualification；E DESIGN_SIGNOFF_WITH_IMPLEMENTATION_HOLDS 不等于 E01/R1/HTTP 已实现。FG21 Git source merge 已解，PR #84 CI=unstable 时禁止主线合并。
 - **退出门槛不变：F 独立 W0 DESIGN_ACCEPTED 尚缺、W0_NOT_FROZEN、A02 BLOCKED_LICENSE、W1–W4 FIELD/IMPLEMENTATION_QA_NOT_RUN。**
+
+
+## 2026-11-10 A 最终 B/C/E W0 差量集成签署附件（不可代签 F）
+- B 组最新设计签署源 #95 `50bd16d9e2c321eb5eaa21e96f663e89ae377b34`；原 B_DESIGN_SIGNOFF_RECONFIRMED 仅对领域 W0 合同成立。新增 `authoritative_link(project,version,sst)` 经 sst_source_trace 复合来源 FK、反跨版本 raw SST ID 错配/空白来源，SQLite 设计见证，PostgreSQL B01/B02/B06 正式实现未开始。
+- E 组新 #102 `26b2deaf5485193133e418da81982291c8056d64` B06 全分页请求 page_cursor、顶层 next_page_cursor；所有页授权和 project+batch/revisions/source_refs 恒等才允许读取 R1，E 不接收自报 principal。E 的 W0 协议反例可进入联合 CI，E01 真实 R1/HTTP/持久化未通过。
+- C 组 #97 `b2a64df65661880808510d0486f6aefc70ca23df` 新原创 SourceReadFence/30 Node 反例只展示只读模拟 Scope，不得自动让 NodeGate/人审 PASS。F #104 FG23 旧联合树失败、新 C 已删除 Chromium CI 08/09/10 PR 路径，待本次 A 同 SHA 合同/F 独立复验。
+- 最新 F 已审查但尚未签署当前 A 集成树，`W0_DESIGN_ACCEPTED=NO`；F02/F03/F04、A02 商业权限与独立产品现场认证另为严格门禁；`W0_NOT_FROZEN / BLOCKED_LICENSE / W1–W4_NOT_RUN`。

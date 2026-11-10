@@ -106,3 +106,15 @@ New E-owned protocol note: `WB-E01-B06-CONSUMER-PROTOCOL.md`. E readonly-scope t
 **B review requested:** confirm the unique `source_refs` list and exact `next_page_cursor` payload shape before freezing B06. This PR does not change B's signed SQL schema or shared 08/09/10 ledgers.
 
 **Status remains:** E A03 design accepted with implementation holds; E01 `BLOCKED_DEPENDENCY_B06`; E02–E06 `NOT_STARTED`; E07 `OPTIONAL_NOT_ADMITTED`; no HTTP/API/DB/SSE/command/NodeGate/Agent Teams production integration; no ZIP.
+
+## 9. B06 consumer protocol signed by B; multipage E readonly pre-adapter (2026-11-10)
+
+B [PR #95](https://github.com/TongAITech/opencode-test-digital-employee/pull/95) expressly confirmed on E [PR #96](https://github.com/TongAITech/opencode-test-digital-employee/pull/96) the exact consumer shape: each B06 page has a distinct/unique source_refs list covering verified BRV + SPLIT BRVS links; request = page_size/page_cursor; mandatory top-level next_page_cursor (null final), no second pagination envelope; B06 authenticates project+batch from Host-bound request context, does not own Mission membership or R1 truth_revision. E must check explicit R1 project_id/batch_id after B06 and must consume **all pages before declaring Scope complete**.
+
+E added `tools/dsh_workbench/e_b06_page_consumer.py` with bounded, revision-stable B06 page gathering and read-only R1 admission only after all pages pass. Cross-page duplicate relation, UNSPLIT/SPLIT contradiction, date/relation/access version drift, cursor cycle, missing next cursor, too many rows and max-page exhaustion reject before R1 lookup. Full Scope `source_refs` merge preserves B06 provenance, and R1 source_ref is appended without being mistaken for a B06 verified link. No assumption of executed Attempt or valid Evidence is added.
+
+Tests `tests/test_dsh_workbench_e_pages.py` are synthetic B06 page port and isolated R1 read projection fixtures, **not** real B06 PostgreSQL, real Host signed request context, R1 event stream qualification, or W1 IMPLEMENTATION_QA. Existing E01 `BLOCKED_DEPENDENCY_B06`; E02-E06 `NOT_STARTED`; E07 `OPTIONAL_NOT_ADMITTED`.
+
+Latest F independent audit [PR #101](https://github.com/TongAITech/opencode-test-digital-employee/pull/101) against A W0 `b385e042c4543f5d918d61bff5e01be1d88afba7` remained `REVIEWED_WITH_BLOCKERS/W0_NOT_FROZEN` after FG22 CI negative policy failure. A subsequently committed `5bba94c213e2d54a83f8aa360b0f3d71ea8d26a1` to fix FG22; **that new HEAD requires F independent recheck**. FG17 targeted real Chromium and FG21 Git merge conflict received narrower positive review, not field QA. A02 `BLOCKED_LICENSE` remains.
+
+This E own-design/signoff addition intentionally does not edit A-owned `08/09/10` shared ledgers. A must integrate and record its own source-sha and F signoff separately.

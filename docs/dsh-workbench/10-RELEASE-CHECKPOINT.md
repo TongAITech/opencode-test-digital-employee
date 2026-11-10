@@ -63,6 +63,16 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 旧本地 `ERR_BLOCKED_BY_ADMINISTRATOR` 及首次 Ubuntu26.04 依赖失败仍记录为历史事实；最终浏览器演示以同 SHA GitHub job 为准。**不等于**六页十区完整原版功能、正式 B06/E/R1/Host/F02 通过；C01/C02 TODO、A02 BLOCKED_LICENSE，W0 NOT_FROZEN。F 对本轮新 PR 仍待独立评审。
 
 
+
+### C 组新增 W0 source fence 检查点（2026-11-10）
+- FG23 C-side 修复：F #104 原真实 A+B+C 合并 CI `183/1 FAIL` 的 `C_BROWSER_RERUN_ON_LEDGER`，C 提交 `7fa4d0c`，仅移除 Chromium 工作流 08/09/10 PR 触发路径；新源同 SHA C 30/30 Node + Chromium + 3 PNG + B→C 30/30 + E W0 成功。[run 42733902992](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992)、[artifact 13725373516](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992/artifacts/13725373516)。**F 合并后全量策略复验仍未完成，不自行核销 FG23 或冻结 W0。**
+- 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
+- artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
+- F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
+- C PR #97 维持六页面、十区、投产日期→需求→系统版本→SST 多选关系；新增源错误和迟到响应模拟，零真实 API、零假 QA_PASS。
+- 第一轮 6249f1a 的 20 Node + 真 Chromium CI PASS 不覆盖新增10项；工作流修复已提交，需要新 SHA 30/30 与浏览器截图复核，不冒用历史绿灯。
+- W0_NOT_FROZEN、C01/C02 W1_NOT_STARTED、F02_NOT_RUN、B06_NOT_IMPLEMENTED、A02_BLOCKED_LICENSE，禁止银行 ZIP。
+
 ## 2026-11-09 E 组来源审计及 W0 设计签署（需 A/F 复核）
 - W0 PR #84 审核来源 HEAD `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`；F PR #85 仍 REVIEWED_WITH_BLOCKERS。E 施工分支 `work/dsh-wb-runtime` 对独立控制面协议形成 `E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`，详见 `WB-E-A03-DESIGN-SIGNOFF.md`。E 分支实际提交 SHA/CI 必须以创建 PR 后同 HEAD API 结果更新，不借用 A 的历史 success。
 - 已核对真实 `rc7_admin/server.py`, `product_server.py`, `projection.py`, `rc6_runtime/truth.py`, `rc7_runtime/rc72_domain.py`, `rc72_linkage.py`, `models.py`, `truth_overlay.py`, `derived.py` 的 blob SHA；旧 HTTP 没有可信项目 ACL、正式命令、SSE 或 `/api/workbench/v1`；R1 是 JSONL 原子事实源；Evidence content_hash 可选。对应实现 HOLD 见 09。
@@ -105,3 +115,10 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - 本次 B #95 领域复签 @ `67c4fc592f290710d6242aef2d4144000e7d82fd`、E #96 R1 consumer @ `c70ad0da92c5a4899a72d3096fad5e46fded74d5`、C #97 原创 UI 原型 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 纳入 A 候选，保留各组独立 PR 供 F 审查；B06 只读 Scope 使用服务端可信主体、source_refs、顶层 next_page_cursor，E 检查显式 Mission project+batch。
 - C 原型最新可重复源 d4863ba：20/20 Node、Chromium 六页十区多选及表单、3 PNG 通过，F 后续视觉独立复查和正式 F02 尚未进行；B 23/23、E 47/47 属各自源 SHA，不预填联合 HEAD 绿灯。
 - A 当前集成源码的 W0 155+/FG22 新测试/F 独立边界仍需同 SHA 运行；PR #84 继续 Draft，W0_NOT_FROZEN、A02 BLOCKED_LICENSE、B01/C01/E01 真实实现 NOT_RUN、无现场 DSH、无 Windows 离线 ZIP、不得合并运行主线。
+
+
+## 2026-11-10 A 组最新 B/C/E 合并候选—检查点
+- 当前源任务：B #95 最新 `50bd16d9e2c321eb5eaa21e96f663e89ae377b34`，C #97 FG23 整改 `b2a64df65661880808510d0486f6aefc70ca23df`，E #102 全分页 `26b2deaf5485193133e418da81982291c8056d64`，A #103 W0 source fence CI policy `d082e71f7eb9260afe450203bd160f8cd9e65948`；集成 A `work/dsh-wb-w0` 保留父提交来源。以 PR #84 新 HEAD 与同 SHA workflow 为唯一新验收结果；旧 B26、E68、C30、A181 成功不可自动挪用。
+- **F #104 发现 FG23 的原始失败** https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42732024122/job/129552134247 保留，C 仅提交 CI PR paths 修复，同源 Browser+30Node 源工作流成功 https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42734198368；需新联合 HEAD F recheck；仅改 08/09/10 的 PR synchronize 仍可能因累计差异触发浏览器，CI 经济优化需单独实测，不宣传已完全消除。
+- 新源 CI 在明确完成前状态 `NEW_HEAD_W0_CI_PENDING / F_W0_DESIGN_RECHECK_REQUIRED`；W0 非产品 QA；B06 真 API、R1、DSH Host1.18.26、PostgreSQL、32真实团队、Windows免安装都不在这里验收。
+- **W0_NOT_FROZEN, A02_BLOCKED_LICENSE, W1-W4_QA_NOT_RUN, NO_RC72_MERGE, NO_BANK_ZIP**。正式 L1/L2 在 release-ready 同 SHA 准入；不得以本轮减负抹去真实 Q1/FG17 负例。

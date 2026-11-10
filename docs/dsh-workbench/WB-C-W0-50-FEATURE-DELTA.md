@@ -10,6 +10,7 @@
 - `SCOPE_MULTI_ONLY` W0 原型支持需求/系统版本/SST 多选与合法关系级联；没有 B06 复合真关联、ACL/数据库/分页与 SSE。
 - `FORM_DENY_ONLY` 十个分区展示对应领域必填字段并验证输入；提交始终明确拒绝，没有创建/修改/执行/审批 API。
 - `DENY_ONLY` 按钮显式拒绝缺宿主/API 情况；不能记成功操作。
+- `ERROR_FENCE_ONLY` 只模拟 401/403/404/409/422/503、缺证据人审与迟到响应拒绝；不发真实 HTTP，不判真实 QA。
 - `TEXT_HINT_ONLY` 搜索输入显示提示，不查询真实 Skill Catalog。
 - `THEME_COLLAPSE_ONLY` 只有深浅主题与侧栏折叠；中英文切换、系统主题与雷达宽度未全实现。
 - `NO_INTERACTION` 该原子项尚无可独立复核的演示交互。
@@ -67,7 +68,7 @@
 | D10-02 | N | NodeGate 及 Human Gate | FORM_DENY_ONLY | NOT_RUN |
 | X01-01 | O | 切换中文/英文、浅/深/系统主题，调整导航或项目雷达宽度 | THEME_COLLAPSE_ONLY | NOT_RUN |
 | X02-01 | O | 新建项目/迭代及父子关联 | NO_INTERACTION | NOT_RUN |
-| X03-01 | N | 离线失联、Host 缺失、R1 无 Evidence、重复请求与错误 Scope | DENY_ONLY | NOT_RUN |
+| X03-01 | N | 离线失联、Host 缺失、R1 无 Evidence、重复请求与错误 Scope | ERROR_FENCE_ONLY | NOT_RUN |
 
 ## 独立验收与未完成清单
 

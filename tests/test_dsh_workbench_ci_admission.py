@@ -50,9 +50,19 @@ class TestCIAdmission(unittest.TestCase):
                      "echo skipped C scope tests",
                      "W0_C_SCOPE_NEGATIVE_TESTS_NOT_ADMITTED")
 
+    def test_w0_scope_response_fence_cannot_be_silently_removed(self):
+        self.changed("w0", " tests/test_dsh_workbench_ui_source_fence.mjs",
+                     " tests/removed_scope_fence.mjs",
+                     "W0_SCOPE_RESPONSE_FENCE_NOT_ADMITTED")
+
     def test_l1_pinned_sha_must_remain_fail_closed(self):
         self.changed("l1", "L1_SOURCE_HEAD_MISMATCH", "SILENTLY_ACCEPT",
                      "L1_SOURCE_PIN_OR_GATES_MISSING")
+
+    def test_l1_scope_response_fence_must_be_present(self):
+        self.changed("l1", "tests/test_dsh_workbench_ui_source_fence.mjs",
+                     "tests/disabled_source_fence.mjs",
+                     "L1_SCOPE_RESPONSE_FENCE_NOT_ADMITTED")
 
     def test_c_browser_does_not_rebuild_on_document_ledger(self):
         self.changed("c", "  pull_request:\n    types:",

@@ -66,3 +66,13 @@ These are protocol/fixture tests only. They do not exercise PostgreSQL, real B06
 `WB-E01=BLOCKED_DEPENDENCY_B06` until B provides the real PostgreSQL-backed B06 API, trusted DSH Host principal integration is available, and source-verified joins/ACL/error semantics/pagination are verified against real data. E01 QA requires real R1 read-only mapping and negative tests on the same integrated source SHA. E02–E06 remain unstarted until W0 and their explicit dependencies are accepted. E07 remains optional and must share the exclusive BrowserLease manager with BSK if later admitted.
 
 No production route, PASS, Evidence, Defect, NodeGate, command, or bank package is created by this note.
+
+## 6. B confirm + full pagination read isolation
+
+B confirmed the exact `source_refs` and `next_page_cursor` semantics on E PR #96 and B PR #95. The consumer now exposes:
+- `collect_authorized_b06_pages(page_fetcher, project_id, batch_id, page_size, max_pages)`: caller supplies a **Host-bound B06 port**, accepting (project_id, batch_id, page_size, page_cursor); the port must authorize each request, including resumed pages. No raw client principal argument is accepted.
+- `r1_preview_after_full_b06_scope(page_fetcher, legacy_admin, project_id, batch_id, mission_id)`: requires successful consumption of **all** pages and stable project/batch/date/relation_revision/access_scope_revision before any R1 read.
+- Each next cursor must be new; cross-page row identities must be unique; an UNSPLIT parent cannot become SPLIT within a single logical snapshot; source references are preserved and de-duplicated across pages; page-size and page-limit exhaustion are explicit failures.
+- B remains responsible for actual cursor signature and DB snapshot isolation; this E adapter cannot cryptographically establish cursor authenticity. E preserves fail-closed statuses even when the complete B06 projection fixture succeeds.
+
+The new `tests/test_dsh_workbench_e_pages.py` exercises the positive and negative page-chain protocol. No real Host, R1 production lineage, migration, HTTP server, command, SSE, or browser execution has been integrated by these fixture tests.

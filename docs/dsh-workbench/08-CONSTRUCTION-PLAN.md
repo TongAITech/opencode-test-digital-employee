@@ -141,6 +141,17 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - **状态仅 W0_PROTOTYPE_CI_PASS，非 W1_IMPLEMENTATION_QA_PASS**；C01/C02 未启动、B06 和 A/F W0 设计门槛未解锁。单次 PR 探针 CI 避免 push+PR 同 SHA 触发两次，不构建 Windows 离线包。
 
 
+
+### C 组 W0 来源响应栅栏与负向验收（2026-11-10）
+- **FG23 C侧整改已提交**：F #104 在 A+B+C 合并树真实复现 `C_BROWSER_RERUN_ON_LEDGER`。C 只从 `.github/workflows/dsh-wb-c-w0-ui.yml` 的 `pull_request.paths` 移除 `08-CONSTRUCTION-PLAN.md`、`09-GAP-MATRIX.md`、`10-RELEASE-CHECKPOINT.md`；保留原型代码/单测/审查资产路径、`workflow_dispatch`、非 Draft 与真实 Chromium。源 `7fa4d0c516168cde22d6d071170d449dc0ed8b77` 同 SHA [C CI](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42733902992) 已 30/30 Node、Chromium、B→C 30/30 与 E 合同成功；F 需重新运行 A+B+C 183 项合约，未由 C 自行宣布 FG23 CLOSED。
+- 同源实测：C #97 HEAD 15d37ec22e758922cab513a2d403be9211eddaf8；[W0 Chromium job 129545127122](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127122) 实际 30/30 Node PASS + 真浏览器交互 PASS + 3 PNG；[B→C job 129545127428](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/job/129545127428) 30/30 PASS；[E 合同 job 129545126959](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943656/job/129545126959) SUCCESS。只核销 W0 源反例探针，不证明 W1/F02。
+- artifact [13723922528](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729943652/artifacts/13723922528)，scope PNG sha256 6e64316cad45e7d43f1827ce1d45914f0560505539edc39bfaded5232443c8ae；历史 6249f1a 测试漏跑事实保留。
+- F 对本 follow-up 最新 UI 和真实截图仍独立审核待办；W0_NOT_FROZEN / A02_BLOCKED_LICENSE / C01_C02_W1_NOT_STARTED / NO_BANK_ZIP。
+- C PR #97 已重基在 A 200a96ac 的统一 W0 源树；A 的 B/E/F 账本原样保留，C 仅提交原创 source_fence.mjs 和十项反例。
+- 模拟 401/403/404/409/422/503、200 缺证据或人工审批、STALE/UNKNOWN R1；按项目/稳定批次/选中复合关联/修订/epoch 丢弃迟到响应。
+- 第一轮 6249f1a 同 SHA CI 仅 20/20 Node + 原型真 Chromium PASS（截图 artifact 13723128464），漏跑新十项。CI 已修复成 30 项正反例与真实当前 C branch 合并探针，新 HEAD 结果须核对。
+- 状态 W0_ORIGINAL_PROTOTYPE / C01-C02_W1_NOT_STARTED；F #101 最近判 W0_NOT_FROZEN、FG22 为 A CI blocker；A02 BLOCKED_LICENSE。正式 B06/R1/Host/F02 未运行。
+
 ## 2026-11-09 E 组 A03 设计签署增量（施工分支提议，待 A/F 审查合并）
 - 工单 WB-A03/E：`E_DESIGN_SIGNOFF_ACCEPTED_WITH_IMPLEMENTATION_HOLDS`；签署文档 `WB-E-A03-DESIGN-SIGNOFF.md` 固定审核 W0 源 SHA `5dc514c50d6ae89dcd0c606cea949dda9e0e53fc`。该状态只接受 W0 R1 只读/权限优先/命令幂等/NodeGate、人审、SSE+水位/证据哈希设计，不要求 W1 真运行以规避 FG15 环依赖。
 - 工单 WB-E01：仍 `BLOCKED_DEPENDENCY_B06`，E 仅可提交来源审查、只读映射设计与 W0 协议反例；没有真实 B06 跨 Scope join、身份授权，不得 QA_PASS。WB-E02–E06 保持受依赖约束；E07 仍 OPTIONAL_NOT_ADMITTED。
@@ -188,3 +199,12 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - C PR #97 @ `78837f45d01acc9fdddc4daffa9e575804c542dd` 交付 W0 原创原型多选 Scope 与十区表单；早期 C 源 `d4863bab` 的 20/20 Node + 真实 Chromium/3 PNG 通过；不是正式六页十区 F02。
 - A 将 B/C/E 增量保留原来源、合入统一源码树；共享 08/09/10 **只追加设计证据**，不删除原 F 红灯；C 浏览器 CI 保持禁止仅因三账本改动而重跑，旧完整 RC7.2 V4/Q1 仍作为非 Draft/正式门禁。
 - B01/B02、C01/C02、E01 真实 PostgreSQL/HTTP/R1/DSH Host 正式实现、F02/F03/D04/F04、32 人现场、商业授权均未通过：**W0_NOT_FROZEN / W1–W4_NOT_RUN / A02_BLOCKED_LICENSE / PR #84 DRAFT / NO_BANK_ZIP**。
+
+
+## A 组 2026-11-10 B/C/E 最新源码一致性集成（待新 HEAD/F 核销）
+- F 独立 PR #104 在 A `200a96ac` + B #95 + C #97 的临时合并树发现 **FG23：C Browser PR paths 误将 08/09/10 三本账作为重跑条件**。F 原始 183/1 FAIL job https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42732024122/job/129552134247 保留；C PR #97 `b2a64df65661880808510d0486f6aefc70ca23df` 已删除三条高成本路径，同源 C 30/30 Node/Chromium/3 PNG SUCCESS https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42734198368 。仅 C 层修复，**联合 F 正式复验仍需新 HEAD**。
+- B PR #95 `50bd16d9e2c321eb5eaa21e96f663e89ae377b34` 补 `authoritative_link` 对 `sst_source_trace` 复合来源 FK 与空白来源/跨版本 raw SST ID 冒用反例；B 同源 26/26 SQL + 原 F FG18 + shared 183/183 PASS，https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729370403/job/129543167902 。这仍是 W0 SQLite 设计见证，不是实库 PostgreSQL。
+- E PR #102 `26b2deaf5485193133e418da81982291c8056d64` 补 B06 全分页 consumer，检查 page_cursor→next_page_cursor、全页来源并集、稳定的 project/batch/revisions、游标循环与授权拒绝后不读取 R1；Py3.8/3.11 各 68/68 PASS，https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42729623656/job/129544043597 。B06 真 HTTP/DB 及 E01 IMPLEMENTATION_QA 仍 NOT_RUN。
+- C 源 `source_fence.mjs` + 10 条 SourceReadFence Node 负向用于拒绝跨项目/批次/epoch/修订异步响应、401/403/404/409/422/503、R1 STALE、缺 Evidence/人审假 PASS；A 继承 #103 的 W0 必跑约束及新 L1/Node 校验。**源模拟预览，不能伪称正式 Host/API/R1。**
+- B/C/E 通过真实多父 Git 集成到 A `work/dsh-wb-w0`，保留 C/F/B/D/E 的原始证据与错误历史；三本账为追加更正，不删除旧结论。P0 FG21 Git 源冲突已解决；FG22 源 A200 180/180 PASS；FG23 新集成 HEAD CI 与 F 独立核验后才能关闭。
+- **门禁：W0_NOT_FROZEN / A02_BLOCKED_LICENSE / A_PR84_DRAFT / W1-W4_PRODUCT_QA_NOT_RUN / R4_ROSTER32_ACTIVE4_DEFAULT / NO_BANK_ZIP**。不把 L0 demo 绿灯当独立 F acceptance；未经商业许可不得复制受限 naodeng/dsh-qa 代码。

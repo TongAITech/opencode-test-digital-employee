@@ -5,7 +5,7 @@ on:
   # Keep the required w0-contracts status on the protected target branch.
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
-    branches: [work/rc7.2]
+    branches: [work/rc7.2, work/dsh-wb-w0]
     paths:
       - 'docs/dsh-workbench/**'
       - 'tools/dsh_workbench/**'
@@ -33,8 +33,9 @@ jobs:
       - name: Negative-first C W0 Scope and 50-feature reconciliation (Node, no browser)
         run: |
           node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
           node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
-          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs tests/test_dsh_workbench_ui_source_fence.mjs
       - name: Verify 3-tier CI admission topology (negative-first)
         run: python tools/dsh_workbench/ci_admission.py
       - name: Boundaries are not product acceptance

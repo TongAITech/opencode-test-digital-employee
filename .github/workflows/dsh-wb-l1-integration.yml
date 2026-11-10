@@ -60,7 +60,7 @@ jobs:
       - name: Integrated B/C/D/E/F contract and adversarial scope checks
         run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
       - name: Independent C original-feature/Scope Node probes
-        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs tests/test_dsh_workbench_ui_source_fence.mjs
       - name: Install Chromium only when explicitly requested
         if: github.event_name == 'workflow_dispatch' && inputs.include_browser == true
         run: |
