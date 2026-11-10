@@ -7,8 +7,8 @@
 **W0 原创静态演示覆盖码（只反映很窄的演示行为）：**
 - `NAV_ONLY` 页面入口或项目卡片演示导航；没有真实 ACL/路由服务。
 - `STAGE_ONLY` 仅显示六个业务阶段标题和演示卡片；没有完整筛选/拖拽/SSE/持久状态。
-- `SCOPE_ONLY` 仅静态合法关系筛选；没有 B06 复合真关联、ACL/数据库/分页与 SSE。
-- `TAB_ONLY` 仅项目详情十个分区标题/说明可切换；不等于该分区表单、操作或业务数据实现。
+- `SCOPE_MULTI_ONLY` W0 原型支持需求/系统版本/SST 多选与合法关系级联；没有 B06 复合真关联、ACL/数据库/分页与 SSE。
+- `FORM_DENY_ONLY` 十个分区展示对应领域必填字段并验证输入；提交始终明确拒绝，没有创建/修改/执行/审批 API。
 - `DENY_ONLY` 按钮显式拒绝缺宿主/API 情况；不能记成功操作。
 - `TEXT_HINT_ONLY` 搜索输入显示提示，不查询真实 Skill Catalog。
 - `THEME_COLLAPSE_ONLY` 只有深浅主题与侧栏折叠；中英文切换、系统主题与雷达宽度未全实现。
@@ -43,28 +43,28 @@
 | P06-01 | O | 从项目进入详情 | NAV_ONLY | NOT_RUN |
 | P06-02 | O | 编辑资料/成员/本地目录 | NO_INTERACTION | NOT_RUN |
 | P06-03 | O | 查看阶段时间线 | NO_INTERACTION | NOT_RUN |
-| P06-04 | N | 十区统一选批次-需求-版本-SST | SCOPE_ONLY | NOT_RUN |
-| D01-01 | O | 项目概览字段、成员、风险 | TAB_ONLY | NOT_RUN |
-| D01-02 | N | 批次质量摘要 | TAB_ONLY | NOT_RUN |
-| D02-01 | O | 建质量任务/选来源/预览 | TAB_ONLY | NOT_RUN |
-| D02-02 | O | 执行/取消/重试/回归 | TAB_ONLY | NOT_RUN |
-| D02-03 | A | 测试计划版本/评审/预览入口 | TAB_ONLY | NOT_RUN |
-| D02-04 | N | 展示 N1–N10/Agent Teams | TAB_ONLY | NOT_RUN |
-| D03-01 | O | 维护功能及非功能要求 | TAB_ONLY | NOT_RUN |
-| D03-02 | N | 展开版本和 SST | SCOPE_ONLY | NOT_RUN |
-| D04-01 | O | 编辑用例前置/步骤/预期 | TAB_ONLY | NOT_RUN |
-| D04-02 | O | 由需求查看用例追踪 | TAB_ONLY | NOT_RUN |
-| D04-03 | N | L1–L7/义务/充分度视图 | TAB_ONLY | NOT_RUN |
-| D05-01 | O | 提交缺陷实际/预期/复现 | TAB_ONLY | NOT_RUN |
-| D05-02 | N | RCA/回归/核销链 | TAB_ONLY | NOT_RUN |
-| D06-01 | O | 编辑里程碑与日历联动 | TAB_ONLY | NOT_RUN |
-| D07-01 | O | 查看测试计划/报告/发布说明 | TAB_ONLY | NOT_RUN |
-| D07-02 | N | 批次报告与 N10 | TAB_ONLY | NOT_RUN |
-| D08-01 | O | 新增/检索知识资料 | TAB_ONLY | NOT_RUN |
-| D09-01 | O | 会议纪要/决议/行动项 | TAB_ONLY | NOT_RUN |
-| D09-02 | N | 绑定批次与四元组 | TAB_ONLY | NOT_RUN |
-| D10-01 | O | 人审需求/用例/报告/发布 | TAB_ONLY | NOT_RUN |
-| D10-02 | N | NodeGate 及 Human Gate | TAB_ONLY | NOT_RUN |
+| P06-04 | N | 十区统一选批次-需求-版本-SST | SCOPE_MULTI_ONLY | NOT_RUN |
+| D01-01 | O | 项目概览字段、成员、风险 | FORM_DENY_ONLY | NOT_RUN |
+| D01-02 | N | 批次质量摘要 | FORM_DENY_ONLY | NOT_RUN |
+| D02-01 | O | 建质量任务/选来源/预览 | FORM_DENY_ONLY | NOT_RUN |
+| D02-02 | O | 执行/取消/重试/回归 | FORM_DENY_ONLY | NOT_RUN |
+| D02-03 | A | 测试计划版本/评审/预览入口 | FORM_DENY_ONLY | NOT_RUN |
+| D02-04 | N | 展示 N1–N10/Agent Teams | FORM_DENY_ONLY | NOT_RUN |
+| D03-01 | O | 维护功能及非功能要求 | FORM_DENY_ONLY | NOT_RUN |
+| D03-02 | N | 展开版本和 SST | SCOPE_MULTI_ONLY | NOT_RUN |
+| D04-01 | O | 编辑用例前置/步骤/预期 | FORM_DENY_ONLY | NOT_RUN |
+| D04-02 | O | 由需求查看用例追踪 | FORM_DENY_ONLY | NOT_RUN |
+| D04-03 | N | L1–L7/义务/充分度视图 | FORM_DENY_ONLY | NOT_RUN |
+| D05-01 | O | 提交缺陷实际/预期/复现 | FORM_DENY_ONLY | NOT_RUN |
+| D05-02 | N | RCA/回归/核销链 | FORM_DENY_ONLY | NOT_RUN |
+| D06-01 | O | 编辑里程碑与日历联动 | FORM_DENY_ONLY | NOT_RUN |
+| D07-01 | O | 查看测试计划/报告/发布说明 | FORM_DENY_ONLY | NOT_RUN |
+| D07-02 | N | 批次报告与 N10 | FORM_DENY_ONLY | NOT_RUN |
+| D08-01 | O | 新增/检索知识资料 | FORM_DENY_ONLY | NOT_RUN |
+| D09-01 | O | 会议纪要/决议/行动项 | FORM_DENY_ONLY | NOT_RUN |
+| D09-02 | N | 绑定批次与四元组 | FORM_DENY_ONLY | NOT_RUN |
+| D10-01 | O | 人审需求/用例/报告/发布 | FORM_DENY_ONLY | NOT_RUN |
+| D10-02 | N | NodeGate 及 Human Gate | FORM_DENY_ONLY | NOT_RUN |
 | X01-01 | O | 切换中文/英文、浅/深/系统主题，调整导航或项目雷达宽度 | THEME_COLLAPSE_ONLY | NOT_RUN |
 | X02-01 | O | 新建项目/迭代及父子关联 | NO_INTERACTION | NOT_RUN |
 | X03-01 | N | 离线失联、Host 缺失、R1 无 Evidence、重复请求与错误 Scope | DENY_ONLY | NOT_RUN |
