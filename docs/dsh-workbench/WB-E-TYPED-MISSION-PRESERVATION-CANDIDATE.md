@@ -49,13 +49,68 @@ rc7_admin/projection.py:159 mission_overview_scoped先query(rc7_mission,mission_
 
 旧无绑定“正常legacy继续”与“Workbench拒绝”是两件事。禁止把None默认值用asdict写回导致legacy出现半绑定；绑定缺省应在wire上完全省略。部分绑定检测在row解析、任何相关副作用前置、正式append和重放诊断均需要覆盖。
 
-## 4. 最小typed候选与不可变比较：待审，不直接定生产wire
+## 4. 紧凑 typed wire 字段合同 V1 候选：待精确签署
 
-建议 optional `scope_binding` 作为一个整体不可变值，缺省完全不存在；对象最少承载V3 schema_version=1、binding_ref、完整K、request_digest、mapping（含显式runtime_release_id）、snapshot_ref、Scope完整canonical快照与scope_digest、正式creation事件/receipt引用。正式creation引用在创建事件自身如何自引用、事件ID何时分配须与V3 writer事件设计一起定，**本候选不编造已签wire字段**。可先采用纯内存保存类型/明确parse结果，最终字段命名/可选性/事件自引用策略由B/D/E/F专门签署；不能以dataclass可以构造证明它是权威。
+本节落实A架构选择，替代本文件首稿携带完整快照/自身事件回执的建议；它是V3的拟议存储细化，尚未签署生效。正式R1绑定仅存紧凑身份和不可变快照引用，不重复完整PG edges/canonical bytes。完整快照由PG append-only保存；每次Mission状态更新不复制大量业务数据。结构parser不读PG、不校验正式事件、不授创建权限。
 
-不可变集合至少为K/mission_id/release_id/binding_ref/mapping/Scope canonical bytes及digest/request_digest/snapshot_ref；创建回执引用应按已签事件协议不可变引用，不能由普通更新补写来源。比较按已严格解析的规范结构/字节，不依赖mutable dict引用或仅project/batch相等；重复JSON键/未知schema/矛盾来源失败关闭。正式writer持锁重读旧行后，拒legacy→bound、bound→legacy、任何改绑，确保并发CAS；旧无来源正式绑定迁移永不自动执行。to_payload传入release覆盖必须同时拒不一致。纯codec只做结构与摘要，不验证任何ref存在、来源verified、Actor/Host动作或R1事件真实性。
+### 4.1 完整字段与严格类型
 
-“保留”必须是读已有绑定→校验→原值再序列化；不允许从当前PG变化重算后写到原Mission。PG/Host撤权影响是否允许当前动作，不改变历史创建绑定。新Scope另走新已授权意图，绝不本地改写旧Mission。
+外层既有Mission的mission_id/release_id语义不变；新 `scope_binding` 是一个整体对象。下表所有字段恰好必填，不允许额外键，不允许null或缺键；对象键顺序无语义。所有text为合法Unicode非空白字符串，原样保留，不trim/Unicode归一化；拒绝未配对surrogate。所有integer要求type为整数且不是bool，正revision范围1..9223372036854775807；schema_version固定整数1。digest为恰好64位小写hex SHA256。date固定合法YYYY-MM-DD。JSON解析拒绝任意层重复键、NaN/Infinity、浮点/指数数字token。未知schema不按旧版猜解。
+
+| scope_binding键 | 类型/精确语义 |
+|---|---|
+| schema_version | integer=1；本紧凑绑定schema版本 |
+| mission_id | text；等于外层Mission.mission_id |
+| project_id、batch_id | text各一个；正式业务PG复合身份，等于mapping对应字段及外层flat镜像 |
+| binding_ref | text；PREPARE预分配，不可变，不是授权token |
+| snapshot_ref | text；PG snapshot_ref，联结域(project_id,batch_id,snapshot_ref) |
+| scope_digest | digest；V3完整PG快照规范字节摘要，不是本紧凑绑定自身摘要 |
+| release_date | date；PREPARE快照中的投产日期 |
+| date_revision、relation_revision、access_scope_revision | positive bigint各一个；PREPARE完整快照的三revision，历史值不随普通更新重算 |
+| creation_key_scope | object；恰好formal_authority_ref、actor_ref、project_id、creation_key四个text；即既定K，不增加batch/session字段入K |
+| request_digest | digest；既存PREPARE请求摘要；本纯模块不定义或重算其完整wire域 |
+| mapping | object；下述固定V3映射，所有字段必填 |
+| creation_operation_ref | text；PREPARE预分配的不可变操作身份，非事件存在证明或执行许可 |
+
+mapping恰好包含：schema_version(integer=1)、formal_authority_ref(text)、project_id(text)、batch_id(text)、runtime_release_id(text)、mapping_ref(text)、mapping_policy(text固定ALLOCATE_NEW_RELEASE_V1)。不允许附加source、display_name或隐式identity映射。mapping.formal_authority_ref必须等于creation_key_scope.formal_authority_ref；mapping.project_id=creation_key_scope.project_id=scope_binding.project_id；mapping.batch_id=scope_binding.batch_id。mapping.runtime_release_id必须等于外层Mission.release_id。binding.mission_id必须等于外层Mission.mission_id。外层flat project_id/batch_id在完整绑定时恰好都存在并与typed相同；它们是确定性镜像，不是额外事实源。serializer只从typed产生镜像；遇传入镜像冲突拒绝，不能用覆盖冲突的方式“修复”。
+
+最小JSON示例（虚构结构向量，不是来源或已创建事实）：
+
+```json
+{"scope_binding":{"schema_version":1,"mission_id":"M1","project_id":"P1","batch_id":"B1","binding_ref":"binding:1","snapshot_ref":"snapshot:1","scope_digest":"0000000000000000000000000000000000000000000000000000000000000000","release_date":"2026-11-11","date_revision":1,"relation_revision":2,"access_scope_revision":3,"creation_key_scope":{"formal_authority_ref":"authority:1","actor_ref":"alice","project_id":"P1","creation_key":"key:1"},"request_digest":"1111111111111111111111111111111111111111111111111111111111111111","mapping":{"schema_version":1,"formal_authority_ref":"authority:1","project_id":"P1","batch_id":"B1","runtime_release_id":"RUNTIME1","mapping_ref":"mapping:1","mapping_policy":"ALLOCATE_NEW_RELEASE_V1"},"creation_operation_ref":"operation:1"},"mission_id":"M1","release_id":"RUNTIME1","project_id":"P1","batch_id":"B1"}
+```
+
+示例的零/一digest仅满足结构，不声称对应任何真实快照。binding中**没有**edges、canonical_bytes、event_hash、event_ref或receipt_ref；parser必须把这些额外键拒绝，不能悄悄透传。
+
+### 4.2 消除自身事件/回执循环
+
+PREPARE必须先按K查询既存intent，再为确无原intent的新意图分配creation_operation_ref；并发唯一冲突必须取回原分配核验，不得把同K的新ref当相同请求。独立durable commit将该ref和K/request_digest/mapping/mission/binding/snapshot身份一起固定；它不授创建资格。creation_operation_ref是永久创建操作身份，不是每次网络attempt_ref或Host fence_ref；重试不得重分配。后续正式request digest wire必须纳入该不可变ref（或经评审明确其与已覆盖ID的确定性关联），不得纳入可变Host fence token。这里不定义未签的完整请求编码，不编造现存allocator接口。正式创建事件及其后产生的外部回执共同引用creation_operation_ref/K/request_digest，并核对全套预分配身份。绑定本身不存尚未生成receipt或自身事件hash，避免摘要自引用。后续receipt如何定位/索引受正式writer事件协议约束，不在纯模块编造已实现接口。
+
+operation_ref存在只表示结构中有一个预分配标识，不证明PREPARE提交、R1 append或Host许可。正式reader必须在已授权PG Scope之后、任何tasks/executions/evidence明细读取之前，通过受控正式creation事实查询核对operation_ref/K/request_digest及mission/release/binding/mapping/Scope引用；查询接口尚未实现时HOLD。查询UNKNOWN、缺失、重复或身份冲突均不放行明细，不能仅凭flat匹配、parser成功或回执字符串存在放行。完整PG快照缺失或与绑定date/三revision/scope_digest不符HOLD；当前授权变化另行当前权限检查，不改写历史snapshot。
+
+### 4.3 解析分类与稳定拒绝矩阵
+
+以下分类供新纯模块返回稳定结果；仅模块内诊断，不向HTTP泄漏内部存在性。错误优先顺序为：外层结构/必需mission_id与release_id类型→重复JSON键/token错误→绑定出现状态→绑定schema与键/类型→内部身份一致→外层镜像一致；原始JSON语法错误始终在得到对象之前拒绝。既有外层Mission运行字段由原正式模型负责；纯模块只检查作用域相关字段，不将自己当完整Mission validator，也不得删改未知外层运行字段。
+
+| 输入 | 纯结果/错误码 | 兼容及未来动作 |
+|---|---|---|
+| 无scope_binding且无flat project_id/batch_id（均为键缺省） | LEGACY_UNBOUND | serializer作用域片段为{}；旧运行继续，Workbench拒绝 |
+| scope_binding键存在且值null | BINDING_EXPLICIT_NULL | 拒绝；不可当缺省或静默省略 |
+| scope_binding非对象、缺必填键、多余键/错误类型/非法digest/date | BINDING_STRUCTURE_INVALID | 拒绝，保留原输入不修改 |
+| schema_version存在但不支持 | BINDING_SCHEMA_UNSUPPORTED | 拒绝，不降legacy；bool/float类型归structure错误 |
+| 无typed但flat一个或两个键存在（包括null） | BINDING_FLAT_ONLY_UNQUALIFIED | 无正式来源，HOLD/拒绝；不删除flat、不自动生成typed |
+| typed内部K/mapping/project/batch矛盾 | BINDING_IDENTITY_CONFLICT | 拒绝，不覆盖任何字段 |
+| 完整typed但外层mission_id/release_id不符 | BINDING_IDENTITY_CONFLICT | 拒绝，不允许_r1_payload覆盖release绕过 |
+| 完整typed但flat镜像缺任一/类型错/不相等 | BINDING_MIRROR_CONFLICT | 拒绝，不依据flat接受或在parse时自动补镜像 |
+| 完整typed且内部/外层/镜像一致 | BOUND_STRUCTURAL_ONLY | 仅结构通过；不代表来源、PREPARE、正式创建事件或Host权威通过 |
+
+typed对象缺schema_version归structure错误；存在合法integer但非1归schema不支持。候选serializer接受已结构核验的typed不可变值，产生scope_binding+两个flat镜像的新detached片段；legacy值产生{}，绝不写scope_binding:null。它不覆盖调用者已有外层片段，merge时必须另做一致性拒绝；失败和成功均不修改原输入。日志中的旧flat-only/partial保持原字节不迁移；未来写路径应在任何副作用前拒绝，不把它们反序列化为None后写回。
+
+### 4.4 不可变比较及独立实现范围
+
+scope_binding全部字段和外层mission_id/release_id均属不可变域；flat镜像由同域派生。比较先严格解析双方及一致性，再按本紧凑wire规范结构相等：无浮点、对象键排序、UTF8、控制字符转义沿V3 codec规范；不能把scope_digest当本对象摘要。LEGACY_UNBOUND→LEGACY_UNBOUND可正常保留；BOUND_STRUCTURAL_ONLY→相同绑定可结构上保留；legacy→bound、bound→legacy、任一字段改变为BINDING_IMMUTABLE_CONFLICT。任一解析错误先返回其分类，不生成补丁。纯相等不是并发CAS：正式writer仍须持锁重读旧行和artifact_version后验证，不然不授写权。
+
+建议独立模块仅有严格parse、返回detached/immutable结构、serialize作用域片段和比较函数；模块不import models/overlay/control/reader，不读文件/DB/网络，不持Host token、不开正式writer，也不调用完整Scope codec来伪装来源已验证。可直接复用既签纯编码原语，但不把紧凑绑定重新定义为完整Scope快照。该模块的精确实现仍须本候选B/D/E/F审阅后另单准入。
 
 ## 5. 可先准入与正式依赖边界
 
