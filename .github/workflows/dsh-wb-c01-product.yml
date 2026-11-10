@@ -6,6 +6,7 @@ on:
       - 'rc7_admin/static/workbench/**'
       - 'rc7_admin/product_server.py'
       - 'tests/browser/test_c01_product_browser.py'
+      - 'tests/browser/test_c02_real_scope_browser.py'
       - 'tests/test_dsh_workbench_c01.mjs'
       - 'tests/test_dsh_workbench_c02_scope.mjs'
       - '.github/workflows/dsh-wb-c01-product.yml'
@@ -31,3 +32,30 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - name: Real product browser negative and recovery tests (not business QA)
         run: python -m unittest discover -s tests/browser -p test_c01_product_browser.py -v
+  c02-real-http-pg-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: c02-disposable-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=c02-disposable-ci-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'playwright==1.56.0' 'psycopg[binary]==3.2.13'
+      - run: python -m playwright install --with-deps chromium
+      - name: Real database Oracle and HTTP browser Scope with explicit test Host provider
+        run: python -m unittest discover -s tests/browser -p test_c02_real_scope_browser.py -v
