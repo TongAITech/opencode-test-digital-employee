@@ -89,6 +89,10 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         sources["w0"],
     ):
         errors.append("W0_SCOPE_RESPONSE_FENCE_NOT_ADMITTED")
+    # Preserve the A01 bilingual design proof in W0 L0. This is a
+    # source contract, not authorization to claim UI/field QA.
+    if "python tools/dsh_workbench/w0_i18n_contract.py" not in sources["w0"]:
+        errors.append("W0_A01_BILINGUAL_DESIGN_GATE_REMOVED")
     if not all(x in e["l1"] for x in (
         "pull_request:", "ready_for_review", "workflow_dispatch:",
         "expected_source_sha:", "include_browser:",
