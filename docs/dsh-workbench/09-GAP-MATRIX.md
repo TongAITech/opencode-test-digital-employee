@@ -205,3 +205,11 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | 旧 00/02/03/04/05/07 冻结字眼 | F #111 指出 W0 候选冻结误读风险；A 改为 W0_DESIGN_IN_PROGRESS/NOT_FROZEN，反向门禁 | `SOURCE_DOC_STATUS_CORRECTED / F_REVIEW_PENDING` | F 确认 A01+A03 整体设计合同并签 F00 后才能设正式 FROZEN |
 | FG20/FG23 C 原型 | F #106 签 C W0 prototype/FG23 closed，F #111 重验 A f870 真 Chromium | `C_W0_PROTOTYPE_PASS / 50_PRODUCT_NOT_RUN` | C01/C02 正式代码 + F02 真 UI/Host/API，不得由 demo 顶替 |
 | W0 总体/许可 | F #111 `ROUND1_W0_CONTRACTS_PASS_WITH_E_P1_HOLD`，法务许可未出 | `W0_NOT_FROZEN / A02_BLOCKED_LICENSE` | F00 DESIGN_ACCEPTED + 真实 W1-W4 QA + license grant/clean-room审计各自独立门禁 |
+
+## 2026-11-10 A 同 HEAD CI 证据误判防护
+| GAP | 状态 | 工程改动与关闭条件 |
+|---|---|---|
+| WB-A00-CHECKRUN-ATTEST | CODE_SUBMITTED / NEW_SHA_CI_PENDING / F_REVIEW_PENDING | f6aa541a 精确 GitHub 15 checks=1 success/14 skipped，不能称 ALL_GREEN；新增 w0_checkrun_evidence.py + 负向 unittest；新 HEAD GitHub W0 tests 与独立 F 审查后再调整，人工核验 required-status 保护配置 |
+| E107-P1 | F_NEW_A_HEAD_RECHECK_PENDING | E 的 mission_overview_scoped 先查身份后读 details、拒绝时零关联读取，必须由 F 在最新 A 联合树独立核销，W0 合同 CI 不代替安全审查 |
+| WB-A02 | BLOCKED_LICENSE | PolyForm Noncommercial 商业权利未批准，不复制受限源码到银行交付 |
+| WB-W0 | NOT_FROZEN | 50 项正式功能 NOT_RUN；W1–W4/场景/现场/商业授权独立门禁，不得从 check-runs 的 skipped 或 W0 success 推导 QA_PASS |

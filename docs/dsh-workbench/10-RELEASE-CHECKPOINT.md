@@ -152,3 +152,8 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - **新 E 集成候选：** #107 @ `a04933fbe7b651c10b589b90cade5da65bdd8b81`，AdminProjection R1 Mission identity-only scope-first query，拒绝时 related query 0，老 unscoped API 无 fallback；[E 单 SHA W0 239](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42752449330/job/129618982111) / [Python3.8+3.11 各82](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42752443232/job/129618962172) 为独立分支的工程证据，**F 必须对新 A 精确 HEAD 独立签核 E P1**。
 - A 单一 Draft 集成分支 `work/dsh-wb-w0` 维护唯一 08/09/10 并保留 B/E 独立 Git 父提交。另将 00/02/03/04/05/07 “W0 候选冻结”状态统一改为 `W0_DESIGN_IN_PROGRESS / W0_NOT_FROZEN`，避免代码状态与合同不符。
 - **任何 L0 PASS 不自动签 `WB-F00_DESIGN_ACCEPTED`**：A01 双语 W1 NOT_RUN，A02 `BLOCKED_LICENSE`，B/C/D/E 真实 PostgreSQL/API/R1/Host/Windows/W2-W4 和 50/50 产品功能均未完成；PR #84 保持 Draft，禁止 RC7.2 主线合入和银行 ZIP。
+
+## 2026-11-10 A 同 HEAD CI 证据校验施工检查点
+- 核实旧源：PR #84 OPEN/DRAFT、HEAD f6aa541a7c82b74bcd1937754637d8341111fb70；target 87f956f1388f58beabf7116c937fd6fda5fae2ca，ahead=167/behind=0，GitHub check-runs 15 条仅 w0-contracts success、另外 14 skipped。旧 job https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42754283361/job/129624916743 只属于 f6aa541a。
+- A 新增标准化只读检查工具 tools/dsh_workbench/w0_checkrun_evidence.py，严格按完整 JSON snapshot 和 40 位源 SHA、required status=completed/conclusion=success 核对；14 个 skipped 不可计 PASS。纯函数结果一律 product_qa_pass=false、f_independent_approval=false、license_release_approved=false。tests/test_dsh_workbench_w0_checkrun_evidence.py 提供敌意输入反例。
+- 新提交后必须查新 HEAD 实际 GitHub Actions checks，原始 f6a 的成功不自动转移；F 对 E107 P1 和 W0 全局冻结仍需独立复核。A02 BLOCKED_LICENSE、W1–W4/50项产品 NOT_RUN、PR DRAFT、不可合 RC7.2，不得构建或银行交付 ZIP。

@@ -245,3 +245,9 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A 本轮以 `f870ad5` 为首父，保留 B #108、E #107 精确来源为真实 Git 父提交，并在唯一 08/09/10、A03 增补同源证据。必须对最终 A HEAD 重新验 Python/Node/CI 门禁；F 须独立验证 P1 `zero related reads before auth`、B split/source 与历史 FG18、R1 source fence、F00 设计签署范围。旧 F #111 对旧 E 的 P1 红灯不得覆盖掉。
 - F 同时指出 00/02/03/04/05/07 文件头的“W0 候选冻结”容易与唯一状态 `W0_NOT_FROZEN` 矛盾，已按统一 `W0_DESIGN_IN_PROGRESS` 修订并增加机器反例。
 - 执行门槛：`W0_NOT_FROZEN / E107_P1_F_INDEPENDENT_RECHECK_PENDING / A02_BLOCKED_LICENSE / B01_B02_C01_C02_E01_REAL_QA_NOT_RUN / R1_HOST_FIELD_NOT_RUN / PR84_DRAFT / NO_BANK_ZIP`。
+
+## 2026-11-10 A 新增：同 HEAD Check Runs 证据校验器（W0 合同施工，不是 QA 签署）
+- 施工输入 PR #84 @ f6aa541a7c82b74bcd1937754637d8341111fb70，target work/rc7.2 @ 87f956f1388f58beabf7116c937fd6fda5fae2ca；GitHub 精确源 15 个 checks=1 success(w0-contracts)/14 skipped。Draft 触发跳过是策略，不等于 L1/L2 全绿。
+- A 在 tools/dsh_workbench/w0_checkrun_evidence.py 建立完全离线的同 SHA check-runs JSON 核验；tests/test_dsh_workbench_w0_checkrun_evidence.py 提供负向证据，拒绝旧 SHA、required 被跳过/取消/失败/未完成、缺失/同名重复、分页不完整。W0 workflow 通过 test_dsh_workbench*.py 自动收集；本提交在合并后必须以新 HEAD GitHub CI 核实，不能沿用 f6aa541a 的成功。
+- 状态：WB-A00_CONTRACT_EVIDENCE_HARDENING_SUBMITTED / SAME_HEAD_CI_PENDING / F_RECHECK_REQUIRED。仅证明选择的 check 成功，永远不会签发 product_qa_pass、F approval 或 license_release；正式 L1/L2 仍要在非 Draft/人工 pin 下完整执行。
+- 当前门禁严格维持 W0_NOT_FROZEN、PR84_DRAFT、WB-A02_BLOCKED_LICENSE、50/50_PRODUCT_NOT_RUN、E107_P1_F_RECHECK_PENDING、NO_RC72_MERGE、NO_BANK_ZIP。
