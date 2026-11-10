@@ -60,3 +60,9 @@ test('N10 PASS and a PASS Gate with verified hash remain HOLD and Human unknown;
  assert.equal(client.state.snapshot.records.rc72_mission_node[1].state,'PASS');
  assert.ok(!client.state.snapshot.missing_nodes.includes('N10_RELEASE_CONVERGENCE'));
 });
+
+test('transport is called as a function, never with RuntimeClient as native fetch receiver',async()=>{
+ const values=fixtures(),receivers=[];
+ const client=new RuntimeClient(async function(path,options){receivers.push(this);return port(values)(path,options);});
+ assert.equal(await client.load(scope(),'M1'),true);assert.deepEqual(receivers,[undefined,undefined,undefined]);
+});
