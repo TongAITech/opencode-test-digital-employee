@@ -1,0 +1,13 @@
+# C04 六类业务草稿与资料表单增量
+
+基线37a025fa90bd24854ce269ac79cb0b07a889d051（F1728c731已接受主体恢复组合），真实六kind API源B158已由F160接受。此PR只扩原十区内的资产表单，不扩目录/日历或宣称全C04完成。
+
+原“测试用例”分区内提供用例草稿/测试义务草稿子视图；缺陷为人工记录，报告为草稿，知识和会议纪要保留原分区。六kind按真实HTTP schema渲染文本/每行一项数组，不接受嵌套执行数据；原十区未删改。中文/英文类型、字段、操作和错误说明完整，界面明确UNRESOLVED，保存不生成正式Case/Obligation/Defect/Report或R1事实。B06施工编号已改成项目服务/DSH连接未就绪业务说明，真实未接入边界不变。
+
+所有kind与milestone共用唯一已验的Scope、CSRF、opaque write-context、CAS、原幂等请求和UNKNOWN恢复控制器；没有第二套主体恢复逻辑。kind切换清列表/编辑表单但隔离保留未知pending，其他kind不能生成新UUID绕过HOLD；重试继续原URL/payload/context而不改成当前kind或Bob主体。合法Scope/UNSPLIT关联复用现有逻辑，字段只写草稿payload，不写R1。
+
+真实测试tests/browser/test_draft_forms_product_browser.py：同源product_server、独立真PG/非owner运行角色与显式Host/CSRF fixture。六kind分别创建→编辑rev2→退役rev3→恢复rev4，资产ID保持，DB六root/24不可变revision，payload真实回读且r1_reference_state均UNRESOLVED。每类两语切换不改ID；空白必需步骤在客户端拒绝且DB零新增。case真实提交已成功丢响应→切report清私密表单/禁新保存→Bob同项目合法写权旧context409/DB不增→读刷新仍HOLD→Alice恢复原key对账，DB仍7不重复。R1测试文件字节不变。
+
+本地集中五浏览器5/5；新增typed registry正反例与原Node共33/33；CI admission13通过。首次测试因上一kind的“显示退役”仍勾选却错误期待隐藏而FAIL，明确每kind先取消该筛选后再验退役隐藏，没有弱化后端退役逻辑。CSS额外明确hidden字段不被label布局覆盖。远端新SHA和F独立结果另取，不继承旧绿灯。
+
+本增量不是完整原版50能力或完整C03/C04；未知请求只在本页面内存保存，浏览器崩溃后持久恢复仍需后续对账能力。真实DSH/Windows仅可搬运行内，FIELD_NEEDS_BANK_TRANSFER；所有Host/token证明为fixture组件测试。未直接修改08/09/10、R1或运行主线。
