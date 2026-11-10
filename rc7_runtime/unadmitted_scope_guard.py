@@ -1,0 +1,242 @@
+"""Local negative Scope guard, not a global writer fence or binding admission.
+
+Only current in-process projections are inspected. Raw/scheduler/other-process
+writers remain outside this guard. No tools/workbench, Host or PG dependency.
+"""
+from functools import wraps
+import inspect
+
+from .control_plane import TaskScheduler, GapRepairPlanner, ControlPlaneError, _stable_id
+from .gap_router import GapRouter
+
+RESERVED = frozenset(('project_id', 'batch_id', 'scope_binding'))
+HOLD = 'MISSION_SCOPE_NOT_ADMITTED'
+UNRESOLVED = 'MISSION_SCOPE_TARGET_UNRESOLVED'
+_SCHEDULER = {name: getattr(TaskScheduler, name) for name in vars(TaskScheduler)
+              if name != '__init__' and callable(getattr(TaskScheduler, name))}
+_PLANNER = {name: getattr(GapRepairPlanner, name) for name in vars(GapRepairPlanner)
+            if name != '__init__' and callable(getattr(GapRepairPlanner, name))}
+from .control_plane import load_execution_terminal_receipt as _TERMINAL_LOAD
+
+_ROUTE = GapRouter.route
+
+
+def reject_reserved(value, error=ControlPlaneError):
+    values = value if isinstance(value, dict) else vars(value)
+    if RESERVED.intersection(values):
+        raise error(HOLD)
+
+
+def check_missions(truth, mission_ids, error=ControlPlaneError, allow_new=()):
+    for mission_id in sorted(set(mission_ids)):
+        if not isinstance(mission_id, str) or not mission_id.strip():
+            raise error(UNRESOLVED)
+        rows = truth.query('rc7_mission', mission_id=mission_id)
+        if not rows and mission_id in allow_new:
+            continue
+        if len(rows) != 1:
+            raise error(UNRESOLVED)
+        reject_reserved(rows[0], error)
+
+
+def _trusted_components(control, error, leasing=False):
+    from .rc72_scheduler_integration import EconomyAwareTaskSchedulerAdapter
+    scheduler = control.scheduler
+    if type(scheduler) is EconomyAwareTaskSchedulerAdapter:
+        if any(name in vars(scheduler) for name in ('ready_tasks','lease_next','lease_task','_plan')):
+            raise error(UNRESOLVED)
+        if leasing:
+            from .rc72_critical_path import CanonicalCriticalPathResolver
+            from .rc72_economy_scheduler import EconomyAwareReadySelector
+            resolver = scheduler.descriptor_resolver
+            if (type(getattr(resolver, '__self__', None)) is not CanonicalCriticalPathResolver or
+                    getattr(resolver, '__func__', None) is not CanonicalCriticalPathResolver.resolve or
+                    type(scheduler.selector) is not EconomyAwareReadySelector or
+                    'plan' in vars(scheduler.selector)):
+                raise error(UNRESOLVED)
+        scheduler = scheduler.delegate
+    if type(scheduler) is not TaskScheduler or type(control.gap_planner) is not GapRepairPlanner:
+        raise error(UNRESOLVED)
+    if (scheduler.truth is not control.truth or scheduler.release_id != control.release_id or
+            control.gap_planner.truth is not control.truth or
+            control.gap_planner.scheduler is not control.scheduler):
+        raise error(UNRESOLVED)
+    from . import control_plane as original_control
+    if original_control.load_execution_terminal_receipt is not _TERMINAL_LOAD:
+        raise error(UNRESOLVED)
+    for name, method in _SCHEDULER.items():
+        actual = getattr(scheduler, name)
+        if getattr(actual, '__func__', actual) is not method:
+            raise error(UNRESOLVED)
+    for name, method in _PLANNER.items():
+        if getattr(getattr(control.gap_planner, name), '__func__', None) is not method:
+            raise error(UNRESOLVED)
+    if (type(control.gap_planner.router) is not GapRouter or
+            getattr(control.gap_planner.router.route, '__func__', None) is not _ROUTE):
+        raise error(UNRESOLVED)
+
+
+class Targets:
+    def __init__(self, truth, error):
+        self.truth, self.error, self.ids = truth, error, set()
+        self.seen = set()
+
+    def mission(self, value):
+        if not isinstance(value, str) or not value.strip():
+            raise self.error(UNRESOLVED)
+        self.ids.add(value)
+
+    def old(self, kind, field, identity, required=False):
+        if not isinstance(identity, str) or not identity.strip():
+            raise self.error(UNRESOLVED)
+        rows = self.truth.query(kind, **{field: identity})
+        if len(rows) > 1 or (required and not rows):
+            raise self.error(UNRESOLVED)
+        if rows:
+            self.mission(rows[0].get('mission_id'))
+            return rows[0]
+        return None
+
+    def entity(self, value):
+        if value is None:
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                self.entity(item)
+            return
+        if not hasattr(value, '__dict__'):
+            return
+        row = vars(value)
+        if 'mission_id' in row:
+            self.mission(row['mission_id'])
+        for field, kind in (('task_id','rc7_task'),('gap_id','rc7_gap'),('evaluation_id','rc7_evaluation'),
+                            ('defect_id','rc7_defect'),('artifact_id','rc7_artifact'),('evidence_id','rc7_evidence')):
+            if row.get(field):
+                self.old(kind, field, row[field])
+        for gap_id in row.get('gap_refs', ()):
+            self.old('rc7_gap', 'gap_id', gap_id)
+        if row.get('source_gap_id'):
+            self.old('rc7_gap', 'gap_id', row['source_gap_id'])
+        for field in ('artifacts','evidence'):
+            if field in row:
+                self.entity(row[field])
+
+    def task(self, task_id, required=True):
+        row = self.old('rc7_task', 'task_id', task_id, required)
+        if row:
+            for gap_id in row.get('gap_refs', []):
+                self.old('rc7_gap', 'gap_id', gap_id)
+        return row
+
+    def batch(self, mission_id):
+        # Ready refresh and source reactivation operate only within this Mission.
+        for row in self.truth.query('rc7_task', mission_id=mission_id):
+            self.task(row['task_id'])
+        for row in self.truth.query('rc7_gap', mission_id=mission_id):
+            self.old('rc7_gap', 'gap_id', row['gap_id'], True)
+
+    def planned_gap(self, control, gap, evaluation=None):
+        # Default router/source inspection is read-only; never execute plan().
+        decision = control.gap_planner.router.route(gap)
+        if decision.target_node == 'HUMAN_GATE':
+            return
+        if gap.category == 'PRODUCT_DEFECT' and decision.target_node == 'DEFECT':
+            from .control_plane import EXECUTION_TERMINAL_KIND
+            artifacts = set()
+            receipts = []
+            for evidence_id in gap.evidence_refs:
+                rows = self.truth.query('rc7_evidence', evidence_id=evidence_id)
+                if len(rows) == 1 and rows[0].get('kind') == EXECUTION_TERMINAL_KIND:
+                    receipts.append(evidence_id)
+            if receipts:
+                for receipt_id in receipts:
+                    payload = _TERMINAL_LOAD(self.truth, mission_id=gap.mission_id, receipt_id=receipt_id)
+                    artifact_id = payload.get('execution_artifact_id')
+                    if not isinstance(artifact_id, str) or not artifact_id:
+                        raise self.error(UNRESOLVED)
+                    artifacts.add(artifact_id)
+            else:
+                candidates = list(self.truth.query('rc7_evaluation', mission_id=gap.mission_id))
+                if evaluation is not None:
+                    candidates.append(vars(evaluation))
+                for candidate in candidates:
+                    dimensions = candidate.get('dimensions', {})
+                    if (candidate.get('node') == 'EXECUTION' and gap.gap_id in candidate.get('gap_refs', ()) and
+                            dimensions.get('failure_class') == 'PRODUCT' and dimensions.get('test_result') == 'FAIL'):
+                        artifacts.update(candidate.get('artifact_refs', ()))
+            if not artifacts:
+                raise self.error(UNRESOLVED)
+            for source_artifact in artifacts:
+                row = self.old('rc7_artifact', 'artifact_id', source_artifact, True)
+                self.task(row.get('producer_task_id'))
+                self.task(_stable_id('TASK-DEFECT-REPRO', gap.mission_id, gap.gap_id, source_artifact), False)
+            self.task(_stable_id('TASK-DEFECT', gap.mission_id, gap.gap_id, 'DEFECT'), False)
+        else:
+            self.task(_stable_id('TASK-REPAIR', gap.mission_id, gap.gap_id, decision.target_node), False)
+
+
+def protected(method):
+    """Preflight all local write targets before entering the mutating method."""
+    signature = inspect.signature(method)
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        from .closed_loop_control import ClosedLoopControlError
+        error = ClosedLoopControlError
+        bound = signature.bind(self, *args, **kwargs)
+        for sequence in ('gaps', 'repaired_gap_ids'):
+            if sequence in bound.arguments:
+                bound.arguments[sequence] = tuple(bound.arguments[sequence])
+        values = bound.arguments
+        name = method.__name__
+        # Preserve existing early identity/missing/owner errors without writes.
+        if name == 'register_task' and values['task'].mission_id != self.mission_id:
+            raise error('TASK_MISSION_MISMATCH')
+        if name in ('register_task','refresh_ready','lease_next','start','submit_worker_output',
+                    'accept_evaluation','accept_defect_resolution','_resolve_source_gaps','_reactivate_source_tasks'):
+            _trusted_components(self, error, leasing=name == 'lease_next')
+        if name in ('start','accept_evaluation','accept_defect_resolution'):
+            task = self.scheduler.task(values['task_id'])
+            if name == 'start' and task.lease_owner != values['worker_ref']:
+                raise ControlPlaneError('TASK_LEASE_OWNER_MISMATCH')
+        if name == 'submit_worker_output':
+            output = values['output']
+            task = self.scheduler.task(output.task_id)
+            if task.state.value != 'RUNNING':
+                raise ControlPlaneError('TASK_NOT_RUNNING')
+            if task.lease_owner != output.worker_ref:
+                raise ControlPlaneError('TASK_LEASE_OWNER_MISMATCH')
+        targets = Targets(self.truth, error)
+        targets.mission(self.mission_id)
+        for key, value in values.items():
+            if key != 'self':
+                targets.entity(value)
+        if 'mission' in values:
+            reject_reserved(values['mission'], error)
+        if 'task_id' in values:
+            targets.task(values['task_id'])
+        if 'output' in values:
+            targets.task(values['output'].task_id)
+        if name in ('register_task','refresh_ready','lease_next','accept_evaluation',
+                    'accept_defect_resolution','_resolve_source_gaps','_reactivate_source_tasks'):
+            targets.batch(self.mission_id)
+        if name == '_resolve_source_gaps':
+            targets.task(values['task'].task_id)
+        if name == '_reactivate_source_tasks':
+            for gap_id in values['repaired_gap_ids']:
+                targets.old('rc7_gap','gap_id',gap_id)
+        if name == 'accept_evaluation':
+            evaluation = values['evaluation']
+            task = self.scheduler.task(values['task_id'])
+            if (task.state.value == 'OUTPUT_PRODUCED' and
+                    evaluation.mission_id == task.mission_id and evaluation.node == task.node and
+                    evaluation.evaluator_ref != task.lease_owner and
+                    set(evaluation.gap_refs) == {gap.gap_id for gap in values.get('gaps', ())} and
+                    evaluation.result.value in ('PASS', 'REPAIR_REQUIRED', 'BLOCKED')):
+                for gap in values.get('gaps', ()):
+                    targets.planned_gap(self, gap, evaluation)
+        check_missions(self.truth, targets.ids, error)
+        if name == 'lease_next':
+            # Materialize a one-shot iterable once; reused by real scheduler.
+            bound.arguments['capabilities'] = tuple(bound.arguments['capabilities'])
+        return method(*bound.args, **bound.kwargs)
+    return guarded

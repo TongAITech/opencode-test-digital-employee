@@ -289,6 +289,13 @@ class N1AutonomousDispatchService:
             mission_id, release_batch_id, self.source_commit
         )
 
+        from .unadmitted_scope_guard import Targets, check_missions
+        targets = Targets(self.truth, MissionNodeDispatchError)
+        targets.mission(mission_id)
+        old_workitem = targets.task(workitem_id, required=False)
+        check_missions(self.truth, targets.ids, MissionNodeDispatchError,
+                       allow_new=(mission_id,) if existing_mission is None and old_workitem is None else ())
+
         existing_dispatch = self.truth.query(
             _ARTIFACT, dispatch_id=dispatch_id
         )

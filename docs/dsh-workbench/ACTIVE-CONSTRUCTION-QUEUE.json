@@ -1,0 +1,157 @@
+{
+  "schema": "dsh-workbench/a-construction-queue/v1",
+  "snapshot_date": "2026-11-11",
+  "owner": "A_ONLY",
+  "purpose": "Resume from GitHub and continue ready work; this file is an index, not a qualification attestation.",
+  "restore_first": {
+    "repo": "TongAITech/opencode-test-digital-employee",
+    "branch": "work/dsh-wb-w0",
+    "pr": 84,
+    "last_tested_code_sha": "73cdb971541e0fec951cbe48bb6c9988010f2262",
+    "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
+    "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
+    "refresh_remote_heads_pr_checks_and_worktrees": true,
+    "read": [
+      "08-CONSTRUCTION-PLAN.md",
+      "09-GAP-MATRIX.md",
+      "10-RELEASE-CHECKPOINT.md",
+      "ACTIVE-CONSTRUCTION-QUEUE.json"
+    ],
+    "do_not_reset_force_push_or_write_rc72": true
+  },
+  "active_work": [
+    {
+      "ticket": "C_GATES_READONLY",
+      "owner": "C",
+      "agent": "/root/c_directory_ui",
+      "worktree": "c-gates-ui",
+      "branch": "work/dsh-wb-c-gates-ui",
+      "pr": 215,
+      "source_sha": "60f013d95171ad0c54851adcc5a87a8872fd77e4",
+      "state": "CODE_COMPLETE_F_PENDING",
+      "next_action": "Independent F at exact HEAD; no publish/approval command and no production binding claim."
+    },
+    {
+      "ticket": "B_SCOPE_POLICY_PROFILE",
+      "owner": "B",
+      "agent": "/root/b_binding_v2_review",
+      "worktree": "b-scope-policy-qualification",
+      "branch": "work/dsh-wb-b-scope-policy-qualification",
+      "pr": 216,
+      "source_sha": "f93e4ab17b7b4947990da3b0561d8979d6de65e4",
+      "state": "CODE_COMPLETE_F_PENDING",
+      "next_action": "Independent F; profile is MATCHED_AS_OF/admission_authorized=false, not a DDL/role fence."
+    },
+    {
+      "ticket": "E_SCOPE_LOSS_HOLD_GUARD",
+      "owner": "E",
+      "agent": "/root/e_scope_binding",
+      "worktree": "e-scope-hold-guard",
+      "pr": 212,
+      "source_sha": "9623f30c1baf81d1a78490cca373689e42ceed80",
+      "state": "DESIGN_B_D_F_EXACT_REVIEW",
+      "historical_failure_prs": [
+        213,
+        214
+      ],
+      "next_action": "Collect B/D/F exact design acceptance then implement only guarded entry points; actual target Mission union and full batch preflight before first write. Do not implement self-only ce6."
+    },
+    {
+      "ticket": "PROJECT_METADATA_BOARD_INCREMENT",
+      "owner": "D",
+      "worktree": "d-project-board-contract",
+      "pr": 211,
+      "source_sha": "1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2",
+      "state": "CANDIDATE_A_B_E_REVIEW",
+      "next_action": "Freeze naming namespace/normalization and migration/API contract before writes. project+batch cards; first five phases are plan metadata, RELEASED needs canonical N10/Evidence/Human; mutation boolean cannot authorize create or members."
+    }
+  ],
+  "accepted_integrated_components": [
+    {
+      "pr": 180,
+      "source": "47950777",
+      "f_report_pr": 183,
+      "report": "904493cf"
+    },
+    {
+      "pr": 182,
+      "source": "1492a572",
+      "f_report_pr": 187,
+      "report": "3ac4d157"
+    },
+    {
+      "pr": 189,
+      "source": "f1b6b24e",
+      "f_report_pr": 193,
+      "report": "7bbaa5a6"
+    },
+    {
+      "pr": 195,
+      "source": "8618676e",
+      "f_report_pr": 201,
+      "report": "9e654047",
+      "keep_failures": [
+        197,
+        200
+      ]
+    },
+    {
+      "pr": 199,
+      "source": "026ddff9",
+      "f_report_pr": 202,
+      "report": "1e223b8b",
+      "qualification_limit": "APPROVED_PROJECT_ONLY_SCHEMA; unknown or drifted RLS not qualified; not admission"
+    },
+    {
+      "pr": 209,
+      "source": "968430ed",
+      "f_report_pr": 210,
+      "report": "2c280269",
+      "qualification_limit": "PURE_STRUCTURAL_ONLY; models/reader/writer not connected"
+    }
+  ],
+  "exact_verification": [
+    {
+      "sha": "02ae2d806f5ef61965d2d9fc5230ebb3d571c920",
+      "python_workbench_real_pg": {
+        "executed": 594,
+        "passed": 594,
+        "skipped": 0
+      },
+      "node": 117,
+      "real_pg_browser": 8
+    },
+    {
+      "sha": "73cdb971541e0fec951cbe48bb6c9988010f2262",
+      "integrated_pure_module_tests": 20
+    },
+    {
+      "sha": "f1b6b24e233bae2adb43d2ae60dc84cfb6523c53",
+      "abcd_v4_run": 42870053745,
+      "jobs_passed": 5,
+      "status": "SUCCESS",
+      "scope": "Complete inherited RC7/RC7.2 plus real Chromium and four Ubuntu/Windows Python3.8/3.11 jobs; source qualification only, not bank field/offline delivery."
+    }
+  ],
+  "rules": [
+    "Only A writes 08/09/10 and this queue.",
+    "All code workers use isolated worktrees and independent PRs.",
+    "F must not implement the tested feature.",
+    "Do not infer current worker availability from an old errored status; actually retry a task within available concurrency.",
+    "Do not transfer PASS between SHAs or call fixture Host/synthetic binding field qualification.",
+    "Preserve historical failures and all unsupported configuration boundaries."
+  ],
+  "external_gates": {
+    "status": "FIELD_NEEDS_BANK_TRANSFER",
+    "user_confirmed_outside_bank_unreachable": true,
+    "dsh_version_target": "1.18.26",
+    "not_passed": [
+      "Native Host/SSO/model/session/attachments",
+      "Actual Agent Teams concurrency and resource recovery",
+      "Windows offline install/restart",
+      "Final license/SBOM and independent release gates"
+    ]
+  },
+  "release": "NOT_APPROVED",
+  "final_delivery_zip_created": false
+}
