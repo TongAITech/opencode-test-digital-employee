@@ -94,7 +94,7 @@ def resolve_package_root(
     value: Path,
     *,
     max_ancestor_depth: int = 10,
-    max_nested_depth: int = 3,
+    max_nested_depth: int = 4,
 ) -> Path:
     """Return the one verified package root represented by *value*.
 
