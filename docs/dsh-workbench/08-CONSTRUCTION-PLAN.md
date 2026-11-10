@@ -4,14 +4,16 @@
 本次分支 work/dsh-wb-w0（文档施工独立分支，等待 PR 评审）
 
 
-## 当前权威状态（2026-11-10）
+## 当前权威状态（2026-11-11）
 
-- 当前已集成检查点：`d0fbd1ee`；实际工作继续前必须读取远端 PR #84 HEAD 与同 SHA checks，不能把本索引当 CI 结果。
-- W0 设计冻结源 `a73ed52d`，F 正式签署 #121；B01–B06、C01/C02、E01 与同源入口已分别独立组件验收并集成，来源见下文各工单证据。组件接受不等于 F01/F02/现场或全部产品完成。
-- 正在施工：C03/C04六kind草稿分区表单；B07七kind后端、里程碑界面与E02只读Mission图已组件集成。E03缺正式控制面BLOCKED；B08、E04–E06与完整界面仍未完成。
-- 仍然阻断：D01 真实 DSH 宿主/SSO 与现场资格、D02/D03、Windows 离线交付、Agent Teams 实际并发及资源恢复、F01–F04、LICENSE_RELEASE_APPROVED。测试 fixture Host 不是现场认证。
-- RELEASE=NOT_APPROVED；PR #84 保持 Draft；不合并 `work/rc7.2`，不生成银行交付 ZIP。
-
+- 当前代码集成检查点：`d31d8ef70229942215060bd58ef3b593b1b95be1`（PR #84）；本账更新会产生新文档HEAD，实际继续前重新核对远端与同SHA checks。
+- W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
+- 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
+- d31远端同SHA：W0 run42859333314、真实浏览器run42859326708均SUCCESS；本次新台账HEAD另核检查，不转签旧SHA。
+- 六类草稿表单、B07七kind与E02读取为组件集成；旧legacy API隔离P1、目录键盘/撤权P2已按独立报告修复。完整项目编辑、看板业务状态、日历年月日视图、正式R1资产映射及生产纵向链仍未完成，不能把只读目录当项目管理全功能。
+- HTTP断连P3候选`47950777`独立PR #180：A真实socket4/4、真实PG断连提交恢复1/1通过，尚未合入，F_REVIEW_REQUIRED。F任务额度不可用，不用A自测替代独立验收。
+- 正式Mission绑定生产缺口已复现：正式创建无project/batch、typed更新丢extra；PR #175初稿、B #176及D #179有required details。新协议V2 PR #181源`957874d6`仅候选，B/D/E/F复签PENDING，未改R1/冻结模型。E03仍BLOCKED_FORMAL_CONTROL_API，B08/E04–E06等依赖未齐。
+- 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
 ## 六组施工责任
 A 总集成 work/dsh-wb-integration：设计冻结、PR 集成、依赖与合同；不可包揽全组业务编码。
