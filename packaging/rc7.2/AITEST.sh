@@ -65,6 +65,16 @@ export PFC_AITEST_HOME="$ROOT"
 export PFC_AITEST_STATE_DIR="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state}"
 export PFC_PYTHON="$PY"
 
+# Mnemon Native is a local dependency of dsh-mnemon. Prefer the bundled,
+# SHA-verified platform binary; never silently fall back to a user/global CLI.
+if [[ -f "$ROOT/workspace-template/runtime/mnemon/mnemon.exe" ]]; then
+  export MNEMON_CLI_PATH="$ROOT/workspace-template/runtime/mnemon/mnemon.exe"
+  export PATH="$ROOT/workspace-template/runtime/mnemon:$PATH"
+elif [[ -f "$ROOT/workspace-template/runtime/mnemon/mnemon" ]]; then
+  export MNEMON_CLI_PATH="$ROOT/workspace-template/runtime/mnemon/mnemon"
+  export PATH="$ROOT/workspace-template/runtime/mnemon:$PATH"
+fi
+
 "$PY" -m rc7_release.rc72_package verify \
   --package-root "$ROOT" \
   --expected-source-commit "$SOURCE_COMMIT"
