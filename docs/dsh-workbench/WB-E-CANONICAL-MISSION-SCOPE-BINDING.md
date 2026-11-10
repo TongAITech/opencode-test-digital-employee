@@ -1,6 +1,8 @@
 # RC7.2 正式 Mission — 工作台 Scope 绑定增量候选
 
-状态：**DESIGN_REVIEW_PENDING_B_D_F / IMPLEMENTATION_NOT_STARTED / PRODUCTION_BINDING_NOT_IMPLEMENTED**。
+状态：**DESIGN_REVIEW_PENDING_B_D_E_F / IMPLEMENTATION_NOT_STARTED / PRODUCTION_BINDING_NOT_IMPLEMENTED**。
+
+2026-11-11：A依据B/D required details补齐[协议V2候选](WB-E-MISSION-SCOPE-PROTOCOL-V2.md)，包含摘要、008候选载体、原主体幂等与跨库围栏；新稿尚未复签，不改变正式事实边界。
 精确调查源：`7586a80c0d8f5cd5205a78ca735b1ca15e12a4b2`（含 RC7.2 `edaf9290`）。本提案不改变 R1 事实所有权，不修改冻结合同或运行实现，也不代签 W1/F01/现场资格。
 
 ## 1. 已复现事实及证据范围
