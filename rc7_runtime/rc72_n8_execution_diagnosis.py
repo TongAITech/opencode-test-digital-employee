@@ -408,6 +408,39 @@ class ExecutionDiagnosisService:
                 or original_delivery.get('known_gaps')):
             raise ContractError('N8_ACCEPTED_DELIVERY_LINEAGE_CHANGED')
         evidence_id = 'N8EV-' + _hash([case['diagnosis_id'], receipt['input_sha256']])[:24]
+        # A cold replay cannot first append an Evidence row or mutate the Node
+        # and only THEN notice a conflicting accepted Gate/Delivery generation.
+        # Inspect all persisted authority facts before the first R1 mutation.
+        refs = facts['evidence_refs'] + [evidence_id]
+        gate_id = 'N8GATE-' + _hash([case['diagnosis_id'], receipt['input_sha256']])[:24]
+        gates = self.truth.query('rc72_node_gate', gate_id=gate_id)
+        if result['failure_class'] != 'UNKNOWN':
+            # E-QA: a RUNNING node can already own a delivery generation.
+            # The old preflight only checked REVIEW_PENDING/PASS and would
+            # silently overwrite a conflicting RUNNING active generation
+            # before reaching the later check. Refuse conflict before any R1
+            # Evidence/transition, but permit a virgin RUNNING node (empty
+            # delivery_refs, initial generation zero) to bind this delivery.
+            existing_version = node['active_delivery_version']
+            existing_refs = list(node['delivery_refs'])
+            if node['state'] in {'REVIEW_PENDING', 'PASS'}:
+                if (existing_version != original_delivery['version']
+                        or receipt['delivery_id'] not in existing_refs):
+                    raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')
+            elif node['state'] == 'RUNNING':
+                if ((existing_refs and receipt['delivery_id'] not in existing_refs)
+                        or (existing_version not in (None, 0, original_delivery['version'])
+                            and existing_version != original_delivery['version'])):
+                    raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')
+                if (existing_refs and existing_version != original_delivery['version']):
+                    raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')
+            if gates and (len(gates) != 1 or gates[0]['decision'] != 'PASS'
+                    or gates[0]['delivery_id'] != receipt['delivery_id']
+                    or gates[0]['reviewer_worker_id'] != receipt['reviewer_worker_id']
+                    or gates[0]['reviewer_session_id'] != receipt['reviewer_session_id']
+                    or gates[0]['criteria'] != _CRITERIA or gates[0]['passed'] != _CRITERIA
+                    or gates[0]['evidence_refs'] != refs):
+                raise ContractError('N8_ACCEPTED_GATE_CONFLICT')
         self.evidence._ensure('rc7_evidence', 'RC7_EVIDENCE_UPSERTED', 'evidence_id', dict(
             evidence_id=evidence_id, release_id=p['release_id'], mission_id=p['mission_id'], kind='N8_PROCESS_DIAGNOSIS',
             source_ref='r1://artifact/' + case['diagnosis_id'], content_ref=receipt['diagnostic_process']['stdout_ref'],
@@ -437,15 +470,6 @@ class ExecutionDiagnosisService:
                 or delivery['mission_node_id'] != node['mission_node_id']
                 or delivery['version'] != node['active_delivery_version'] or delivery['delivery_id'] not in node['delivery_refs']):
             raise ContractError('N8_ACTIVE_DELIVERY_CONFLICT')
-        gate_id = 'N8GATE-' + _hash([case['diagnosis_id'], receipt['input_sha256']])[:24]
-        gates = self.truth.query('rc72_node_gate', gate_id=gate_id)
-        if gates and (len(gates) != 1 or gates[0]['decision'] != 'PASS'
-                or gates[0]['delivery_id'] != receipt['delivery_id']
-                or gates[0]['reviewer_worker_id'] != receipt['reviewer_worker_id']
-                or gates[0]['reviewer_session_id'] != receipt['reviewer_session_id']
-                or gates[0]['criteria'] != _CRITERIA or gates[0]['passed'] != _CRITERIA
-                or gates[0]['evidence_refs'] != refs):
-            raise ContractError('N8_ACCEPTED_GATE_CONFLICT')
         if node['state'] == 'REVIEW_PENDING':
             if gates:
                 self.runtime._persist_node_state(node, MissionNodeState.PASS, reason='resume accepted N8 gate',

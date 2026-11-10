@@ -1,0 +1,63 @@
+name: RC7.2 R4 E Independent Merge Gate Source Tests (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2, work/rc7.2-r4-consolidated-1to5-20261110]
+    paths:
+      - 'rc7_release/rc72_r4_merge_gate.py'
+      - 'tests/test_rc72_r4_merge_gate.py'
+      - '.github/workflows/rc7.2-r4-merge-gate-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  adversarial-review-admission:
+    name: r4-review-contract-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify native association to upstream R4 integration PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'work/rc7.2-r4-consolidated-1to5-20261110'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R4_UPSTREAM_HEAD: ${{ github.event.pull_request.base.sha }}
+          R4_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os
+          from rc7_release.rc72_r4_merge_gate import github_snapshot, REQUIRED_WORKFLOWS
+          snapshot = github_snapshot(
+              repository=os.environ["R4_REPOSITORY"], pr_number=113,
+              expected_sha=os.environ["R4_UPSTREAM_HEAD"],
+              token=os.environ["GITHUB_TOKEN"])
+          rows = [x for x in snapshot["workflow_runs"]
+                  if x.get("name") in REQUIRED_WORKFLOWS]
+          if len(rows) != len(REQUIRED_WORKFLOWS):
+              raise SystemExit("R4_UPSTREAM_WORKFLOW_COUNT_UNVERIFIED")
+          for run in rows:
+              refs = run.get("pull_requests") or []
+              if not any(isinstance(item, dict) and item.get("number") == 113
+                         for item in refs):
+                  raise SystemExit("R4_UPSTREAM_NATIVE_PR_ASSOCIATION_UNVERIFIED")
+          print("R4_UPSTREAM_NATIVE_CI_PR_ASSOCIATIONS=%d" % len(rows))
+          PY
+      - name: Compile typed production gate and run adversarial unit tests
+        run: |
+          python -m compileall -q rc7_release/rc72_r4_merge_gate.py tests/test_rc72_r4_merge_gate.py
+          python -m unittest discover -s tests -p 'test_rc72_r4_merge_gate.py' -v

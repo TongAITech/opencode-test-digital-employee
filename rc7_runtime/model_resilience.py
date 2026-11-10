@@ -16,11 +16,13 @@ consume the same shared budget.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import math
 import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,7 +152,10 @@ class PersistentSlidingWindowGovernor:
         window_seconds: float = 600.0,
         now_fn=None,
         sleep_fn=None,
+        lock_timeout_seconds: float = 10.0,
     ) -> None:
+        self.lock_timeout_seconds = max(0.0, float(lock_timeout_seconds))
+        self._lock_fd = None
         self.max_requests = max(1, int(max_requests))
         self.window_seconds = max(0.1, float(window_seconds))
         self.now_fn = now_fn or time.time
@@ -207,37 +212,83 @@ class PersistentSlidingWindowGovernor:
         return {"timestamps": stamps}
 
     def _save(self, value: Dict[str, Any]) -> None:
-        temp = self.state_path.with_suffix(".tmp")
-        temp.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(str(temp), str(self.state_path))
+        # The model quota directory is shared by worker processes. Never write
+        # through a predictable .tmp path: a stale/malicious symlink there
+        # could overwrite another file *before* atomic replace is reached.
+        if self.state_path.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="\n",
+                    prefix=".shared-window-", suffix=".tmp",
+                    dir=str(self.state_path.parent), delete=False) as output:
+                temp = Path(output.name)
+                output.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+                output.flush()
+                os.fsync(output.fileno())
+            if self.state_path.is_symlink():
+                raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+            os.replace(str(temp), str(self.state_path))
+        finally:
+            if temp is not None and temp.exists():
+                temp.unlink()
 
     def _lock(self) -> None:
-        deadline = float(self.now_fn()) + 10.0
-        while True:
-            try:
-                fd = os.open(str(self.lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        # A lockfile age is NOT evidence that its owner died. Previously the
+        # O_EXCL marker could be deleted after 30s while another process was
+        # legitimately counting bank model requests. Use a kernel-held lock:
+        # it is released by the OS when a process crashes, without unlinking
+        # another live owner's mutex or resetting the shared request window.
+        if self._lock_fd is not None:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_REENTRANT")
+        if self.lock_path.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_UNVERIFIED")
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(str(self.lock_path), flags, 0o600)
+        except OSError as exc:
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_UNVERIFIED") from exc
+        try:
+            if self.lock_path.is_symlink():
+                raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_UNVERIFIED")
+            deadline = time.monotonic() + self.lock_timeout_seconds
+            while True:
                 try:
-                    os.write(fd, str(os.getpid()).encode("ascii", errors="ignore"))
-                finally:
-                    os.close(fd)
-                return
-            except FileExistsError:
-                try:
-                    age = time.time() - self.lock_path.stat().st_mtime
-                    if age > 30.0:
-                        self.lock_path.unlink()
-                        continue
-                except OSError:
-                    pass
-                if float(self.now_fn()) >= deadline:
-                    raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_TIMEOUT")
-                self.sleep_fn(0.02)
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self._lock_fd = fd
+                    return
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_UNVERIFIED") from exc
+                    if time.monotonic() >= deadline:
+                        raise AgentRuntimeError("MODEL_RATE_GOVERNOR_LOCK_TIMEOUT") from exc
+                    self.sleep_fn(0.02)
+        except BaseException:
+            os.close(fd)
+            raise
 
     def _unlock(self) -> None:
+        fd = self._lock_fd
+        self._lock_fd = None
+        if fd is None:
+            return
         try:
-            self.lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def classify_failure(text: str) -> ModelFailure:

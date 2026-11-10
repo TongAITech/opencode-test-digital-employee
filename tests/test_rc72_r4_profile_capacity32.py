@@ -153,3 +153,84 @@ def test_rc72_launcher_handles_capacity_hold_without_bypassing_dsh_startup():
     assert "if ! \"$PY\" -m rc7_release.rc72_team_profile_capacity" in source
     assert "DSH UI startup continues; no 32-member or Field PASS is claimed" in source
     assert 'exec dsh --profile "$PFC_RC7_DSH_PROFILE"' in source
+
+def test_profiles_root_symlink_is_rejected_before_any_profile_write(tmp_path, monkeypatch):
+    _, clone, _ = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\\n"
+        "  name: '@nanmicoder/dsh-agent-teams'\\n"
+        "  config:\\n    maxMembers: 8\\n")
+    home = tmp_path / ".dsh"
+    profiles = home / "profiles"
+    real_profiles = home / "profiles-real"
+    profiles.rename(real_profiles)
+    try:
+        profiles.symlink_to(real_profiles, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        real_profiles.rename(profiles)
+        pytest.skip("directory symlink creation not permitted on this runner")
+    before = (clone / "cordis.patch.yml").read_bytes()
+    with pytest.raises(TeamProfileCapacityError, match="PROFILE_ROOT_SYMLINK"):
+        apply_cloned_profile_capacity()
+    assert (clone / "cordis.patch.yml").read_bytes() == before
+
+
+def test_package_manifest_symlink_ancestor_is_rejected(tmp_path, monkeypatch):
+    _, clone, _ = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\\n"
+        "  name: '@nanmicoder/dsh-agent-teams'\\n"
+        "  config:\\n    maxMembers: 8\\n")
+    node_modules = clone / "node_modules"
+    external = tmp_path / "external-node-modules"
+    node_modules.rename(external)
+    try:
+        node_modules.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        external.rename(node_modules)
+        pytest.skip("directory symlink creation not permitted on this runner")
+    before = (clone / "cordis.patch.yml").read_bytes()
+    with pytest.raises(TeamProfileCapacityError, match="PACKAGE_PATH_SYMLINK"):
+        apply_cloned_profile_capacity()
+    assert (clone / "cordis.patch.yml").read_bytes() == before
+
+
+def test_cli_refuses_report_destination_inside_dsh_profiles_before_clone_mutation(
+        tmp_path, monkeypatch):
+    from rc7_release.rc72_team_profile_capacity import main
+    bank, clone, _ = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\\n"
+        "  name: '@nanmicoder/dsh-agent-teams'\\n"
+        "  config:\\n    maxMembers: 8\\n")
+    protected = bank / "cordis.patch.yml"
+    bank_before = protected.read_bytes()
+    clone_before = (clone / "cordis.patch.yml").read_bytes()
+    assert main(["--runtime-profile", "rc7.2-bank",
+                 "--base-profile", "web", "--output", str(protected)]) == 2
+    assert protected.read_bytes() == bank_before
+    assert (clone / "cordis.patch.yml").read_bytes() == clone_before
+
+
+def test_cli_refuses_symlink_report_destination_to_protected_profile(
+        tmp_path, monkeypatch):
+    from rc7_release.rc72_team_profile_capacity import main
+    bank, clone, _ = _base(
+        tmp_path, monkeypatch,
+        "- id: agent-teams\\n"
+        "  name: '@nanmicoder/dsh-agent-teams'\\n"
+        "  config:\\n    maxMembers: 8\\n")
+    protected = bank / "cordis.patch.yml"
+    alias = tmp_path / "capacity-report.json"
+    try:
+        alias.symlink_to(protected)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlink creation not permitted on this runner")
+    bank_before = protected.read_bytes()
+    clone_before = (clone / "cordis.patch.yml").read_bytes()
+    assert main(["--runtime-profile", "rc7.2-bank",
+                 "--base-profile", "web", "--output", str(alias)]) == 2
+    assert alias.is_symlink()
+    assert protected.read_bytes() == bank_before
+    assert (clone / "cordis.patch.yml").read_bytes() == clone_before
+

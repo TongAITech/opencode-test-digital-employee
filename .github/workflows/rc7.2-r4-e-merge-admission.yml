@@ -1,0 +1,51 @@
+name: RC7.2 R4 Same-HEAD Engineering QA Merge Admission (No ZIP)
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'R4 candidate PR number'
+        required: true
+        type: string
+      source_sha:
+        description: 'Expected 40-character R4 candidate source SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  r4-independent-e:
+    # Engineering source gate for PR #113; optional GitHub human review
+    # is NOT a frozen RC7.2 requirement. Preserve genuine changes veto.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.ref == 'work/rc7.2-r4-consolidated-1to5-20261110'
+    name: r4-exact-sha-source-engineering-qa-admission
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      RC72_E_REVIEWER_LOGINS: ${{ vars.RC72_E_REVIEWER_LOGINS }}
+      PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.inputs.source_sha || github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require 18 independent same-SHA CI QA runs and no real changes-requested
+        run: >-
+          python -m rc7_release.rc72_r4_merge_gate
+          --expected-head "$HEAD_SHA" --pr-number "$PR_NUMBER"

@@ -96,7 +96,13 @@ def _require_field_captain(command, package_root, bindings):
         raise ContractError('C07_REAL_DSH_CAPTAIN_HOST_REQUIRED_FOR_FIELD_RUN')
 
 
-def main(argv=None):
+def main(argv=None, *, bank_trust_roots=None):
+    """CLI entry or explicitly bank-embedded Host invocation.
+
+    No command-line flag or JSON file may invent bank Host signing roots.
+    A trusted in-process bank controller may inject the roots; ordinary CLI
+    invocation lacks them and fails closed before any Captain bootstrap.
+    """
     parser = argparse.ArgumentParser(description='RC7.2 ReleaseBatch mission')
     parser.add_argument('command', choices=['status', 'run', 'script-ready-status',
         'admit-script-ready', 'mirror-check', 'review-reproduction',
@@ -221,7 +227,8 @@ def main(argv=None):
                         release_batch_id=args.release_batch,
                         config_path=args.mission_config,
                         provider_module=args.captain_observer_module,
-                        dsh_base_url=args.dsh_host_url)
+                        dsh_base_url=args.dsh_host_url,
+                        bank_trust_roots=bank_trust_roots)
                 else:
                     from rc7_release.rc72_configured_mission import configured_mission_bindings
                     bindings = configured_mission_bindings(
