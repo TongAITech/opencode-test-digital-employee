@@ -1,0 +1,30 @@
+CREATE SCHEMA wb;
+CREATE TABLE wb.project(project_id text PRIMARY KEY CHECK(btrim(project_id)<>''), name text NOT NULL CHECK(btrim(name)<>''));
+CREATE TABLE wb.project_acl(project_id text NOT NULL REFERENCES wb.project, principal text NOT NULL CHECK(btrim(principal)<>''), can_write boolean NOT NULL, PRIMARY KEY(project_id,principal));
+CREATE TABLE wb.release_batch(project_id text NOT NULL REFERENCES wb.project, batch_id text NOT NULL CHECK(btrim(batch_id)<>''), release_date date NOT NULL CHECK(isfinite(release_date)), revision bigint NOT NULL DEFAULT 1 CHECK(revision>0), PRIMARY KEY(project_id,batch_id), UNIQUE(project_id,release_date));
+CREATE TABLE wb.system_identity(project_id text NOT NULL REFERENCES wb.project, system_id text NOT NULL CHECK(btrim(system_id)<>''), source_system text NOT NULL CHECK(btrim(source_system)<>''), source_namespace text NOT NULL CHECK(btrim(source_namespace)<>''), source_object_id text NOT NULL CHECK(btrim(source_object_id)<>''), source_revision text NOT NULL CHECK(btrim(source_revision)<>''), PRIMARY KEY(project_id,system_id), UNIQUE(project_id,source_system,source_namespace,source_object_id));
+CREATE TABLE wb.system_version(project_id text NOT NULL, version_id text NOT NULL CHECK(btrim(version_id)<>''), system_id text NOT NULL, version_label text NOT NULL CHECK(btrim(version_label)<>''), source_system text NOT NULL CHECK(btrim(source_system)<>''), source_namespace text NOT NULL CHECK(btrim(source_namespace)<>''), source_object_id text NOT NULL CHECK(btrim(source_object_id)<>''), source_revision text NOT NULL CHECK(btrim(source_revision)<>''), PRIMARY KEY(project_id,version_id), FOREIGN KEY(project_id,system_id) REFERENCES wb.system_identity, UNIQUE(project_id,source_system,source_namespace,source_object_id));
+CREATE TABLE wb.audit(audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, project_id text NOT NULL REFERENCES wb.project, actor text NOT NULL, request_id text NOT NULL, action text NOT NULL, object_id text NOT NULL, detail jsonb NOT NULL, changed_at timestamptz NOT NULL DEFAULT clock_timestamp(), UNIQUE(project_id,actor,request_id));
+CREATE TABLE wb.batch_date_history(project_id text NOT NULL, batch_id text NOT NULL, revision bigint NOT NULL, old_date date NOT NULL, new_date date NOT NULL, reason text NOT NULL CHECK(btrim(reason)<>''), approval_ref text NOT NULL CHECK(btrim(approval_ref)<>''), audit_id bigint NOT NULL REFERENCES wb.audit, PRIMARY KEY(project_id,batch_id,revision), FOREIGN KEY(project_id,batch_id) REFERENCES wb.release_batch, CHECK(old_date<>new_date));
+CREATE FUNCTION wb.reject_history_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'APPEND_ONLY' USING ERRCODE='42501'; END $$;
+CREATE TRIGGER audit_append_only BEFORE UPDATE OR DELETE ON wb.audit FOR EACH ROW EXECUTE FUNCTION wb.reject_history_change();
+CREATE TRIGGER date_append_only BEFORE UPDATE OR DELETE ON wb.batch_date_history FOR EACH ROW EXECUTE FUNCTION wb.reject_history_change();
+CREATE FUNCTION wb.allowed(p text, writing boolean) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,wb AS $$ SELECT EXISTS(SELECT 1 FROM wb.project_acl WHERE project_id=p AND principal=current_setting('wb.principal',true) AND (NOT writing OR can_write)) $$;
+REVOKE ALL ON FUNCTION wb.allowed(text,boolean) FROM PUBLIC;
+DO $$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['project','release_batch','system_identity','system_version','audit','batch_date_history'] LOOP EXECUTE format('ALTER TABLE wb.%I ENABLE ROW LEVEL SECURITY',t); EXECUTE format('CREATE POLICY read_scope ON wb.%I FOR SELECT USING (wb.allowed(project_id,false))',t); END LOOP; FOREACH t IN ARRAY ARRAY['release_batch','system_identity','system_version','audit','batch_date_history'] LOOP EXECUTE format('CREATE POLICY write_scope ON wb.%I FOR INSERT WITH CHECK (wb.allowed(project_id,true))',t); END LOOP; END $$;
+CREATE POLICY batch_update ON wb.release_batch FOR UPDATE USING(wb.allowed(project_id,true)) WITH CHECK(wb.allowed(project_id,true));
+REVOKE ALL ON SCHEMA wb FROM PUBLIC;
+CREATE TABLE wb.request_log(project_id text NOT NULL REFERENCES wb.project, actor text NOT NULL, request_id text NOT NULL CHECK(btrim(request_id)<>''), payload_hash text NOT NULL, PRIMARY KEY(project_id,actor,request_id));
+ALTER TABLE wb.request_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY request_scope ON wb.request_log USING(wb.allowed(project_id,true)) WITH CHECK(wb.allowed(project_id,true));
+CREATE FUNCTION wb.check_date_audit() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,wb AS $$
+BEGIN
+ IF NEW.project_id<>OLD.project_id OR NEW.batch_id<>OLD.batch_id OR NEW.revision<>OLD.revision+1 OR NEW.release_date=OLD.release_date THEN RAISE EXCEPTION 'INVALID_DATE_REVISION' USING ERRCODE='23514'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM wb.batch_date_history h JOIN wb.audit a ON a.audit_id=h.audit_id WHERE h.project_id=NEW.project_id AND h.batch_id=NEW.batch_id AND h.revision=NEW.revision AND h.old_date=OLD.release_date AND h.new_date=NEW.release_date AND a.project_id=NEW.project_id AND a.object_id=NEW.batch_id AND a.action='batch.reschedule') THEN RAISE EXCEPTION 'DATE_AUDIT_REQUIRED' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END $$;
+CREATE CONSTRAINT TRIGGER require_date_audit AFTER UPDATE ON wb.release_batch DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION wb.check_date_audit();
+DROP POLICY write_scope ON wb.audit;
+CREATE POLICY audit_insert ON wb.audit FOR INSERT WITH CHECK(wb.allowed(project_id,true) AND actor=current_setting('wb.principal',true));
+DROP POLICY request_scope ON wb.request_log;
+CREATE POLICY request_scope ON wb.request_log USING(wb.allowed(project_id,true) AND actor=current_setting('wb.principal',true)) WITH CHECK(wb.allowed(project_id,true) AND actor=current_setting('wb.principal',true));
