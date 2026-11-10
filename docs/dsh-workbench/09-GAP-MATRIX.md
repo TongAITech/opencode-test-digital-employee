@@ -179,3 +179,11 @@ E 对 W0 设计合同签署已记录于 `WB-E-A03-DESIGN-SIGNOFF.md`（源 W0 HE
 | FG20 50 项原版范围 | F #106 `FG20_DESIGN_RECONCILIATION_PASS`，35 O/A + 15 N 原版候选身份一致 | DESIGN_RECONCILIATION_PASS / PRODUCT_50_NOT_RUN | W1 完整真 UI/API/DB/Host，F02 逐项 QA |
 | A01-LOCALE P05-03 / X01-01 | A `KEEP_ZH_EN_W1_REQUIRED`，默认中文且保留英文；12 项负向/许可/状态 Oracle；W0 中文仅模拟 | A_SCOPE_RECORDED / F_DESIGN_REVIEW_PENDING | F 确认 W0 设计完整，W1 C/D 实现中英文/主题/Skill，F02 正反例，许可另签 |
 | W0 F00 & A02 | C W0 原型通过 **不等于 W0 总体冻结**，PolyForm NC 授权未取得 | W0_NOT_FROZEN / BLOCKED_LICENSE | F00 对 A01+A03 正式 DESIGN_ACCEPTED；法务/F 许可和 W1–W4 真证据不能预填 |
+
+## 2026-11-10 A01 语言行为来源真实性缺口增量
+| GAP | 状态 | 证据/退出条件 |
+|---|---|---|
+| WB-A01-LOCALE-PROVENANCE | SOURCE_ANCHOR_CORRECTION_SUBMITTED / F_RECHECK_PENDING | 上游 `i18n.js#L700-L722` 和 `app.js#L2085-L2091/#L2048-L2094` 精确入口可复核；A01 两条 feature 行补录。负向测试须证明 theme-only/错误 SHA/删除 i18n/伪许可证无法变绿；F 针对新 SHA 复核 |
+| WB-A01-LOCALE-W1 | DESIGN_SCOPE_RETAINED / IMPLEMENTATION_QA_NOT_RUN | 使用 A 唯一 `WB-A01-LOCALE-SCOPE.json` 保留 zh-CN/en-US、12 条 W1 反例；C01/C02 及 D Host/QA Skill 两语真实验收未运行 |
+| WB-A02 | BLOCKED_LICENSE | PolyForm Noncommercial 适用商业权利或独立原创及第三方许可证法务审核未批准，不得复制原版文件、不得打包 |
+| W0_DESIGN_FROZEN | NO / F_GLOBAL_SIGNOFF_PENDING | F #106 只签 C 原型与 FG23；新 A01 原版源锚点核对不能代签 F 全局冻结或 W1 施工准入 |

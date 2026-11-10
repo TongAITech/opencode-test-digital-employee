@@ -129,5 +129,25 @@
     "WB-C01_IMPLEMENTATION_QA_PASS",
     "WB-C02_IMPLEMENTATION_QA_PASS",
     "LICENSE_RELEASE_APPROVED"
-  ]
+  ],
+  "upstream_readonly_provenance": {
+    "repository": "naodeng/dsh-qa",
+    "pinned_sha": "fc5a054a48973d004580a3cc1de60da3f701150b",
+    "license": "PolyForm-Noncommercial-1.0.0",
+    "copied_source": false,
+    "evidence": [
+      {
+        "feature_id": "P05-03",
+        "i18n_anchor": "public/i18n.js#L700-L722",
+        "ui_anchor": "public/app.js#L2085-L2091",
+        "evidence_state": "ORIGINAL_ENTRYPOINT_OBSERVED_NOT_W1_QA"
+      },
+      {
+        "feature_id": "X01-01",
+        "i18n_anchor": "public/i18n.js#L700-L722",
+        "ui_anchor": "public/app.js#L2048-L2094",
+        "evidence_state": "ORIGINAL_ENTRYPOINT_OBSERVED_NOT_W1_QA"
+      }
+    ]
+  }
 }

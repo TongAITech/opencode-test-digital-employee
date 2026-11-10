@@ -18,3 +18,11 @@
 **验收门槛：** W0 可确认要求完整、拒绝静默裁剪；W1 必须实际运行 zh-CN/en-US 两套交互及负例，F02 逐操作提供同 SHA 截图/操作、真正 Host/API/权限/状态证据。没有这些时 `A01_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING`、`W0_NOT_FROZEN`、`C01_C02_IMPLEMENTATION_QA_NOT_RUN`、`BLOCKED_LICENSE` 不变。
 
 负向契约：`tests/test_dsh_workbench_a01_locale.py` 拒绝删英文、删 P05-03/X01-01、假 QA_PASS、伪 F 签署、法务越权、缺验收负例、原子源条目缺失。脚本 `tools/dsh_workbench/a01_locale_scope.py` 只做 **设计范围静态检查**，不能算 UI 的 W1 验收。
+
+## 2026-11-10 语言原版入口的固定 SHA 证据补强
+
+只读核对上游 `naodeng/dsh-qa@fc5a054a48973d004580a3cc1de60da3f701150b`：
+- [public/i18n.js#L700-L722](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/i18n.js#L700-L722) 存在当前语言、切换、翻译与中文缺译文回退；[public/i18n.js#L5-L8](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/i18n.js#L5-L8) 为语言词典入口。
+- [public/app.js#L2085-L2091](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/app.js#L2085-L2091) 为实际设置页语言选择处理；[L2048-L2094](https://github.com/naodeng/dsh-qa/blob/fc5a054a48973d004580a3cc1de60da3f701150b/public/app.js#L2048-L2094) 将语言与 system/light/dark 主题作为独立控件。原先 A01 X01-01 只引用 `setThemePreference()`，不能单独证明 i18n 功能。
+- 已将 P05-03/X01-01 的真实语言函数与入口位置回填 A01 原子登记，在唯一正式 `WB-A01-LOCALE-SCOPE.json` 增加只读来源、license 和零源码复制标志。A01 机器验证要求来源锚点不能退化为单一主题函数。
+- **边界：** 索引事实不等于我方复制源码的权利；原版 PolyForm Noncommercial 许可保持独立 `BLOCKED_LICENSE`。仍按原 W1 12 条正反例做未来真实 UI/Host 验收；目前中英文 W1 NOT_RUN、F 全局 W0_NOT_FROZEN，不扩展 F #106 结论。
