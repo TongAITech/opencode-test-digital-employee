@@ -101,3 +101,25 @@
 - 修复：必须在任何 Evidence、Node 状态、NodeGate、分类和修复回边写入前验证原生 Delivery 唯一，且 Mission/Node/Worker/Contract/原始 Evidence 谱系一致；Receipt 不是新 Delivery 的执行授权。
 - 新增真实 N7 失败和独立 N8 进程诊断后的两个 cold replay 反例：缺失 Delivery、篡改 evidence_refs，必须拒绝且 R1 文件逐字节不变、原始 Attempt BLOCKED、零 HTTP 再执行。保留既有 N8 正向重入及修复测试。
 - 集成此变更与 PR #86、#87、#88 的所有原代码和台账记录，以同一候选 SHA 跑四平台定向/完整继承 CI。无银行真实 Host/AgentTeams/4A/Libra、独立 QA、C12 主程序及离线包证据前不能核销整个第四轮。FIELD_PENDING / C12_PHYSICAL_HOLD / BANK_FINAL=NO。
+
+## R4-05 / Q3–Q6 现场签章准入补强（2026-11-10）
+
+- 发现源码安全问题：原 FieldQualificationService._is_trusted_for_gate 仅验证 provider:// 或 human:// URI 字符串和 ReleaseBatch 关联。任意 R1 写入者可凭借这些可伪造字段提交 Q3–Q6 FIELD PASS，甚至原有测试未使用真实签章。此情况不符合 Field Evidence 真伪门禁。
+- 修复为 Gate-specific 银行 Host 信任根（trusted_gate_authorities）。对 R1 Evidence 实施 HMAC-SHA256 精确绑定：Gate、Batch、source_commit、platform_family、platform_release、architecture、python_version、Evidence ID/Kind、source/content reference、content hash、subject_refs 与 artifact_version；少签、错签、跨批/跨平台重放、无可信 Host 时必须 HOLD。Q6 保留独立 human:// 和 CASE_HUMAN_GATE_APPROVAL 类型，并要求银行审批侧受信签章。
+- 明确安全边界：源码单测内的 signing key 只是隔离测试夹具，不能替代行内信任根、真实审批、4A 或物理 Evidence 真实性。银行 Host 必须在确认原始 Provider/人审/被签文件后才签发，且密钥不能注入 Agent Prompt/Worker 或随包分发。
+- 增加 4 平台（Windows/Linux × Python3.8/3.11）独立专项 CI；不重复构建 ZIP。此轮仅更新 Q3–Q6 的安全准入，不宣称 R4-01～07 Field、C12 或 Bank Final 通过。
+
+当前：FIELD_APPROVAL_SIGNATURE_HARDENING_PR / FIELD_VERIFIED=false / C12_PHYSICAL_HOLD / BANK_FINAL=NO.
+
+## R4-01 / C07 DSH AgentTeams provider 自签名门禁加固（2026-11-10）
+
+- 源码审计发现：configured_agentteams_host_bindings 允许 provider_module 按调用方字符串动态导入，且 CaptainProviderWiring 可以同时返回其自行构造的 membership_authority 和 host_authority。若不要求独立银行 Host 提前锁定信任根，provider 的自签名可能被当作真实 AgentTeams Captain。
+- 增加 BankCaptainTrustRoots：调用方必须由银行可信 Host 预先注入受批准 provider_module 名称及彼此独立的 membership/host authority；在导入模块前拒绝 provider 名称不匹配、缺少受信根及共享密钥。provider 返回的 authority 必须是预先注入的同一对象，不能自签自验。LocalDshAgentTeamsHost 继续检查真实 loopback DSH session/status、HMAC、准确 R1 Batch 和 Captain 身份。
+- 新增独立负例：缺少受信根或未批准模块不得 import，独立对象共用同一签名 key 必须拒绝，provider 自带的任意双 key 不得创建 Captain，签名缺失即使 trust root 正确仍不写 R1。
+- 这只能证明受控 Host 源码的准入条件，不代表银行真实 module 文件身份、私有信任根、DSH 进程及 32/33 人 Field 已实测。provider 的真实来源、供应链校验、银行密钥保管及行内单点签章均依旧属于现场准入。不能将模拟测试密钥直接复制到交付包。
+- 目标：Windows/Linux Python3.8/3.11 定向回归，仅一次源码工程批次验收，不构建 ZIP，FIELD_VERIFIED=false / BANK_FINAL=NO。
+
+### C07 CLI 接线约束与继承回归
+- `rc7_release.rc72_mission_cli.main` 新增仅供受信银行 Host 进程使用的 keyword-only `bank_trust_roots` 注入入口。普通 CLI 参数、配置 JSON 或模型 Prompt 均无法提供或制造签章密钥；未批准银行控制端嵌入时，`--captain-observer-module` 显式 fail-closed，而不是退回 legacy 无 Captain 执行。
+- 原 `tests/test_rc72_configured_mission.py` 的真实 loopback DSH Captain 正向测试升级为显式 BankCaptainTrustRoots 注入，不删除原真实会话/R1 Gate 断言；四平台 C07 工作流增加旧 Mission CLI 与 Host 继承合同测试。
+- 此接线能力仍不是银行 Host 授权的实际取得：行内应由受控进程 provision/sign，绝不能把 test-key 加入安装包。`R4_01_SOURCE_VERIFIED_PENDING_CI / FIELD_HOLD / BANK_FINAL=NO`。

@@ -625,7 +625,7 @@ def test_full_package_field_run_requires_actual_host_captain(tmp_path):
 def test_trusted_local_agentteams_factory_probes_dsh_before_real_captain_binding(tmp_path, monkeypatch):
     """GAP-02: package factory accepts only separately signed live membership."""
     from rc7_release.rc72_dsh_agentteams_factory import (
-        CaptainProviderWiring, configured_agentteams_host_bindings)
+        BankCaptainTrustRoots, CaptainProviderWiring, configured_agentteams_host_bindings)
     from test_rc72_dsh_agentteams_host import _local_server, _host, _proof
 
     truth, _config, path = _setup(tmp_path, monkeypatch)
@@ -649,7 +649,9 @@ def test_trusted_local_agentteams_factory_probes_dsh_before_real_captain_binding
             truth, release_id=RELEASE, source_commit=COMMIT,
             release_batch_id=BATCH, config_path=path,
             provider_module=provider.__name__,
-            dsh_base_url='http://127.0.0.1:%d' % server.server_port)
+            dsh_base_url='http://127.0.0.1:%d' % server.server_port,
+            bank_trust_roots=BankCaptainTrustRoots(
+                provider.__name__, membership_key, host.host_authority))
         assert bound.captain_binding is not None
         assert bound.captain_binding.captain_session_id == 'session-real-dsh-captain-001'
         assert len(truth.query('rc72_captain_dispatch_lease')) == 1
