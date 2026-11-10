@@ -115,12 +115,18 @@ def test_bundle_verify_rejects_tampered_plugin_tree(tmp_path: Path) -> None:
         installer.verify_bundle(root)
 
 
-def test_install_and_uninstall_are_offline_and_never_target_web(tmp_path: Path) -> None:
+def test_install_and_uninstall_are_offline_and_never_target_web(tmp_path: Path, monkeypatch) -> None:
     bundle = _make_bundle(tmp_path / "bundle")
     rc72_home = _fake_rc72_home(tmp_path / "RC72")
     log = tmp_path / "dsh.log"
     dsh = _fake_dsh(tmp_path, log)
     os.environ["FAKE_DSH_LOG"] = str(log)
+    original_run = installer._run
+    def _run_with_native_fixture(command, env=None):
+        if Path(str(command[0])).name in ("mnemon.exe", "mnemon"):
+            return "mnemon 0.2.9"
+        return original_run(command, env=env)
+    monkeypatch.setattr(installer, "_run", _run_with_native_fixture)
     receipt = installer.install(bundle, rc72_home=rc72_home, dsh_bin=dsh, profile="rc7.2-bank")
     assert receipt["status"] == "INSTALLED_HOST_ACTIVATION_NOT_BANK_ACCEPTANCE"
     assert receipt["profile"] == "rc7.2-bank"
