@@ -49,7 +49,7 @@ B/C/D/E 并行但不得越权改他组文件；A 维护接口变更单及依赖�
 | WB-B06 | B | 跨分区 Scope 关联查询与分页 | B05 | COMPONENT_QA_ACCEPTED / MERGED（F #138；真实Host未验） |
 | WB-C01 | C | 六页面/十分区不缺失的导航骨架，真实 UI IMPLEMENTATION_QA | A01_DESIGN_SIGNED, W0_DESIGN_FROZEN | NAVIGATION_COMPONENT_ACCEPTED / MERGED（F #128） |
 | WB-C02 | C | 项目详情投产日期/需求/版本/SST 联动 | B06,C01 | SCOPE_UI_COMPONENT_ACCEPTED / MERGED（F #141；非整体资格） |
-| WB-D01 | D | DSH 宿主版本/面板真实兼容性探测 | A00 | COMPONENT_TESTED / BLOCKED_FIELD（GET_UNAVAILABLE） |
+| WB-D01 | D | DSH 宿主版本/面板真实兼容性探测 | A00 | COMPONENT_TESTED / FIELD_NEEDS_BANK_TRANSFER（用户确认行外不可达） |
 | WB-E01 | E | RC7.2 R1 只读 Scope 与 Evidence 适配 | B06 | READONLY_COMPONENT_ACCEPTED / MERGED（F #142） |
 | WB-F01 | F | 真实日期、跨版本、多 SST 纵向核验，独立 INTEGRATION_QA | C02_IMPLEMENTATION_QA, D01_IMPLEMENTATION_QA, E01_IMPLEMENTATION_QA | BLOCKED_FIELD_AND_FULL_IMPLEMENTATION（未签整体通过） |
 
@@ -332,3 +332,8 @@ WB-A03：06 增量接口设计、身份/幂等/流式事件/迁移反例，B/D/E
 - A最新联合97917526bb875c276ee5541d0fb377c11f0d9580同源真PG/HTTP/Chromium1/1、通用合同398发现/264执行/134未配置PG明确skip；远端联合检查另核，不继承旧源数字。
 - B07增量合同143/22fc88ff及D39e7bccd/E44828bf0职责签署已集成，里程碑真库/HTTP首slice独立施工中，尚无CRUD通过声明。
 - C02/E01/统一入口仅COMPONENT_QA_ACCEPTED/MERGED，F01整体、真实Host认证/DSH1.18.26、Windows/离线、实际并发恢复、50完整产品及许可发布门禁未完成，不合RC7.2、不出银行ZIP。
+
+
+## 现场环境访问约束（用户确认，2026-11-10）
+
+用户确认行外无法访问真实DSH/Windows，必须搬运行内。现场状态统一 FIELD_NEEDS_BANK_TRANSFER；停止行外尝试真实现场访问，fixture仍只是组件测试。接续操作和证据字段见 BANK-TRANSFER-ACCEPTANCE.md。只在集中回归候选点准备搬运材料，不提前生成最终银行交付ZIP，不跳过D01/D04/F04或许可证门禁。

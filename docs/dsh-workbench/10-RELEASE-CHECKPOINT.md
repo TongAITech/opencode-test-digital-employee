@@ -239,3 +239,8 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 - A最新联合97917526bb875c276ee5541d0fb377c11f0d9580同源真PG/HTTP/Chromium1/1、通用合同398发现/264执行/134未配置PG明确skip；远端联合检查另核，不继承旧源数字。
 - B07增量合同143/22fc88ff及D39e7bccd/E44828bf0职责签署已集成，里程碑真库/HTTP首slice独立施工中，尚无CRUD通过声明。
 - C02/E01/统一入口仅COMPONENT_QA_ACCEPTED/MERGED，F01整体、真实Host认证/DSH1.18.26、Windows/离线、实际并发恢复、50完整产品及许可发布门禁未完成，不合RC7.2、不出银行ZIP。
+
+
+## 现场环境访问约束（用户确认，2026-11-10）
+
+用户确认行外无法访问真实DSH/Windows，必须搬运行内。现场状态统一 FIELD_NEEDS_BANK_TRANSFER；停止行外尝试真实现场访问，fixture仍只是组件测试。接续操作和证据字段见 BANK-TRANSFER-ACCEPTANCE.md。只在集中回归候选点准备搬运材料，不提前生成最终银行交付ZIP，不跳过D01/D04/F04或许可证门禁。
