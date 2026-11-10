@@ -16,6 +16,7 @@ from .truth_overlay import install_rc7_truth_overlay
 from .control_plane import TaskScheduler
 from .models import ContractError, TaskStatus
 from .rc72_captain_dispatch_fencing import CaptainDispatchFencer
+from .rc72_agentteams_capacity import TeamCapacityPolicy
 from .rc72_ledger_lock import ledger_lock
 from .rc72_worker_lifecycle import WorkerLifecycleService
 
@@ -73,6 +74,13 @@ class GovernedFreshDispatch:
     state: str
 
 
+@dataclass(frozen=True)
+class GovernedReadyBatch:
+    """R1 admitted workers and durable READY workitems left queued."""
+    admitted: tuple
+    queued_workitem_ids: tuple
+
+
 class CaptainFencedWorkItemScheduler:
     """Admission on a single canonical R1/OS ledger, with role-profile enforcement.
 
@@ -90,7 +98,8 @@ class CaptainFencedWorkItemScheduler:
 
     def __init__(self, *, truth, release_id: str, fencer: CaptainDispatchFencer,
                  lifecycle: WorkerLifecycleService, scheduler: TaskScheduler,
-                 role_profiles: Mapping[str, Sequence[str]]):
+                 role_profiles: Mapping[str, Sequence[str]],
+                 capacity_policy: TeamCapacityPolicy = None):
         install_captain_etu_admission_overlay()
         if (fencer.truth is not truth or lifecycle.truth is not truth
                 or scheduler.truth is not truth or fencer.release_id != release_id
@@ -113,6 +122,165 @@ class CaptainFencedWorkItemScheduler:
         self.truth, self.fencer = truth, fencer
         self.lifecycle, self.scheduler = lifecycle, scheduler
         self.release_id, self.role_profiles = release_id, validated
+        if capacity_policy is not None and type(capacity_policy) is not TeamCapacityPolicy:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CAPACITY_POLICY_INVALID")
+        self.capacity_policy = capacity_policy if capacity_policy is not None else TeamCapacityPolicy()
+        self._n7_cleanup_review = None  # Never supplied by model/config text.
+
+    def dispatch_ready_batch(self, *, mission_id: str, team_id: str,
+                             captain_session_id: str, captain_lease_id: str,
+                             workitems: Sequence[Mapping]) -> GovernedReadyBatch:
+        """Fair bounded admission in the canonical TaskScheduler READY order.
+
+        This is a *real* task admission method, not a simulated Agent spawn.
+        Each admission rechecks Captain fencing, source/ETU planning, TaskLease
+        and active slot atomically inside dispatch_etu's ledger lock. Requests
+        must be frozen and approved by the N7 planner; the Captain cannot pass
+        inferred role, ETU or mutable tool permissions from model prose.
+        READY tasks not admitted remain durable and can be picked up again on
+        the next Mission tick after a WorkerSession is safely closed.
+        """
+        # The 32-member roster bounds actual DSH member identities, NOT the
+        # count of READY WorkItems in a ReleaseBatch. A real batch may have
+        # hundreds of ETUs while only four signed WorkerSessions execute at
+        # once. Reject empty/foreign types, then validate every WorkItem
+        # against canonical READY truth before admitting the first task.
+        if not isinstance(workitems, (list, tuple)) or not workitems:
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_SIZE_INVALID")
+        indexed = {}
+        expected = {"workitem_id", "etu_id", "role", "canonical_refs"}
+        for item in workitems:
+            if (not isinstance(item, Mapping) or set(item) != expected
+                    or any(not isinstance(item[key], str) or not item[key].strip()
+                           for key in ("workitem_id", "etu_id", "role"))
+                    or not isinstance(item["canonical_refs"], Mapping)):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_ITEM_INVALID")
+            name = item["workitem_id"]
+            if name in indexed:
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_DUPLICATE_WORKITEM")
+            indexed[name] = item
+        ready = self.scheduler.ready_tasks(mission_id)
+        order = [item.task_id for item in ready if item.task_id in indexed]
+        if len(order) != len(indexed):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_BATCH_WORKITEM_NOT_READY")
+        admitted = []
+        for index, workitem_id in enumerate(order):
+            item = indexed[workitem_id]
+            try:
+                result = self.dispatch_etu(
+                    mission_id=mission_id, team_id=team_id,
+                    captain_session_id=captain_session_id,
+                    captain_lease_id=captain_lease_id,
+                    role=item["role"], etu_id=item["etu_id"],
+                    workitem_id=workitem_id,
+                    canonical_refs=item["canonical_refs"])
+            except CaptainSchedulingError as exc:
+                if str(exc) == "CAPTAIN_SCHEDULER_ACTIVE_CAPACITY_REACHED":
+                    return GovernedReadyBatch(tuple(admitted), tuple(order[index:]))
+                raise
+            admitted.append(result)
+        return GovernedReadyBatch(tuple(admitted), ())
+
+    def bind_n7_cleanup_review(self, review):
+        """Bind the real N7 evidence service and its scoped HMAC authority.
+
+        This is installed by the concrete N7Pipeline constructor; not a
+        model-supplied callback and not a synthetic cleanup declaration.
+        Its proof verifier is read-only against the existing canonical R1.
+        """
+        from .rc72_n7_evidence_review import ExecutionEvidenceReviewService
+        if (type(review) is not ExecutionEvidenceReviewService
+                or review.truth is not self.truth
+                or review.preparation.truth is not self.truth
+                or review.preparation.release_id != self.release_id):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_SCOPE_INVALID")
+        previous = self._n7_cleanup_review
+        if previous is not None and previous is not review:
+            # A second N7 pipeline is normal during signed Captain reentry,
+            # expiry audit or cold product-driver reconstruction.  Never
+            # replace the trusted first verifier; only allow an equivalent
+            # view of exactly the same canonical R1 and in-process signing
+            # authority.  Foreign Captain identity is checked separately
+            # at the N7 WorkItem/TaskLease admission boundary.
+            if (previous.preparation.authority is not review.preparation.authority
+                    or previous.preparation.source_commit != review.preparation.source_commit
+                    or previous.preparation.tool_registry != review.preparation.tool_registry):
+                raise CaptainSchedulingError("CAPTAIN_SCHEDULER_N7_REVIEW_REBIND_FORBIDDEN")
+            return
+        self._n7_cleanup_review = review
+
+    def _n7_execution_settled(self, session):
+        """Only *verified* completed external work frees an execution slot.
+
+        A session remains ACTIVE (and all original attempt/reviewer lineage
+        remains immutable) until whole-denominator N7 finalization. Do not
+        mistake ACTIVE historical sessions for concurrent external I/O. A
+        missing/failed/UNKNOWN cleanup or lease is always counted in flight.
+        """
+        review = self._n7_cleanup_review
+        if review is None or session.get("purpose") != "EXECUTION":
+            return False
+        preps = self.truth.query("rc72_n7_execution_preparation",
+                                 session_id=session.get("session_id"))
+        if len(preps) != 1:
+            return False
+        p = preps[0]
+        if (p.get("worker_id") != session.get("worker_id")
+                or p.get("workitem_id") != session.get("workitem_id")
+                or p.get("etu_id") != session.get("etu_id")
+                or p.get("mission_id") != session.get("mission_id")
+                or p.get("status") != "PREPARED"):
+            return False
+        task = self.truth.query("rc7_task", task_id=p["workitem_id"])
+        if (len(task) != 1 or task[0].get("state") != "RUNNING"
+                or task[0].get("lease_owner") != p["worker_id"]):
+            return False
+        dispatch = self.truth.query("rc72_n7_tool_dispatch",
+                                    preparation_id=p["preparation_id"])
+        if (len(dispatch) != 1 or dispatch[0].get("state") != "RETURNED"
+                or dispatch[0].get("worker_id") != p["worker_id"]
+                or dispatch[0].get("attempt_id") != p["attempt_id"]):
+            return False
+        # The independent N7 read-only verifier recomputes the frozen cleanup
+        # oracle, signed receipts, provenance, resource releases and evidence
+        # denominator. A completed tool call alone must never free capacity.
+        try:
+            contracts = self.truth.query(
+                "rc72_n6_executable_contract", contract_id=p["contract_id"])
+            if len(contracts) != 1:
+                return False
+            calls = self.truth.query("rc72_n7_cleanup_call",
+                                     preparation_id=p["preparation_id"])
+            if (len(calls) != 2 or {c.get("phase") for c in calls}
+                    != {"CLEANUP", "VERIFY"}
+                    or any(not isinstance(c.get("runtime_signature"), str)
+                           or not c["runtime_signature"] for c in calls)):
+                return False
+            review._cleanup_proof(p, contracts[0])
+            return True
+        except (ContractError, ValueError, KeyError, TypeError):
+            # Disputed or incomplete evidence reserves the slot for
+            # independent investigation. Do not perform repair/replay here.
+            return False
+
+    def _assert_active_team_capacity(self, team_id):
+        """Capacity is reserved for ACTIVE R1 WorkerSessions, not roster size.
+
+        Under the same R1 ledger lock as worker assignment, even a crashed
+        pre-TaskLease session consumes capacity until governed checkpoint/
+        closure. No forced reclamation, invented idle worker or task replay.
+        """
+        sessions = self.truth.query("rc72_worker_session")
+        active = [s for s in sessions
+                  if s.get("team_id") == team_id and s.get("state") == "ACTIVE"]
+        if len({s.get("session_id") for s in active}) != len(active):
+            raise CaptainSchedulingError("CAPTAIN_SCHEDULER_TEAM_SESSION_DUPLICATE")
+        in_flight = [s for s in active if not self._n7_execution_settled(s)]
+        if len(in_flight) >= self.capacity_policy.max_active_workers:
+            raise CaptainSchedulingError(
+                "CAPTAIN_SCHEDULER_ACTIVE_CAPACITY_REACHED")
+        # This gate does not prove observed DSH model concurrency or that
+        # the plugin has actually created all 32 member identities.
 
     def _assert_n7_planning_lineage(self, *, mission_id, batch, task, etu):
         """Enforce exact canonical N7 Case -> ETU -> WorkItem mapping.
@@ -257,6 +425,7 @@ class CaptainFencedWorkItemScheduler:
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_RECOVERY_SCOPE_DRIFT")
             if terminal and terminal["state"] != "CLOSED":
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_PRIOR_SESSION_RECOVERY_REQUIRED")
+            self._assert_active_team_capacity(team_id)
             if not isinstance(canonical_refs, Mapping):
                 raise CaptainSchedulingError("CAPTAIN_SCHEDULER_CANONICAL_REFS_REQUIRED")
             # Assign first: if process crashes before Task lease the orphan

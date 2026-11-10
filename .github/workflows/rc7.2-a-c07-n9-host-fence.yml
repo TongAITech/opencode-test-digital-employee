@@ -4,6 +4,7 @@ on:
   push:
     branches: [work/rc7.2-a-c07-n9-captain-fence]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2-abcd-v4-qualification, work/rc7.2]
     paths:
       - 'rc7_runtime/rc72_captain_*.py'

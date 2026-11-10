@@ -21,6 +21,7 @@ from .rc72_n7_execution_admission import ExecutionAdmissionService
 from .rc72_n6_pipeline import N6PipelineService
 from .rc72_captain_dispatch_fencing import install_captain_dispatch_overlay
 from .rc72_mission_factory import MissionCaptainBinding
+from .rc72_ledger_lock import ledger_lock
 from .truth_overlay import install_rc7_truth_overlay
 
 _KIND = 'rc72_script_ready_admission'
@@ -250,25 +251,37 @@ class NativeScriptReadyGateProducer:
             if result.get('status') == 'HOLD':
                 return self._hold(result.get('reason', 'SCRIPT_READY_N6_NOT_READY'))
         facts = self._native(release_batch_id)
-        governed.fencer.assert_owner(
-            mission_id=mission, lease_id=captain_binding.captain_lease_id,
-            captain_session_id=captain_binding.captain_session_id)
-        payload = dict(facts, purpose=_PURPOSE, status='ADMITTED',
-                       captain_lease_id=owner['lease_id'],
-                       captain_session_id=owner['captain_session_id'],
-                       team_id=owner['team_id'],
-                       captain_generation=owner['generation'])
-        payload['admission_id'] = 'SCRIPTREADY-' + _hash(payload)[:24]
-        signed = dict(payload)
-        payload['signature'] = self.authority._sign(signed)
-        existing = self.truth.query(_KIND, admission_id=payload['admission_id'])
-        if existing:
-            if (len(existing) != 1
-                    or any(existing[0].get(k) != v for k, v in payload.items())
-                    or existing[0].get('artifact_version') != 1):
-                raise ContractError('SCRIPT_READY_ADMISSION_REPLAY_CONFLICT')
-            return self.inspect(release_batch_id=release_batch_id)
-        self.truth.append_atomic(_EVENT, dict(payload, artifact_version=1))
+        # Captain may hand off between the initial N6 read and R1 emission.
+        # Retake the same OS ledger lock used by Captain handoff and R1
+        # admissions; while holding it, verify the exact generation and
+        # canonical N6/Case denominator immediately before persisting.
+        # Never call assert_owner() inside this section: it locks the same
+        # non-reentrant ledger and would deadlock or return BUSY.
+        with ledger_lock(self.truth, busy='SCRIPT_READY_R1_BUSY'):
+            latest = governed.fencer._owner(
+                mission, captain_binding.captain_lease_id,
+                captain_binding.captain_session_id, int(time.time()))
+            if (latest.get('team_id') != captain_binding.team_id
+                    or latest.get('generation') != owner['generation']
+                    or latest.get('lease_id') != owner['lease_id']):
+                raise ContractError('SCRIPT_READY_CAPTAIN_GENERATION_CHANGED')
+            if self._native(release_batch_id) != facts:
+                raise ContractError('SCRIPT_READY_FROZEN_FACTS_CHANGED_BEFORE_COMMIT')
+            payload = dict(facts, purpose=_PURPOSE, status='ADMITTED',
+                           captain_lease_id=latest['lease_id'],
+                           captain_session_id=latest['captain_session_id'],
+                           team_id=latest['team_id'],
+                           captain_generation=latest['generation'])
+            payload['admission_id'] = 'SCRIPTREADY-' + _hash(payload)[:24]
+            payload['signature'] = self.authority._sign(dict(payload))
+            existing = self.truth.query(_KIND, admission_id=payload['admission_id'])
+            if existing:
+                if (len(existing) != 1
+                        or any(existing[0].get(k) != v for k, v in payload.items())
+                        or existing[0].get('artifact_version') != 1):
+                    raise ContractError('SCRIPT_READY_ADMISSION_REPLAY_CONFLICT')
+            else:
+                self.truth.append_atomic(_EVENT, dict(payload, artifact_version=1))
         return self.inspect(release_batch_id=release_batch_id)
 
 

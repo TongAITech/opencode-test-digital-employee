@@ -391,6 +391,22 @@ class ExecutionDiagnosisService:
     def _accept(self, p, case, facts, receipt):
         result = receipt['result']
         node = self.runtime.node_by_type(p['mission_id'], AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
+        # A signed process receipt is not authority to reconstruct a missing
+        # native N8 NodeDelivery. Refuse cold R1 corruption BEFORE appending
+        # Evidence, advancing Node state or issuing repair/back-edge effects.
+        recorded = self.truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])
+        if len(recorded) != 1:
+            raise ContractError('N8_ACCEPTED_DELIVERY_NOT_UNIQUE_OR_MISSING')
+        original_delivery = recorded[0]
+        if (original_delivery.get('mission_id') != p['mission_id']
+                or original_delivery.get('mission_node_id') != node['mission_node_id']
+                or original_delivery.get('node_type') != 'N8_DIAGNOSIS_RECOVERY'
+                or original_delivery.get('producer_ref') != case['diagnosis_worker_id']
+                or original_delivery.get('artifact_refs') != [case['diagnosis_id']]
+                or original_delivery.get('input_refs') != [p['contract_id']]
+                or original_delivery.get('evidence_refs') != facts['evidence_refs']
+                or original_delivery.get('known_gaps')):
+            raise ContractError('N8_ACCEPTED_DELIVERY_LINEAGE_CHANGED')
         evidence_id = 'N8EV-' + _hash([case['diagnosis_id'], receipt['input_sha256']])[:24]
         self.evidence._ensure('rc7_evidence', 'RC7_EVIDENCE_UPSERTED', 'evidence_id', dict(
             evidence_id=evidence_id, release_id=p['release_id'], mission_id=p['mission_id'], kind='N8_PROCESS_DIAGNOSIS',
@@ -410,16 +426,9 @@ class ExecutionDiagnosisService:
         if node['state'] == 'READY':
             self.runtime.transition_state(node['mission_node_id'], MissionNodeState.RUNNING, reason='actual independent diagnosis ready')
             node = self.runtime.node(node['mission_node_id'])
-        deliveries = self.truth.query('rc72_node_delivery', delivery_id=receipt['delivery_id'])
-        if not deliveries:
-            prior = self.truth.query('rc72_node_delivery', mission_node_id=node['mission_node_id'])
-            self.runtime.submit_delivery(NodeDelivery(delivery_id=receipt['delivery_id'], mission_id=p['mission_id'],
-                mission_node_id=node['mission_node_id'], node_type=AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY,
-                version=max([row['version'] for row in prior] + [0]) + 1, producer_ref=case['diagnosis_worker_id'],
-                input_refs=[p['contract_id']], artifact_refs=[case['diagnosis_id']], evidence_refs=refs))
-        elif node['state'] == 'RUNNING':
+        if node['state'] == 'RUNNING':
             self.runtime._persist_node_state(node, MissionNodeState.REVIEW_PENDING, reason='resume actual N8 delivery',
-                active_delivery_version=deliveries[0]['version'], delivery_refs=list(dict.fromkeys(node['delivery_refs'] + [receipt['delivery_id']])))
+                active_delivery_version=original_delivery['version'], delivery_refs=list(dict.fromkeys(node['delivery_refs'] + [receipt['delivery_id']])))
         node = self.runtime.node(node['mission_node_id'])
         delivery = self._one('rc72_node_delivery', delivery_id=receipt['delivery_id'])
         if (delivery['mission_id'] != p['mission_id'] or delivery['producer_ref'] != case['diagnosis_worker_id']

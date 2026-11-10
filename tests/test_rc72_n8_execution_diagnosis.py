@@ -384,3 +384,45 @@ def test_accepted_n8_cold_replay_refuses_forged_outcome_action_without_side_effe
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("damage", ["missing_delivery", "forged_delivery_evidence"])
+def test_n8_cold_replay_refuses_missing_or_forged_delivery_before_r1_write(
+        tmp_path, monkeypatch, damage):
+    """A genuine N7 failure/process diagnosis cannot mint a missing N8 Delivery."""
+    from rc7_runtime.rc72_domain import AutonomousMissionNode, MissionNodeState
+
+    truth, prep, server, p = _failure(tmp_path, monkeypatch)
+    try:
+        service = ExecutionDiagnosisService(prep, evidence_root=tmp_path / "diagnosis")
+        result = service.run(p["preparation_id"])
+        assert result["failure_class"] == "TEST_DATA_GAP"
+        receipt = truth.query("rc72_n8_process_diagnosis")[0]
+        node = service.runtime.node_by_type(
+            p["mission_id"], AutonomousMissionNode.N8_DIAGNOSIS_RECOVERY)
+        service.runtime.mark_stale(node["mission_node_id"], reason="cold R1 re-review")
+        service.runtime.transition_state(node["mission_node_id"],
+                                         MissionNodeState.READY, reason="resume diagnosis")
+        before = truth.store.path.read_bytes()
+        original_query = truth.query
+
+        def untrusted_delivery(kind, **filters):
+            rows = original_query(kind, **filters)
+            if (kind == "rc72_node_delivery"
+                    and filters.get("delivery_id") == receipt["delivery_id"]):
+                if damage == "missing_delivery":
+                    return []
+                return [dict(rows[0], evidence_refs=["FORGED-R1-EVIDENCE"])]
+            return rows
+
+        monkeypatch.setattr(truth, "query", untrusted_delivery)
+        expected = ("N8_ACCEPTED_DELIVERY_NOT_UNIQUE_OR_MISSING"
+                    if damage == "missing_delivery" else "N8_ACCEPTED_DELIVERY_LINEAGE_CHANGED")
+        with pytest.raises(ContractError, match=expected):
+            service.run(p["preparation_id"])
+        assert truth.store.path.read_bytes() == before
+        assert truth.query("execution_attempt")[0]["status"] == "BLOCKED"
+        assert server.calls == []
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -176,3 +176,57 @@ def test_old_signed_case_generation_does_not_disqualify_current_n6_evidence(tmp_
     assert producer.inspect(release_batch_id=BATCH) == accepted
     assert truth.query('rc72_script_ready_admission', admission_id=accepted['admission_id'])[0] == original
     assert not truth.query('execution_attempt')
+
+
+def test_script_ready_revalidates_n6_denominator_inside_the_final_ledger_lock(tmp_path, monkeypatch):
+    """A changed frozen N6/Case generation must not produce an accepted R1 receipt."""
+    truth, _ = _ready(tmp_path, monkeypatch)
+    captain = _captain(truth)
+    signer = RC72AuthorityRuntime(b'isolated-r4-atomic-script-ready-signer')
+    producer = _producer(truth, signer)
+    original_native = producer._native
+    reads = []
+
+    def changed_native(batch_id):
+        facts = original_native(batch_id)
+        reads.append(facts['contract_digest'])
+        if len(reads) == 2:
+            return dict(facts, contract_digest='0' * 64)
+        return facts
+
+    monkeypatch.setattr(producer, '_native', changed_native)
+    before = truth.store.path.read_bytes()
+    with pytest.raises(ContractError, match='SCRIPT_READY_FROZEN_FACTS_CHANGED_BEFORE_COMMIT'):
+        producer.issue(release_batch_id=BATCH, captain_binding=captain)
+    assert len(reads) == 2
+    assert truth.store.path.read_bytes() == before
+    assert not truth.query('rc72_script_ready_admission')
+    assert not truth.query('execution_attempt')
+
+
+def test_script_ready_r1_write_blocks_concurrent_captain_lease_operations(tmp_path, monkeypatch):
+    """Captain takeover must never race between final verification and R1 append."""
+    from rc7_runtime.rc72_ledger_lock import ledger_lock
+    truth, _ = _ready(tmp_path, monkeypatch)
+    captain = _captain(truth)
+    signer = RC72AuthorityRuntime(b'isolated-r4-ledger-serialized-gate')
+    producer = _producer(truth, signer)
+    original_append = truth.append_atomic
+    observed = []
+
+    def checked_append(event_type, payload):
+        if event_type == 'RC72_SCRIPT_READY_ADMISSION_UPSERTED':
+            with pytest.raises(ContractError, match='SCRIPT_READY_R1_BUSY'):
+                with ledger_lock(truth, busy='SCRIPT_READY_R1_BUSY'):
+                    pass
+            observed.append('exclusive-r1-ledger-held')
+        return original_append(event_type, payload)
+
+    monkeypatch.setattr(truth, 'append_atomic', checked_append)
+    receipt = producer.issue(release_batch_id=BATCH, captain_binding=captain)
+    assert receipt['status'] == 'ADMITTED'
+    assert observed == ['exclusive-r1-ledger-held']
+    assert producer.issue(release_batch_id=BATCH, captain_binding=captain) == receipt
+    assert observed == ['exclusive-r1-ledger-held']
+    assert len(truth.query('rc72_script_ready_admission')) == 1
+    assert not truth.query('execution_attempt')

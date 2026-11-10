@@ -12,6 +12,7 @@ on:
       - 'tests/test_rc72_mission_bindings.py'
       - '.github/workflows/rc7.2-a-recovery-cli.yml'
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches:
       - work/rc7.2-abcd-v2-qualification
       - work/rc7.2-abd-integration

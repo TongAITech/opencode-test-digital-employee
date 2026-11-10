@@ -5,6 +5,7 @@ on:
     branches:
       - work/rc7-field-hardening
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - 'rc7_release/**'
       - 'rc7_runtime/**'
@@ -29,6 +30,7 @@ env:
 
 jobs:
   field-hardening-source-regression:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Source regression (${{ matrix.os }})
     strategy:
       fail-fast: false

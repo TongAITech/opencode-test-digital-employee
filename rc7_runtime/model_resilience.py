@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -164,14 +165,10 @@ class PersistentSlidingWindowGovernor:
         try:
             now = float(self.now_fn())
             state = self._load()
-            timestamps = []
-            for value in state.get("timestamps", []):
-                try:
-                    stamp = float(value)
-                except (TypeError, ValueError):
-                    continue
-                if stamp > now - self.window_seconds:
-                    timestamps.append(stamp)
+            # A damaged shared request ledger is NOT an empty rate window.
+            # Missing/invalid historic requests must never permit new model IO.
+            timestamps = [stamp for stamp in state["timestamps"]
+                          if stamp > now - self.window_seconds]
             timestamps.sort()
             if len(timestamps) < self.max_requests:
                 timestamps.append(now)
@@ -186,13 +183,28 @@ class PersistentSlidingWindowGovernor:
             self._unlock()
 
     def _load(self) -> Dict[str, Any]:
-        if not self.state_path.is_file():
+        # Absence on first launch is distinct from a present but corrupt state.
+        # In particular, an interrupted write, invalid JSON, wrong schema or
+        # non-finite timestamp must fail closed across all RC7.2 processes.
+        if self.state_path.is_symlink():
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        if not self.state_path.exists():
             return {"timestamps": []}
         try:
             value = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {"timestamps": []}
-        return value if isinstance(value, dict) else {"timestamps": []}
+        except (OSError, UnicodeError, ValueError):
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED") from None
+        if (not isinstance(value, dict)
+                or value.get("schema") != "rc7.1-model-rate-window-v1"
+                or not isinstance(value.get("timestamps"), list)):
+            raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+        stamps = []
+        for item in value["timestamps"]:
+            if (type(item) not in (int, float) or not math.isfinite(item)
+                    or item < 0):
+                raise AgentRuntimeError("MODEL_RATE_GOVERNOR_STATE_UNVERIFIED")
+            stamps.append(float(item))
+        return {"timestamps": stamps}
 
     def _save(self, value: Dict[str, Any]) -> None:
         temp = self.state_path.with_suffix(".tmp")

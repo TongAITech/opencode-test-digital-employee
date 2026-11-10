@@ -9,21 +9,29 @@ on:
       - 'tests/test_rc72_*.py'
       - 'tests/rc72_qa_c09_host.py'
       - '.github/workflows/rc7.2-abcd-v3-qualification.yml'
-  # V3 is a historical duplicate of V4's RC7.2 inherited Chromium suite.
-  # Preserve manual qualification and the dedicated historical push branch,
-  # but NEVER re-run its 30-60 minute suite for every W0 PR commit.
-  # Release admission uses non-draft V4 (superset) plus RC7.2 main Q1.
+  # Keep legacy required-check contexts for branch protection, but skip both
+  # heavy jobs on PRs. V4 is the only automatic full RC7.2 candidate suite.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [work/rc7.2]
+    paths:
+      - 'rc7_runtime/**'
+      - 'rc7_release/**'
+      - 'tests/test_rc72_*.py'
+      - 'tests/rc72_qa_c09_host.py'
+      - '.github/workflows/rc7.2-abcd-v3-qualification.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rc72-abcd-v3-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: rc72-abcd-v3-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   c01-c10-engineering:
+    if: github.event_name != 'pull_request'
     name: abcd-v3-native-${{ matrix.os }}-python-${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -73,6 +81,7 @@ jobs:
           if-no-files-found: warn
 
   complete-rc7-with-real-chromium:
+    if: github.event_name != 'pull_request'
     name: abcd-v3-ubuntu-3.11-complete-source-real-chromium
     runs-on: ubuntu-22.04
     timeout-minutes: 90

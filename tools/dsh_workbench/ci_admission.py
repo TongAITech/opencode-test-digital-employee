@@ -15,6 +15,8 @@ WORKFLOWS = {
     "c10": ".github/workflows/rc7.2-a-c10-clock-ci.yml",
     "n8": ".github/workflows/rc7.2-a-recovery-cli.yml",
     "q1": ".github/workflows/rc7.2-platform-qualification.yml",
+    "fg17": ".github/workflows/dsh-wb-fg17-cdp-targeted.yml",
+    "field": ".github/workflows/rc7-field-hardening.yml",
 }
 NON_DRAFT = "if: github.event_name != 'pull_request' || github.event.pull_request.draft == false"
 PR_CANCEL = "cancel-in-progress: " + chr(36) + "{{ github.event_name == 'pull_request' }}"
@@ -40,8 +42,10 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         e = {k: event_block(v) for k, v in sources.items()}
     except ValueError as exc:
         return [str(exc)]
-    if re.search(r"(?m)^  pull_request:", e["v3"]):
-        errors.append("DUPLICATE_V3_FULL_PR")
+    if not all(x in e["v3"] for x in ("pull_request:", "ready_for_review")) or sources["v3"].count("if: github.event_name != 'pull_request'") != 2:
+        errors.append("V3_PR_STATUS_COMPATIBILITY_OR_FULL_RUN")
+    if PR_CANCEL not in sources["v3"] or re.search(r"(?m)^\s+group:.*github\.sha", sources["v3"]):
+        errors.append("V3_STALE_PR_RUNS_NOT_FENCED")
     if not all(x in e["v3"] for x in ("workflow_dispatch:", "push:")):
         errors.append("V3_EXPLICIT_OR_HISTORICAL_GATE_LOST")
     if not all(x in e["v4"] for x in (
@@ -61,10 +65,10 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         "python: ['3.8', '3.11']", "windows-2022",
     )):
         errors.append("V4_FULL_RELEASE_COVERAGE_DROPPED")
-    if not re.search(r"(?m)^  push:", e["w0"]) or re.search(
-        r"(?m)^  pull_request:", e["w0"]
-    ) or "work/dsh-wb-w0" not in e["w0"]:
-        errors.append("W0_DUPLICATE_OR_MISSING_BRANCH_GATE")
+    if not re.search(r"(?m)^  pull_request:", e["w0"]) or re.search(
+        r"(?m)^  push:", e["w0"]
+    ) or "work/rc7.2" not in e["w0"] or "ready_for_review" not in e["w0"]:
+        errors.append("W0_DUPLICATE_OR_MISSING_PR_TRIGGER")
     if not all(x in sources["w0"] for x in (
         "test_dsh_workbench*.py", "ci_admission.py", "workflow_dispatch:",
     )):
@@ -89,7 +93,7 @@ def problems(sources: Mapping[str, str]) -> List[str]:
     for name in ("c04", "c07", "c10", "n8"):
         if sources[name].count(NON_DRAFT) != 1:
             errors.append(name.upper() + "_DRAFT_MATRIX")
-        if "paths:" not in e[name] or "pull_request:" not in e[name]:
+        if "paths:" not in e[name] or "pull_request:" not in e[name] or "ready_for_review" not in e[name]:
             errors.append(name.upper() + "_UNSCOPED_MATRIX")
         if PR_CANCEL not in sources[name] or re.search(
             r"(?m)^\s+group:.*github\.sha", sources[name]
@@ -98,11 +102,13 @@ def problems(sources: Mapping[str, str]) -> List[str]:
         if "workflow_dispatch:" not in e[name]:
             errors.append(name.upper() + "_EXPLICIT_GATE_LOST")
     # Keep the FG17 negative Py3.8 Chromium test on relevant PR changes.
-    if not all(s in e["q1"] for s in (
-        "pull_request:", "work/rc7.2",
-        "tests/test_rc72_c09_real_chromium_cdp_smoke.py",
-    )) or "q1-browser-py38-pr-admission:" not in sources["q1"]:
-        errors.append("Q1_FG17_NEGATIVE_CHECK_REMOVED")
+    q1_gate = "if: github.event_name == 'pull_request' && github.event.pull_request.draft == false"
+    if not all(s in e["q1"] for s in ("pull_request:", "ready_for_review", "work/rc7.2", "tests/test_rc72_c09_real_chromium_cdp_smoke.py")) or "q1-browser-py38-pr-admission:" not in sources["q1"] or q1_gate not in sources["q1"]:
+        errors.append("Q1_FG17_NEGATIVE_CHECK_REMOVED_OR_DRAFT_UNGATED")
+    if not all(s in sources["fg17"] for s in ("python-version: '3.8'", "playwright==1.48.0", "for trial in 1 2 3 4 5", "FG17_PY38_FIVE_TRIAL_FAILURES=$failures", 'test "$failures" -eq 0', "test_real_chromium_cdp_teaching_captures_dom_event_network_and_png", "python-version: '3.11'", "playwright==1.62.0", "tests/test_rc72_journey_playwright_adapter.py")):
+        errors.append("FG17_EXACT_PY38_FIVE_TRIAL_OR_CROSS_VERSION_GATE_MISSING")
+    if "pull_request:" not in e["field"] or "ready_for_review" not in e["field"] or NON_DRAFT not in sources["field"]:
+        errors.append("FIELD_HARDENING_DRAFT_RUN_NOT_GATED")
     return errors
 
 
