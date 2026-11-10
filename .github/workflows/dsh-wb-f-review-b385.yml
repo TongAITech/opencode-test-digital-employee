@@ -1,0 +1,87 @@
+name: F Independent W0-R4 Same-Source QA B385
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - '.github/workflows/dsh-wb-f-review-b385.yml'
+      - 'tests/test_dsh_workbench_f_r4_capacity_boundary.py'
+      - 'docs/dsh-workbench/qa/WB-F-ABCDE-RECHECK-B385E04.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  f-abcde-w0-all-contracts:
+    name: f-abcde-w0-l0-full-and-independent-boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Source ancestry hard check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b385e042c4543f5d918d61bff5e01be1d88afba7 HEAD
+          echo "F_REVIEWED_A_HEAD=b385e042c4543f5d918d61bff5e01be1d88afba7"
+          echo "F_ACTUAL_TEST_SOURCE=$(git rev-parse HEAD)"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Do not exclude known W0 CI regression
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: C 50 feature original mapping and scope
+        if: always()
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - name: F design boundary and independent FG18/FG16
+        if: always()
+        run: |
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_release_dependencies_f.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_f_r4_capacity_boundary.py' -v
+      - name: CI topology verifier is authoritative but not QA approval
+        if: always()
+        run: python tools/dsh_workbench/ci_admission.py
+      - name: Explicit qualification limit
+        if: always()
+        run: echo 'NO W0 FREEZE, NO LICENSE APPROVAL, NO W1-W4 IMPLEMENTATION/ FIELD QA'
+
+  f-r4-engineering-negative-contracts:
+    name: f-r4-engineering-n7-n8-capacity-and-governor
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned RC7.2 test requirements
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Independent R4 source and regression gate only
+        run: >-
+          python -m pytest -q
+          tests/test_rc72_r4_team_capacity32.py
+          tests/test_rc72_r4_profile_capacity32.py
+          tests/test_rc72_r4_roster_observation.py
+          tests/test_rc72_captain_n7_pipeline.py
+          tests/test_rc72_n8_execution_diagnosis.py
+          tests/test_rc72_script_ready_gate.py
+          tests/test_rc7_1_model_resilience.py
+          --junitxml=f-r4-source-gate.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f-r4-source-gate-${{ github.sha }}
+          path: f-r4-source-gate.xml
+          retention-days: 14
+          if-no-files-found: warn
