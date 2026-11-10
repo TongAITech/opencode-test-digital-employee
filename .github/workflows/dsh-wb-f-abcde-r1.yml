@@ -137,6 +137,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name "F Independent QA"
+          git config user.email "f-independent-qa@users.noreply.github.com"
           test "$(git rev-parse HEAD)" = "$F_A_SHA"
           git fetch origin "$F_B_SHA"
           git merge --no-ff --no-edit FETCH_HEAD
