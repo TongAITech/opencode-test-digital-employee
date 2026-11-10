@@ -35,3 +35,13 @@
 outer adapter全部已知自有和转发方法在调用前逐一校验（不只四个vars），再核delegate、planner、router的函数与真实__self__ receiver；静态方法保持原函数身份。delegate类型在任何forwarded属性读取前检查，未知Tripwire不试执行。truth/release、planner.scheduler、canonical resolver及schedule_semantics依赖关联检查阻止同类不同truth混接。合法clock仍允许，预检不调用它。没有执行plan()探路，没有改变writer/模型/reader或Scope授权。
 
 实际复验：F原34例全部绿，联合当时新增guard为94/94、1.99s；最终仓内受影响组合**129/129、3.70s**（原68 legacy+现61 guard），包括全部outer public转发/私有查找tripwire、wrong-bound outer/delegate/planner/router零调用、同类foreign truth依赖、missing ownership Gap与repair PASS/source-reactivation/defect、未来refs/新Gap/普通PRODUCE lease/caps合法对照。diff检查通过，源码包helper必需资格保留。CI继续使用既有显式HEAD 3.8/3.11矩阵，结果交A记body/主台账；本单次修复提交后冻结不追加CI证据HEAD。raw/并发/Field-start/mtime残余没有掩盖，仍不能称全writer或生产绑定完成。
+
+## F227实际下层依赖红例修复（保留e9拒绝结论）
+
+完整读F227/8f3259be报告及全部脚本，旧e9实际执行其150例：148过2失败、2.28s，两个semantics.resolve/critical._assess forwarding callback均被调用并写Task lease。原F34/E61/legacy68/精确CI129绿不能抵消此P1；REGISTERED不隐式refresh的96状态/caps对照仍原样保留，没有虚构新缺陷或扩大missing refs规则。
+
+按真实默认调用链增加静态持有对象闭包：CanonicalCriticalPathResolver.resolve→WorkScheduleSemanticsService.resolve，以及_assess→_unsafe/_cycle_node/_depends_transitively；selector.plan→BankCostWindowConfig.is_working_day也按实际源码覆盖。精确类、原类descriptor、instance/class/static接收者与既有truth/release/对象归属必须同时成立；只比对不试执行未知方法，字段shadow/错误绑定/替代对象拒绝。Semantics.record/_task_row等不在resolve调用链内的方法没有被假称为运行闭包；不引入自签verified能力。合法bank config及clock/default/base scheduler继续通过。
+
+新增Tripwire进一步实际发现：旧getattr(resolver,'__self__')会先探测未知callable对象；扩展测试首次261过1失败。修复为先要求真实MethodType，再取receiver，未知对象零探测/零调用。静态descriptor检查也在任何getattr之前拒绝替代property。此限定检查不声称防任意raw R1后端或任意全局程序改写；原raw/跨进程/Field-start/mtime边界保留。
+
+最终本地联合 **330/330、5.78s**：未改的F227全部150（含原148绿及2红转绿）+未改F224旧34+当前仓内78 guard（原61及新增17个闭包callback/错绑/unknown对象/property零调用）+68受影响legacy。diff检查通过，仅runtime helper/test/本证据变更；模型/reader/writer/008/08–10均未改，包归档helper必需资格保持。既有显式HEAD Python3.8/3.11 CI将运行仓内78+68=146项，外部F脚本330组合是本地实际执行，不能把CI测试数量混写。单次新提交后冻结，CI结果交A记PR body/主台账，不追加证据追HEAD；交F对新完整源独立复验。

@@ -331,3 +331,61 @@ def test_nonownership_task_future_gap_ref_does_not_block_legal_lease(tmp_path):
     first.register_task(Task('T1','M1','TEST_DESIGN','PRODUCE','work',gap_refs=['FUTURE']))
     assert first.lease_next(worker_ref='w',capabilities=[]).task_id=='T1'
     assert truth.query('rc7_task',task_id='T1')[0]['state']=='LEASED'
+
+
+@pytest.mark.parametrize('where,method',[
+    ('critical','resolve'),('critical','_assess'),('critical','_unsafe'),
+    ('critical','_cycle_node'),('critical','_depends_transitively'),
+    ('semantics','resolve'),('selector','plan'),('policy','is_working_day')])
+def test_default_resolver_held_closure_unknown_callbacks_never_run(tmp_path,where,method):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first);calls=[]
+    target={'critical':first.critical_path,'semantics':first.schedule_semantics,
+            'selector':first.scheduler.selector,'policy':first.scheduler.selector.cost_window_config}[where]
+    original=getattr(target,method)
+    def callback(*args,**kwargs):
+        calls.append((where,method))
+        return original(*args,**kwargs)
+    object.__setattr__(target,method,callback)
+    unchanged(truth,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('where,method',[('critical','resolve'),('critical','_assess'),('semantics','resolve'),('selector','plan'),('policy','is_working_day')])
+def test_resolver_closure_wrong_receiver_not_invoked(tmp_path,where,method):
+    a=TruthRuntime(tmp_path/'a');b=TruthRuntime(tmp_path/'b')
+    first=control(a);other=control(b);task(first);task(other)
+    def objects(c):
+        return {'critical':c.critical_path,'semantics':c.schedule_semantics,
+                'selector':c.scheduler.selector,'policy':c.scheduler.selector.cost_window_config}
+    object.__setattr__(objects(first)[where],method,getattr(objects(other)[where],method))
+    before=b.store.path.read_bytes();projection=copy.deepcopy(b.projection.snapshot())
+    unchanged(a,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert b.store.path.read_bytes()==before and b.projection.snapshot()==projection
+
+
+@pytest.mark.parametrize('dependency',['semantics','policy','descriptor'])
+def test_unknown_resolver_held_object_not_probed(tmp_path,dependency):
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first);calls=[]
+    class Tripwire:
+        def __getattr__(self,name):
+            calls.append(name)
+            pytest.fail('unknown dependency probed')
+        def __call__(self,*args,**kwargs):
+            calls.append('call')
+            pytest.fail('unknown descriptor executed')
+    if dependency=='semantics':first.critical_path.schedule_semantics=Tripwire()
+    elif dependency=='policy':first.scheduler.selector.cost_window_config=Tripwire()
+    else:first.scheduler.descriptor_resolver=Tripwire()
+    unchanged(truth,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert calls==[]
+
+
+def test_unknown_class_descriptor_is_not_executed(tmp_path,monkeypatch):
+    from rc7_runtime.rc72_critical_path import CanonicalCriticalPathResolver
+    truth=TruthRuntime(tmp_path/'r1');first=control(truth);task(first);calls=[]
+    def descriptor(instance):
+        calls.append(True)
+        pytest.fail('unknown property executed')
+    monkeypatch.setattr(CanonicalCriticalPathResolver,'_assess',property(descriptor))
+    unchanged(truth,lambda:first.lease_next(worker_ref='w',capabilities=[]),code=UNRESOLVED)
+    assert calls==[]

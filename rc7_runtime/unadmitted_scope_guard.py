@@ -4,11 +4,16 @@ Only current in-process projections are inspected. Raw/scheduler/other-process
 writers remain outside this guard. No tools/workbench, Host or PG dependency.
 """
 from functools import wraps
+from types import MethodType
 import inspect
 
 from .control_plane import TaskScheduler, GapRepairPlanner, ControlPlaneError, _stable_id
 from .gap_router import GapRouter
 from .rc72_scheduler_integration import EconomyAwareTaskSchedulerAdapter
+from .rc72_critical_path import CanonicalCriticalPathResolver
+from .rc72_schedule_semantics import WorkScheduleSemanticsService
+from .rc72_economy_scheduler import EconomyAwareReadySelector
+from .rc72_model_economy import BankCostWindowConfig
 
 RESERVED = frozenset(('project_id', 'batch_id', 'scope_binding'))
 HOLD = 'MISSION_SCOPE_NOT_ADMITTED'
@@ -23,6 +28,33 @@ _ROUTE = GapRouter.route
 _ADAPTER = {name: getattr(EconomyAwareTaskSchedulerAdapter, name)
             for name in vars(EconomyAwareTaskSchedulerAdapter)
             if name != '__init__' and callable(getattr(EconomyAwareTaskSchedulerAdapter, name))}
+
+
+# Exact held-object call chain used by the default economy lease. No descriptor
+# is invoked while validating this closure; raw R1/global program replacement is
+# deliberately not claimed to be fenced here.
+_RESOLVER_CLOSURE = {name: inspect.getattr_static(CanonicalCriticalPathResolver, name)
+                     for name in ('resolve', '_assess', '_unsafe', '_cycle_node', '_depends_transitively')}
+_SEMANTICS_CLOSURE = {'resolve': inspect.getattr_static(WorkScheduleSemanticsService, 'resolve')}
+_SELECTOR_CLOSURE = {'plan': inspect.getattr_static(EconomyAwareReadySelector, 'plan')}
+_POLICY_CLOSURE = {'is_working_day': inspect.getattr_static(BankCostWindowConfig, 'is_working_day')}
+
+
+def _known_object(value, cls, methods, error):
+    if type(value) is not cls:
+        raise error(UNRESOLVED)
+    for name, descriptor in methods.items():
+        if name in vars(value) or inspect.getattr_static(cls, name) is not descriptor:
+            raise error(UNRESOLVED)
+        actual = getattr(value, name)
+        if isinstance(descriptor, staticmethod):
+            valid = actual is descriptor.__func__
+        elif isinstance(descriptor, classmethod):
+            valid = _bound(actual, descriptor.__func__, cls)
+        else:
+            valid = _bound(actual, descriptor, value)
+        if not valid:
+            raise error(UNRESOLVED)
 
 
 def _bound(actual, method, receiver):
@@ -67,10 +99,15 @@ def _trusted_components(control, error, leasing=False):
             if name not in _ADAPTER and not _bound(getattr(scheduler, name), method, scheduler.delegate):
                 raise error(UNRESOLVED)
         if leasing:
-            from .rc72_critical_path import CanonicalCriticalPathResolver
-            from .rc72_economy_scheduler import EconomyAwareReadySelector
             resolver = scheduler.descriptor_resolver
-            owner = getattr(resolver, '__self__', None)
+            if type(resolver) is not MethodType:
+                raise error(UNRESOLVED)
+            owner = resolver.__self__
+            _known_object(owner, CanonicalCriticalPathResolver, _RESOLVER_CLOSURE, error)
+            semantics = owner.schedule_semantics
+            _known_object(semantics, WorkScheduleSemanticsService, _SEMANTICS_CLOSURE, error)
+            _known_object(scheduler.selector, EconomyAwareReadySelector, _SELECTOR_CLOSURE, error)
+            _known_object(scheduler.selector.cost_window_config, BankCostWindowConfig, _POLICY_CLOSURE, error)
             if (type(getattr(resolver, '__self__', None)) is not CanonicalCriticalPathResolver or
                     getattr(resolver, '__func__', None) is not CanonicalCriticalPathResolver.resolve or
                     type(scheduler.selector) is not EconomyAwareReadySelector or
