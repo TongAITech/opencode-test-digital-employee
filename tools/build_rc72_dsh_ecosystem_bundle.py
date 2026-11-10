@@ -170,6 +170,16 @@ def _safe_extract_npm(archive, destination):
                 shutil.copyfileobj(source, output)
 
 
+def _tree_sha256(root):
+    root = Path(root)
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        digest.update(relative + b"\\0")
+        digest.update(bytes.fromhex(_sha256_file(path)))
+    return digest.hexdigest()
+
+
 def _license_files(package_root):
     names = ("license", "licence", "copying", "notice")
     return sorted(
@@ -260,6 +270,17 @@ def _pack_plugin(npm, spec, target, work):
     lock = target / "package-lock.json"
     if not lock.is_file():
         raise BundleBuildError("PLUGIN_DEPENDENCY_LOCK_MISSING:%s" % spec["id"])
+    bank_policy_patch = None
+    if spec["id"] == "modlens":
+        patch = target / "cordis.patch.yml"
+        patch_text = patch.read_text(encoding="utf-8")
+        plugin_line = "      name: '@liustack/modlens'"
+        if plugin_line not in patch_text:
+            raise BundleBuildError("MODLENS_CORDIS_ENTRY_MISSING")
+        if "disabled:" not in patch_text:
+            patch_text = patch_text.replace(plugin_line, plugin_line + "\\n      disabled: true", 1)
+            patch.write_text(patch_text, encoding="utf-8")
+        bank_policy_patch = "disabled until an approved internal OpenAI-compatible multimodal endpoint is configured"
     licenses = _scan_licenses(target)
     return {
         "id": spec["id"],
@@ -276,7 +297,9 @@ def _pack_plugin(npm, spec, target, work):
         "npm_tarball_shasum": row.get("shasum"),
         "package_json_sha256": _sha256_file(manifest_path),
         "package_lock_sha256": _sha256_file(lock),
+        "bundle_tree_sha256": _tree_sha256(target),
         "runtime_dependency_count": len(manifest.get("dependencies") or {}),
+        "bank_policy_patch": bank_policy_patch,
         "license_inventory": licenses,
     }
 
@@ -402,7 +425,7 @@ def build(platform_id, output_dir):
             "platform": platform_id,
             "source_repository": "TongAITech/opencode-test-digital-employee",
             "source_branch": "work/rc7.2",
-            "source_commit": os.environ.get("GITHUB_SHA", "UNBOUND_LOCAL_BUILD"),
+            "source_commit": os.environ.get("RC72_SOURCE_COMMIT", os.environ.get("GITHUB_SHA", "UNBOUND_LOCAL_BUILD")),
             "extensions": resolved,
             "mnemon_native_cli": {
                 "version": MNEMON_CLI["version"],
@@ -412,6 +435,8 @@ def build(platform_id, output_dir):
                 "license": MNEMON_CLI["license"],
                 "asset": asset["name"],
                 "sha256": native_sha,
+                "license_file_sha256": _sha256_file(stage / "runtime" / "mnemon" / "LICENSE"),
+                "checksums_file_sha256": _sha256_file(stage / "runtime" / "mnemon" / "checksums.txt"),
                 "path": "runtime/mnemon/" + native_name,
                 "supported_architecture": "x86_64",
                 "windows_scope": "Memory commands only; Agency unavailable on Windows",
@@ -441,7 +466,16 @@ def build(platform_id, output_dir):
             json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
-        packages = []
+        packages = [{
+            "name": "Mnemon Native CLI",
+            "versionInfo": MNEMON_CLI["version"],
+            "SPDXID": "SPDXRef-Mnemon-Native-CLI",
+            "downloadLocation": MNEMON_CLI["repository"],
+            "filesAnalyzed": False,
+            "licenseConcluded": MNEMON_CLI["license"],
+            "licenseDeclared": MNEMON_CLI["license"],
+            "copyrightText": "NOASSERTION",
+        }]
         for row in resolved:
             packages.append({
                 "name": row["package"],
