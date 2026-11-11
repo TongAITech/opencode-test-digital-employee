@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     env:
-      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/rc72-managed-python
+      UV_PYTHON_INSTALL_DIR: /tmp/rc72-managed-python
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
     steps:
