@@ -50,6 +50,8 @@ def run(path, expected_identity, epoch):
             if ledger.write(row) != len(row):
                 raise OSError("short fixture append")
             os.fsync(ledger.fileno())
+            if command.get("exit_after_sync") is True:
+                os._exit(79)
             reply("SYNCED")
 
 
