@@ -30,6 +30,8 @@ PINNED_PACKAGES: Tuple[Tuple[str, str, str], ...] = (
 )
 GRAPH_REPO = "https://github.com/adoresever/graph-memory.git"
 GRAPH_COMMIT = "5841b1987c3967998818764c9d4238add5f3aa7c"
+ARCHIFY_REPO = "https://github.com/GongYuanCaiJi/dsh-archify.git"
+ARCHIFY_COMMIT = "8fc7ba557981af978578e2dd13e6c6ad8df53a7d"
 WINDOWS_SUFFIXES = {".exe", ".dll", ".cmd", ".bat", ".ps1", ".msi", ".pdb"}
 
 
@@ -122,6 +124,19 @@ def _prepare_graph(npm: str, git: str, work: Path) -> Tuple[Path, dict]:
     return _npm_pack(npm, ".", source)
 
 
+def _prepare_archify(npm: str, git: str, work: Path) -> Tuple[Path, dict]:
+    source = work / "dsh-archify-source"
+    _run([git, "clone", "--no-tags", ARCHIFY_REPO, str(source)], work, timeout=480)
+    _run([git, "checkout", "--detach", ARCHIFY_COMMIT], source)
+    rev = _run([git, "rev-parse", "HEAD"], source).strip().lower()
+    if rev != ARCHIFY_COMMIT:
+        raise AdditionalPluginError("DSH_ARCHIFY_COMMIT_MISMATCH")
+    _run(["node", "scripts/stage-skill.mjs"], source, timeout=120)
+    if not (source / "skills/archify/SKILL.md").is_file():
+        raise AdditionalPluginError("DSH_ARCHIFY_SKILL_NOT_STAGED")
+    return _npm_pack(npm, ".", source)
+
+
 def acquire(repo_root: Path) -> Dict[str, object]:
     repo = Path(repo_root).resolve()
     npm, git = shutil.which("npm"), shutil.which("git")
@@ -136,6 +151,8 @@ def acquire(repo_root: Path) -> Dict[str, object]:
             pack_work.mkdir(parents=True, exist_ok=True)
             if name == "graph-memory":
                 tarball, npm_meta = _prepare_graph(npm, git, pack_work)
+            elif name == "dsh-archify":
+                tarball, npm_meta = _prepare_archify(npm, git, pack_work)
             else:
                 tarball, npm_meta = _npm_pack(npm, name + "@" + version, pack_work)
             target = _package_dir(vendor, name)
@@ -171,7 +188,7 @@ def acquire(repo_root: Path) -> Dict[str, object]:
                 "license": license_name,
                 "npm_tarball_sha256": sha256(tarball),
                 "npm_integrity": npm_meta.get("integrity"),
-                "source_commit": GRAPH_COMMIT if name == "graph-memory" else None,
+                "source_commit": GRAPH_COMMIT if name == "graph-memory" else (ARCHIFY_COMMIT if name == "dsh-archify" else None),
                 "runtime_dependency_count": len(dependencies),
                 "package_json_sha256": sha256(manifest_file),
                 "license_files": [p.name for p in license_files],
