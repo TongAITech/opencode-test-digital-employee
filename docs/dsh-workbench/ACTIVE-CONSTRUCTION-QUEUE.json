@@ -1,13 +1,13 @@
 {
   "schema": "dsh-workbench/a-construction-queue/v1",
-  "snapshot_date": "2026-11-11",
+  "snapshot_date": "2026-11-12",
   "owner": "A_ONLY",
   "purpose": "Resume from GitHub and continue ready work; this file is an index, not a qualification attestation.",
   "restore_first": {
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "800dfa3742f6f093989c140b178c79d92d43c18f",
+    "last_tested_code_sha": "b05f7f3ef1f2619394cf75023d3dea5c437f4864",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -170,25 +170,27 @@
       "pr": 259,
       "worktree": "e-mission-stage1",
       "branch": "work/dsh-wb-e-mission-stage1",
-      "source_sha": "d0af934565fdeea1d363e211ebbf7396db069601",
-      "state": "F_EXACT_RECHECK_RUNNING",
-      "next_action": "F262/F266 historical P1 preserved. Recheck exact dictionary and hostile key boundary on latest candidate."
+      "source_sha": "eb3138e011ad170293b24b1b476ec1007fd92d6b",
+      "state": "COMPATIBILITY_FIX_IN_PROGRESS",
+      "next_action": "Prior d0af identity drift rejected. Update legacy fixture to canonical serializer and recheck exact source."
     },
     {
       "ticket": "B_008_PHYSICAL_CONTRACT",
       "owner": "B",
-      "state": "D267_REVIEWED_E_AUTHORITY_REVIEW_RUNNING",
-      "next_action": "Separate bounded PostgreSQL schema/PREPARE from final append. Resolve durable revocation ordering before any R1 writer admission.",
+      "state": "D267_E272_ISOLATED_PREPARE_ALLOWED",
+      "next_action": "B isolated real PG implementation underway. No production allocator or writer.",
       "pr": 265,
       "source_sha": "4d058cf3363e129a45846fafd1f583850c07626a"
     },
     {
       "ticket": "D_RUNTIME_BATCH_AUTHORITY_CONTRACT",
       "owner": "D",
-      "state": "F264_ACCEPTED_BOUNDED_DESIGN",
-      "next_action": "Resolve mapping/digest wire and authority binding with B/E before production reader/creator.",
+      "state": "PURE_COMPONENT_CI_PASSED_F_REPORT_PENDING",
+      "next_action": "Full request wire and runtime reader remain separate.",
       "pr": 263,
-      "source_sha": "4587b0c1050714553cc6a44fd0c58b919c17d5ac"
+      "source_sha": "4587b0c1050714553cc6a44fd0c58b919c17d5ac",
+      "implementation_pr": 273,
+      "implementation_sha": "7444f997109d9bdb7d1c571b8a63a7ab93c92fa3"
     },
     {
       "ticket": "A_E02_OBLIGATION_LINEAGE",
@@ -197,8 +199,25 @@
       "worktree": "a-e02-obligation-lineage",
       "branch": "work/dsh-wb-a-e02-obligation-lineage",
       "source_sha": "49fb6cae99c38f1cbd777d01ed3a25596d287e03",
-      "state": "F_EXACT_RECHECK_RUNNING",
-      "next_action": "Preserve actual old 200 and require independent PG/HTTP 503 for foreign standalone obligations."
+      "state": "INTEGRATED_F271_EXACT",
+      "next_action": "Preserve old 200 red. Current flat fixture path only; formal mapping remains separate.",
+      "report_pr": 271
+    },
+    {
+      "ticket": "A_E01_EVIDENCE_ACL",
+      "owner": "A",
+      "pr": 274,
+      "source_sha": "05b6b9c90e9a2baa7fc8424dca25bf7480100690",
+      "state": "F_REPORT_PENDING",
+      "next_action": "Real PG/HTTP rechecks after evidence integrity. Preserve old 200 after committed revocation."
+    },
+    {
+      "ticket": "A_DURABLE_ADMISSION_ORDER",
+      "owner": "A",
+      "pr": 275,
+      "source_sha": "f4f6f557",
+      "state": "CROSS_GROUP_DESIGN_REVIEW_REQUIRED",
+      "next_action": "Assess revocation availability and actual R1 writer closure before any implementation."
     }
   ],
   "accepted_integrated_components": [
