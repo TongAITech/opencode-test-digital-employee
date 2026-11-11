@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'tools/dsh_workbench/mission_scope_binding_codec.py'
+      - 'tools/dsh_workbench/mission_create_codec.py'
+      - 'tests/test_dsh_workbench_mission_create_codec.py'
       - 'tests/test_dsh_workbench_mission_scope_binding_codec.py'
       - 'tools/dsh_workbench/runtime_batch_mapping.py'
       - 'tests/test_dsh_workbench_runtime_batch_mapping.py'
@@ -34,5 +36,6 @@ jobs:
       - name: Run pure compact binding tests
         run: |
           python -m unittest discover -s tests -p test_dsh_workbench_mission_scope_binding_codec.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_mission_create_codec.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_mapping.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_history.py -v
