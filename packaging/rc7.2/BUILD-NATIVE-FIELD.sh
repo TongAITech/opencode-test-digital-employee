@@ -2,7 +2,7 @@
 # Build one native RC7.2 Linux/macOS package on its matching host architecture.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd -P)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$ROOT"
 SYSTEM="$(uname -s)"
 MACHINE="$(uname -m)"
@@ -14,8 +14,8 @@ case "$SYSTEM:$MACHINE" in
   *) echo "NATIVE_PLATFORM_UNSUPPORTED:$SYSTEM:$MACHINE" >&2; exit 2 ;;
 esac
 
-DIST="\${RUNNER_TEMP:-/tmp}/rc72-native-dist"
-TOOLS="\${RUNNER_TEMP:-/tmp}/rc72-native-input"
+DIST="${RUNNER_TEMP:-/tmp}/rc72-native-dist"
+TOOLS="${RUNNER_TEMP:-/tmp}/rc72-native-input"
 mkdir -p "$DIST" "$TOOLS"
 rm -rf "$TOOLS"
 mkdir -p "$TOOLS"
@@ -46,6 +46,8 @@ fi
 export UV_INSTALL_DIR="$TOOLS/uv"
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$UV_INSTALL_DIR:$PATH"
+[[ -x "$UV_INSTALL_DIR/uv" ]] || { echo "NATIVE_UV_INSTALL_FAILED:$UV_INSTALL_DIR" >&2; exit 2; }
+"$UV_INSTALL_DIR/uv" --version
 uv python install 3.11
 PYBIN="$(uv python find 3.11 --managed-python)"
 PYROOT="$(dirname "$(dirname "$PYBIN")")"
@@ -58,20 +60,20 @@ uv pip install --python "$PYBIN" \
 
 # Node.js 24.9.0, native platform archive and official SHASUMS verification.
 NODE_VERSION=24.9.0
-NODE_ARCHIVE="node-v\${NODE_VERSION}-\${PLATFORM}-\${TRIPLE}.tar.xz"
-curl -fL "https://nodejs.org/dist/v\${NODE_VERSION}/SHASUMS256.txt" -o "$TOOLS/SHASUMS256.txt"
+NODE_ARCHIVE="node-v${NODE_VERSION}-${PLATFORM}-${TRIPLE}.tar.xz"
+curl -fL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o "$TOOLS/SHASUMS256.txt"
 NODE_SHA="$(awk -v name="$NODE_ARCHIVE" '$2==name {print $1}' "$TOOLS/SHASUMS256.txt")"
 [[ "$NODE_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "NODE_OFFICIAL_SHA256_MISSING" >&2; exit 4; }
-download "https://nodejs.org/dist/v\${NODE_VERSION}/$NODE_ARCHIVE" "$TOOLS/$NODE_ARCHIVE" "$NODE_SHA"
+download "https://nodejs.org/dist/v${NODE_VERSION}/$NODE_ARCHIVE" "$TOOLS/$NODE_ARCHIVE" "$NODE_SHA"
 mkdir -p "$TOOLS/node"
 tar -xJf "$TOOLS/$NODE_ARCHIVE" -C "$TOOLS/node" --strip-components=1
 NODE_ROOT="$TOOLS/node"
 NODEBIN="$NODE_ROOT/bin/node"
-"$NODEBIN" --version | grep -x "v\${NODE_VERSION}"
+"$NODEBIN" --version | grep -x "v${NODE_VERSION}"
 export PATH="$NODE_ROOT/bin:$PATH"
 
 # BrowserSkill 0.4.1 is pinned to the four native release assets.
-BSK_URL="https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.4.1/bsk-v0.4.1-\${BSK_TRIPLE}.tar.gz"
+BSK_URL="https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.4.1/bsk-v0.4.1-${BSK_TRIPLE}.tar.gz"
 download "$BSK_URL" "$TOOLS/bsk.tar.gz" "$BSK_SHA"
 unpack_tar "$TOOLS/bsk.tar.gz" "$TOOLS/bsk"
 BSK_BIN="$(find "$TOOLS/bsk" -type f -name bsk -print -quit)"
@@ -209,7 +211,7 @@ if "$TOOLS/$CG_ASSET" --version > "$TOOLS/codegraph-version.txt" 2>&1; then :; e
 # Build one platform/architecture-specific sealed package.
 STAGE="$TOOLS/stage"
 mkdir -p "$STAGE"
-SOURCE_COMMIT="\${GITHUB_SHA:-$(git rev-parse HEAD)}"
+SOURCE_COMMIT="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 export PFC_RC72_TOOL_VERSIONS_JSON="$("$PYBIN" - "$TOOLS" <<'PY'
 import json,sys,pathlib
 r=pathlib.Path(sys.argv[1])
@@ -247,7 +249,7 @@ const {chromium}=require(process.argv[1]);
 "$PACKAGE/workspace-template/runtime/allure/bin/allure" --version >/dev/null
 "$PACKAGE/workspace-template/runtime/zap/$(basename "$(dirname "$ZAP_BIN")")/zap.sh" -version >/dev/null 2>&1 || true
 
-ARCHIVE="$DIST/RC72-NATIVE-FIELD-$([ "$PLATFORM" = linux ] && echo LINUX || echo MACOS)-$([ "$ARCH" = x86_64 ] && echo X86_64 || echo ARM64)-\${SOURCE_COMMIT:0:12}.tar.gz"
+ARCHIVE="$DIST/RC72-NATIVE-FIELD-$([ "$PLATFORM" = linux ] && echo LINUX || echo MACOS)-$([ "$ARCH" = x86_64 ] && echo X86_64 || echo ARM64)-${SOURCE_COMMIT:0:12}.tar.gz"
 mkdir -p "$DIST"
 "$PYBIN" -m rc7_release.rc72_native_field_portable archive --package-root "$PACKAGE" --output "$ARCHIVE" | tee "$TOOLS/archive-evidence.json"
 cp "$TOOLS/stage-evidence.json" "$TOOLS/clean-identity.json" "$TOOLS/launcher-probe.txt" "$TOOLS/browser-smoke.txt" "$TOOLS/archive-evidence.json" "$DIST/"
