@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/rc7.2
+      - work/rc7.2-field-validation-transport-20261111
     paths:
       - 'packaging/rc7.2/AITEST.sh'
       - 'packaging/rc7.2/start-rc7.2.cmd'
@@ -52,6 +53,7 @@ jobs:
           retention-days: 14
 
   build-field-validation-package:
+    if: github.ref == 'refs/heads/work/rc7.2'
     needs: source-contract
     runs-on: windows-2022
     timeout-minutes: 180
@@ -164,12 +166,12 @@ jobs:
         with:
           name: RC72-FIELD-VALIDATION-WIN10-${{ github.sha }}
           path: |
-            ${{ env.RUNNER_TEMP }}/rc72-field-validation-build/RC72-FIELD-VALIDATION-WIN10-*.zip
-            ${{ env.RUNNER_TEMP }}/rc72-field-validation-build/RC72-FIELD-VALIDATION-WIN10-*.zip.sha256
-            ${{ env.RUNNER_TEMP }}/rc72-field-package-identity.json
-            ${{ env.RUNNER_TEMP }}/rc72-field-runtime-delivery.json
-            ${{ env.RUNNER_TEMP }}/rc72-field-full-inventory.json
-            ${{ env.RUNNER_TEMP }}/rc72-field-python-capabilities.json
-            ${{ env.RUNNER_TEMP }}/rc72-field-clean-r1.json
-            ${{ env.RUNNER_TEMP }}/rc72-field-gitbash-launcher.txt
-            ${{ env.RUNNER_TEMP }}/rc72-field-pip-mirror.xml
+            ${{ runner.temp }}/rc72-field-validation-build/RC72-FIELD-VALIDATION-WIN10-*.zip
+            ${{ runner.temp }}/rc72-field-validation-build/RC72-FIELD-VALIDATION-WIN10-*.zip.sha256
+            ${{ runner.temp }}/rc72-field-package-identity.json
+            ${{ runner.temp }}/rc72-field-runtime-delivery.json
+            ${{ runner.temp }}/rc72-field-full-inventory.json
+            ${{ runner.temp }}/rc72-field-python-capabilities.json
+            ${{ runner.temp }}/rc72-field-clean-r1.json
+            ${{ runner.temp }}/rc72-field-gitbash-launcher.txt
+            ${{ runner.temp }}/rc72-field-pip-mirror.xml
