@@ -211,6 +211,12 @@ mkdir -p "$ROOT/rc7_release/vendor"
 cp -R "$TOOLS/error-handling-source/skills/dsh-error-handling" "$ROOT/rc7_release/vendor/dsh-error-handling-skill"
 
 
+# Official native Node.js archives include Windows CMD/PowerShell shims for cross-platform distribution.
+# Strip those only from the copied native Node and npm/pnpm/Playwright tool directories.
+# The later stage gate independently rejects any remaining nonnative file or nested archive entry.
+find "$NODE_ROOT" "$NODE_EXEC" -type f \\
+  \\( -iname '*.cmd' -o -iname '*.bat' -o -iname '*.ps1' -o -iname '*.exe' -o -iname '*.dll' -o -iname '*.msi' -o -iname '*.pdb' \\) -delete
+
 # Tool versions and source evidence are recorded before packaging.
 "$JAVA_BIN" -version 2>"$TOOLS/java-version.txt"
 "$MAVEN_ROOT/bin/mvn" -version > "$TOOLS/maven-version.txt"
