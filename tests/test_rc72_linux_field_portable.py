@@ -139,10 +139,11 @@ def test_linux_workflow_is_native_not_windows_repackaged():
     assert "ubuntu-22.04" in workflow
     assert "setup-uv" in workflow
     assert "node-version: '24.9.0'" in workflow
-    assert "bsk-v0.4.1-x86_64-unknown-linux-musl.tar.gz" in workflow
-    assert "rc72_linux_field_portable stage" in workflow
-    assert "rc72_linux_field_portable verify" in workflow
-    assert "rc72_linux_field_portable archive" in workflow
+    build = (root / "packaging/rc7.2/BUILD-LINUX-FIELD.sh").read_text()
+    assert "bsk-v0.4.1-x86_64-unknown-linux-musl.tar.gz" in build
+    assert "rc72_linux_field_portable stage" in build
+    assert "rc72_linux_field_portable verify" in build
+    assert "rc72_linux_field_portable archive" in build
     assert "POLYFORM_NONCOMMERCIAL_LICENSE_GATE" in source
     assert "gitnexus_bundled" in source
     assert "PFC_RC72_DSH_LINUX_HOST_BIN" in launcher
