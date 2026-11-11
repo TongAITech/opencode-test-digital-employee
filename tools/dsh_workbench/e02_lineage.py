@@ -13,6 +13,8 @@ def validate_lineage(records,mission,batch):
     tasks=index('rc7_task','task_id');etus=index('rc72_etu','etu_id');bindings=index('rc72_workitem_attempt_binding','binding_id')
     attempts=index('execution_attempt','attempt_id');obligations=index('rc72_test_obligation','obligation_id')
     edges=index('rc72_back_edge','back_edge_id');transitions=index('rc72_node_transition','transition_id')
+    for obligation in obligations.values():
+        require(obligation.get('release_batch_id') == batch)
     def node_for(row):
         node=nodes.get(row.get('mission_node_id'));require(node is not None and node['node_type']==row.get('node_type'));return node
     for delivery in deliveries.values():
@@ -34,7 +36,6 @@ def validate_lineage(records,mission,batch):
         if transition.get('back_edge_id'):require(transition['back_edge_id'] in edges)
     for etu in etus.values():
         require(etu.get('release_batch_id')==batch and etu['obligation_id'] in obligations)
-        require(obligations[etu['obligation_id']].get('release_batch_id')==batch)
         for ref in etu.get('child_etu_ids',[]):require(ref in etus)
         if etu.get('parent_etu_id'):require(etu['parent_etu_id'] in etus)
     for binding in bindings.values():

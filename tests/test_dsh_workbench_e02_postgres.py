@@ -4,11 +4,41 @@ from tools.dsh_workbench.e01_service import E01Service
 from unittest.mock import patch
 from rc7_runtime.rc72_truth import append_rc72_entity
 from rc7_runtime.rc72_domain import MissionNodeRecord,NodeDelivery,NodeGate
+from rc7_runtime.rc72_domain import TestObligation as RuntimeObligation
 from rc6_runtime.truth import TruthRuntime
 import test_dsh_workbench_e01_postgres as prior
 
 @unittest.skipUnless(prior.prior.prior.prior.DSN and prior.prior.prior.prior.psycopg,'real PG required')
 class E02(prior.E01):
+    def test_unreferenced_obligation_requires_the_authorized_batch(self):
+        self.scope_seed()
+        self.setup_r1()
+        runtime = TruthRuntime(self.r1)
+
+        def obligation(identity, batch):
+            return RuntimeObligation(
+                obligation_id=identity, mission_id='M1', release_batch_id=batch,
+                requirement_id='R1', sst_id='SST1', application_id='APP',
+                business_scenario='fixture', business_rule='fixture rule',
+                risk_level='HIGH', test_level='SST', oracle_refs=['fixture://rule'],
+            )
+
+        append_rc72_entity(runtime, obligation('OBL-LOCAL', 'B1'), release_id='B1')
+        with patch('test_dsh_workbench_e01_postgres.E01Service', E02Service):
+            origin = self.quality_server()
+            paths = [
+                '/api/workbench/v1/missions/M1/%s?project_id=P1&batch_id=B1&release_date=2026-11-12'
+                % view for view in ('graph', 'workitems')
+            ]
+            for path in paths:
+                self.assertEqual(self.http(origin, path)[0], 200)
+            append_rc72_entity(runtime, obligation('OBL-FOREIGN', 'B2'), release_id='B1')
+            before = self.r1.read_bytes()
+            for path in paths:
+                self.assertEqual(self.http(origin, path),
+                                 (503, {'error': {'code': 'R1_LINEAGE_UNRESOLVED'}}))
+            self.assertEqual(self.r1.read_bytes(), before)
+
     def test_graph_canonical_missing_cold_recovery_scope_and_unknown_reject(self):
         self.scope_seed();self.setup_r1()
         runtime=TruthRuntime(self.r1)
