@@ -413,6 +413,20 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     if receipt.get("modlens_enabled"):
         node_bin = _resolve_node(rc72_home)
         node_version = _require_node(node_bin, (22, 19, 0), "MODLENS")
+        config_path = Path.home() / ".modlens" / "config.json"
+        if not config_path.is_file():
+            raise InstallError("MODLENS_INTERNAL_CONFIG_MISSING")
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        openai = (config.get("providers") or {}).get("openai") or {}
+        parsed = urlparse(openai.get("baseUrl") or "")
+        host = (parsed.hostname or "").lower()
+        if (config.get("provider") != "openai" or parsed.scheme != "https"
+                or openai.get("proxy") != ""
+                or host != receipt.get("modlens_internal_endpoint_host")):
+            raise InstallError("MODLENS_INTERNAL_ENDPOINT_HEALTH_MISMATCH")
+        reuse = config.get("reuse") or {}
+        if any(reuse.get(key) is not False for key in ("claude", "codex", "opencode", "pi", "grok")):
+            raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
     else:
         node_version = receipt.get("node_version")
     return {
@@ -515,7 +529,8 @@ def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PRO
     if not suffix or not (host == suffix or host.endswith("." + suffix)):
         raise InstallError("MODLENS_ENDPOINT_NOT_IN_APPROVED_INTERNAL_SUFFIX")
     reuse = config.get("reuse") or {}
-    if any(value is not False for value in reuse.values()):
+    required_reuse_grants = ("claude", "codex", "opencode", "pi", "grok")
+    if any(reuse.get(key) is not False for key in required_reuse_grants):
         raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
     if not (config.get("guards") or {}).get("denyWhenUnknown"):
         raise InstallError("MODLENS_DENY_UNKNOWN_GUARD_REQUIRED")
@@ -552,27 +567,31 @@ def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PRO
         "PATH": os.pathsep.join([str(native_path.parent), str(Path(node_bin).parent), env.get("PATH", "")]),
         "PFC_RC72_ECOSYSTEM_OFFLINE": "1",
     })
-    _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
+    registered = False
     try:
+        _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
+        registered = True
         listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
         if row["package"] not in listing:
             raise InstallError("MODLENS_PLUGIN_NOT_VISIBLE_AFTER_ENABLE")
+        row["installed"] = True
+        row["activation_state"] = "enabled_internal_endpoint_only"
+        receipt["modlens_enabled"] = True
+        receipt["modlens_internal_endpoint_host"] = host
+        receipt["dsh_version"] = version
+        receipt["node_version"] = node_version
+        temp = receipt_path.with_name(receipt_path.name + ".tmp")
+        temp.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        os.replace(str(temp), str(receipt_path))
+        return {"status": "MODLENS_ENABLED_INTERNAL_ENDPOINT_ONLY", "host": host, "restart_dsh_required": True}
     except Exception:
-        try:
-            _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
-        except Exception:
-            pass
+        if registered:
+            try:
+                _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
+            except Exception:
+                pass
         raise
-    row["installed"] = True
-    row["activation_state"] = "enabled_internal_endpoint_only"
-    receipt["modlens_enabled"] = True
-    receipt["modlens_internal_endpoint_host"] = host
-    receipt["dsh_version"] = version
-    receipt["node_version"] = node_version
-    temp = receipt_path.with_name(receipt_path.name + ".tmp")
-    temp.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
-    os.replace(str(temp), str(receipt_path))
-    return {"status": "MODLENS_ENABLED_INTERNAL_ENDPOINT_ONLY", "host": host, "restart_dsh_required": True}
+
 
 
 def main(argv=None):

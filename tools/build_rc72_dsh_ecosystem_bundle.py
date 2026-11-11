@@ -12,8 +12,11 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import stat
+from datetime import datetime, timezone
+from urllib.parse import quote
 import subprocess
 import tarfile
 import tempfile
@@ -238,13 +241,22 @@ def _scan_licenses(package_root):
             continue
         package_dir = manifest_path.parent
         license_value = manifest.get("license")
+        if isinstance(license_value, dict):
+            license_value = license_value.get("type")
+        elif isinstance(license_value, list):
+            license_value = " OR ".join(
+                str(item.get("type")) if isinstance(item, dict) else str(item)
+                for item in license_value if item
+            )
+        if not isinstance(license_value, str) or not license_value.strip():
+            license_value = None
         license_files = _license_files(package_dir)
         if not license_value and not license_files:
             unresolved.append("%s@%s" % (name, version))
         rows.append({
             "name": name,
             "version": version,
-            "license": license_value or "LicenseRef-File",
+            "license": license_value or "NOASSERTION",
             "package_json_sha256": _sha256_file(manifest_path),
             "license_files": [
                 {"path": p.name, "sha256": _sha256_file(p)}
@@ -449,13 +461,22 @@ def build(platform_id, output_dir):
             if not source.is_file():
                 raise BundleBuildError("OFFLINE_INSTALLER_SOURCE_MISSING:%s" % name)
             shutil.copy2(str(source), str(stage / name))
+        source_commit = os.environ.get(
+            "RC72_SOURCE_COMMIT", os.environ.get("GITHUB_SHA", "UNBOUND_LOCAL_BUILD")
+        )
+        if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+            raise BundleBuildError("RC72_SOURCE_COMMIT_REQUIRED")
+        commit_time = _run(["git", "show", "-s", "--format=%cI", source_commit], cwd=ROOT).strip()
+        if not commit_time:
+            raise BundleBuildError("RC72_SOURCE_COMMIT_TIMESTAMP_MISSING")
+        commit_created = datetime.fromisoformat(commit_time.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         manifest = {
             "schema_version": "pfc.rc72.dsh-ecosystem-offline.v1",
             "status": "BUILD_CANDIDATE_HOST_INSTALL_NOT_BANK_VERIFIED",
             "platform": platform_id,
             "source_repository": "TongAITech/opencode-test-digital-employee",
             "source_branch": "work/rc7.2",
-            "source_commit": os.environ.get("RC72_SOURCE_COMMIT", os.environ.get("GITHUB_SHA", "UNBOUND_LOCAL_BUILD")),
+            "source_commit": source_commit,
             "extensions": resolved,
             "mnemon_native_cli": {
                 "version": MNEMON_CLI["version"],
@@ -481,6 +502,7 @@ def build(platform_id, output_dir):
                 "modlens_default_provider": "openai_internal_endpoint_only",
                 "modlens_local_cli_reuse": False,
                 "mnemon_default_provider": "mnemon-native-local",
+                "mnemon_remote_provider_adapters_default_enabled": False,
                 "mnemon_auto_capture_default": False,
                 "mnemon_self_evolution_default": False,
             },
@@ -488,7 +510,7 @@ def build(platform_id, output_dir):
             "limitations": [
                 "A bank DSH host is required and is not bundled.",
                 "The bank DSH version must satisfy the manifest engine ranges.",
-                "ModLens requires a bank-internal OpenAI-compatible multimodal endpoint before image reading.",
+                "ModLens requires Node.js 22.19+ and a bank-internal HTTPS OpenAI-compatible multimodal endpoint before activation.",
                 "Real bank-host activation is not proved by this build workflow.",
             ],
         }
@@ -519,7 +541,7 @@ def build(platform_id, output_dir):
                 "externalRefs": [{
                     "referenceCategory": "PACKAGE-MANAGER",
                     "referenceType": "purl",
-                    "referenceLocator": "pkg:npm/%s@%s" % (row["package"].replace("@", "").replace("/", "%2f"), row["version"]),
+                    "referenceLocator": "pkg:npm/%s@%s" % (quote(row["package"], safe="/-._~"), row["version"]),
                 }],
             })
             for dep in row["license_inventory"]:
@@ -543,8 +565,17 @@ def build(platform_id, output_dir):
             "SPDXID": "SPDXRef-DOCUMENT",
             "name": bundle_name,
             "documentNamespace": "https://github.com/TongAITech/opencode-test-digital-employee/spdx/rc72/" + platform_id + "/" + manifest["source_commit"],
-            "creationInfo": {"creators": ["Tool: rc72-dsh-ecosystem-builder"], "comment": "Generated from exact npm tarballs and pinned Mnemon CLI release."},
+            "creationInfo": {
+                "creators": ["Tool: rc72-dsh-ecosystem-builder"],
+                "created": commit_created,
+                "comment": "Generated from exact source commits, npm runtime dependency trees and pinned Mnemon CLI release.",
+            },
             "packages": packages,
+            "relationships": [
+                {"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES",
+                 "relatedSpdxElement": package["SPDXID"]}
+                for package in packages
+            ],
         }
         (stage / "SBOM.spdx.json").write_text(
             json.dumps(sbom, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -564,6 +595,14 @@ def build(platform_id, output_dir):
             license_lines.append("")
             for dep in row["license_inventory"]:
                 license_lines.append("- %s@%s — %s" % (dep["name"], dep["version"], dep["license"]))
+        license_lines.extend([
+            "",
+            "## Mnemon Native CLI v%s — %s" % (MNEMON_CLI["version"], MNEMON_CLI["license"]),
+            "",
+            "Source: %s @ %s" % (MNEMON_CLI["repository"], MNEMON_CLI["source_commit"]),
+            "Release asset SHA-256: %s" % native_sha,
+            "Original LICENSE SHA-256: %s" % _sha256_file(stage / "runtime" / "mnemon" / "LICENSE"),
+        ])
         (stage / "LICENSES.md").write_text("\n".join(license_lines) + "\n", encoding="utf-8")
         zip_path = out / (bundle_name + ".zip")
         if zip_path.exists():

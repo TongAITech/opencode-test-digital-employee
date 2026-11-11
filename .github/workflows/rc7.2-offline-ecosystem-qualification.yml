@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rc72-offline-ecosystem-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  group: rc72-offline-ecosystem-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
