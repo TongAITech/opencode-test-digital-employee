@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rc72-native-field-\${{ github.ref }}
+  group: rc72-native-field-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,15 +59,15 @@ jobs:
           - target: linux-arm64-rocky8-glibc228
             runner: ubuntu-22.04-arm
             docker_platform: linux/arm64
-    runs-on: \${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - name: Build inside native Rocky Linux 8 userspace
         env:
-          GITHUB_SHA: \${{ github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
-          docker run --rm --platform "\${{ matrix.docker_platform }}" \
+          docker run --rm --platform "${{ matrix.docker_platform }}" \
             -e GITHUB_SHA="$GITHUB_SHA" \
             -e RUNNER_TEMP=/out \
             -v "$GITHUB_WORKSPACE:/src" \
@@ -81,14 +81,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RC72-NATIVE-FIELD-\${{ matrix.target }}-\${{ github.sha }}
+          name: RC72-NATIVE-FIELD-${{ matrix.target }}-${{ github.sha }}
           path: |
-            \${{ runner.temp }}/rc72-native-dist/*.tar.gz
-            \${{ runner.temp }}/rc72-native-dist/*.sha256
-            \${{ runner.temp }}/rc72-native-dist/*-evidence.json
-            \${{ runner.temp }}/rc72-native-dist/*-probe.txt
-            \${{ runner.temp }}/rc72-native-dist/*-smoke.txt
-            \${{ runner.temp }}/rc72-native-dist/*-version.txt
+            ${{ runner.temp }}/rc72-native-dist/*.tar.gz
+            ${{ runner.temp }}/rc72-native-dist/*.sha256
+            ${{ runner.temp }}/rc72-native-dist/*-evidence.json
+            ${{ runner.temp }}/rc72-native-dist/*-probe.txt
+            ${{ runner.temp }}/rc72-native-dist/*-smoke.txt
+            ${{ runner.temp }}/rc72-native-dist/*-version.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
@@ -103,26 +103,26 @@ jobs:
             runner: macos-15-intel
           - target: macos-arm64-apple-silicon
             runner: macos-15
-    runs-on: \${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - name: Build native macOS field package
         env:
-          GITHUB_SHA: \${{ github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         run: bash packaging/rc7.2/BUILD-NATIVE-FIELD.sh
       - name: Upload native macOS field package
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RC72-NATIVE-FIELD-\${{ matrix.target }}-\${{ github.sha }}
+          name: RC72-NATIVE-FIELD-${{ matrix.target }}-${{ github.sha }}
           path: |
-            \${{ runner.temp }}/rc72-native-dist/*.tar.gz
-            \${{ runner.temp }}/rc72-native-dist/*.sha256
-            \${{ runner.temp }}/rc72-native-dist/*-evidence.json
-            \${{ runner.temp }}/rc72-native-dist/*-probe.txt
-            \${{ runner.temp }}/rc72-native-dist/*-smoke.txt
-            \${{ runner.temp }}/rc72-native-dist/*-version.txt
+            ${{ runner.temp }}/rc72-native-dist/*.tar.gz
+            ${{ runner.temp }}/rc72-native-dist/*.sha256
+            ${{ runner.temp }}/rc72-native-dist/*-evidence.json
+            ${{ runner.temp }}/rc72-native-dist/*-probe.txt
+            ${{ runner.temp }}/rc72-native-dist/*-smoke.txt
+            ${{ runner.temp }}/rc72-native-dist/*-version.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
