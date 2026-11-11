@@ -35,25 +35,14 @@ def _unique_identities(event):
     )
 
 
-def lookup_formal_mission_receipt(snapshot, creation_key):
-    """Return the original receipt, or None when this snapshot has no such event.
-
-    The caller supplies the key from the authorized lookup context and pins
-    the corresponding physical ledger bytes. This function only verifies
-    receipt source identities and encoding. It performs no authorization,
-    storage, projection, or initialization.
-    """
-    if (type(creation_key) is not FormalMissionCreationKey or
-            any(type(value) is not str or not value for value in creation_key)):
-        raise FormalMissionReceiptError("FORMAL_MISSION_CREATION_KEY_INVALID")
-
+def _iter_formal_sources(records, formal_authority_ref):
+    """Yield records for a disposable scan. Exhaust before accepting any result."""
     event_ids = Counter()
     sequences = Counter()
     legacy_missions = set()
     formal_events = []
     seen = set()
-    matched = None
-    for record in iter_r1_snapshot_records(snapshot):
+    for record in records:
         raw = record.event
         event_id = raw.get("event_id")
         seq = raw.get("seq")
@@ -70,23 +59,42 @@ def lookup_formal_mission_receipt(snapshot, creation_key):
             if type(mission_id) is str:
                 legacy_missions.add(mission_id.strip())
         if kind != FORMAL_MISSION_EVENT_TYPE:
+            yield record, None
             continue
 
         event = parse_formal_mission_event(record.raw_line)
-        if event.creation_key.formal_authority_ref != creation_key.formal_authority_ref:
+        if event.creation_key.formal_authority_ref != formal_authority_ref:
             raise FormalMissionReceiptError("FORMAL_MISSION_AUTHORITY_CONFLICT")
         identities = _unique_identities(event)
         if any(identity in seen for identity in identities):
             raise FormalMissionReceiptError("FORMAL_MISSION_SOURCE_CONFLICT")
         seen.update(identities)
         formal_events.append(event)
-        if event.creation_key == creation_key:
-            matched = event
+        yield record, event
 
     for event in formal_events:
         if (event_ids[event.event_id] != 1 or sequences[event.seq] != 1 or
                 event.scope.mission_id in legacy_missions):
             raise FormalMissionReceiptError("FORMAL_MISSION_SOURCE_CONFLICT")
+
+
+def lookup_formal_mission_receipt(snapshot, creation_key):
+    """Return the original receipt, or None when this snapshot has no such event.
+
+    The caller supplies the key from the authorized lookup context and pins
+    the corresponding physical ledger bytes. This function only verifies
+    receipt source identities and encoding. It performs no authorization,
+    storage, projection, or initialization.
+    """
+    if (type(creation_key) is not FormalMissionCreationKey or
+            any(type(value) is not str or not value for value in creation_key)):
+        raise FormalMissionReceiptError("FORMAL_MISSION_CREATION_KEY_INVALID")
+
+    matched = None
+    for _, event in _iter_formal_sources(iter_r1_snapshot_records(snapshot),
+                                         creation_key.formal_authority_ref):
+        if event is not None and event.creation_key == creation_key:
+            matched = event
     if matched is None:
         return None
     payload = {
