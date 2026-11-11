@@ -235,12 +235,12 @@ for p in sorted(node_root.rglob("*.node")):
         b = stream.read(64)
     valid = False
     if system == "linux":
-        valid = b[:4] == b"\\x7fELF" and len(b) >= 20 and b[4] == 2 and int.from_bytes(b[18:20], "little") == expected_elf
+        valid = b[:4] == b"\x7fELF" and len(b) >= 20 and b[4] == 2 and int.from_bytes(b[18:20], "little") == expected_elf
     elif system == "darwin":
-        if b[:4] in (b"\\xcf\\xfa\\xed\\xfe", b"\\xfe\\xed\\xfa\\xcf") and len(b) >= 8:
-            endian = "little" if b[:4] == b"\\xcf\\xfa\\xed\\xfe" else "big"
+        if b[:4] in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf") and len(b) >= 8:
+            endian = "little" if b[:4] == b"\xcf\xfa\xed\xfe" else "big"
             valid = int.from_bytes(b[4:8], endian) == expected_macho
-        elif b[:4] in (b"\\xca\\xfe\\xba\\xbe", b"\\xbe\\xba\\xfe\\xca"):
+        elif b[:4] in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
             arches = subprocess.run(["lipo", "-archs", str(p)], capture_output=True, text=True, check=False)
             valid = arches.returncode == 0 and ("x86_64" if arch == "x86_64" else "arm64") in arches.stdout.split()
     if valid:
