@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f",
+    "last_tested_code_sha": "71a50aeeb92ba74468f05d00cb6d33af8a143ef7",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -91,8 +91,10 @@
     {
       "ticket": "D_MISSION_BINDING_WRITER_INVENTORY",
       "owner": "D",
-      "state": "SOURCE_INVESTIGATION",
-      "next_action": "Actual official model/reader/writer/session entry closure, not local guard as global fence."
+      "state": "INVESTIGATION_INTEGRATED_E_DESIGN_READY",
+      "next_action": "E typed absence/null/serializer, formal release batch mapping, pre-effect closure design; no production admission.",
+      "pr": 242,
+      "source_sha": "19be4aacc53e7a21a334e40fced7b9b27d1e61fd"
     },
     {
       "ticket": "B_PROJECT_METADATA_POSTGRES",
@@ -116,8 +118,9 @@
       "owner": "A",
       "worktree": "a-fanout-guard-regression",
       "source_sha": "ec6d35c163926d74ce7d1439fb8de98ae159d89e",
-      "state": "F_EXACT_REVIEW_PENDING",
-      "next_action": "Real default scheduler fanout order and no-write assertions; focused3.8/3.11 then consolidated full regression."
+      "state": "INTEGRATED_F243_EXACT_TEST_REPAIR",
+      "next_action": "Keep old full red, monitor complete exact71a run42957130347.",
+      "pr": 241
     }
   ],
   "accepted_integrated_components": [
@@ -246,6 +249,13 @@
       "sha": "a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f",
       "pure_metadata_tests": 28,
       "seconds": 0.015
+    },
+    {
+      "sha": "71a50aeeb92ba74468f05d00cb6d33af8a143ef7",
+      "fanout_scope_guard_tests": 106,
+      "seconds": 2.2,
+      "abcd_v4_run": 42957130347,
+      "abcd_v4_status": "IN_PROGRESS_NOT_PASS"
     }
   ],
   "rules": [

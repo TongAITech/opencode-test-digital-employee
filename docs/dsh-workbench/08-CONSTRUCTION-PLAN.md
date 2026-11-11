@@ -8,7 +8,7 @@
 
 接续索引：[ACTIVE-CONSTRUCTION-QUEUE.json](ACTIVE-CONSTRUCTION-QUEUE.json)。先刷新远端/同SHA检查再领取ready工单；本索引不是资格签署。
 
-- 当前代码集成检查点：`a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f`（PR #84）；纯metadata codec63ea/F238已合入，该精确集成源28/28局部测试通过。台账提交产生新HEAD，继续前核远端。
+- 当前代码集成检查点：`71a50aeeb92ba74468f05d00cb6d33af8a143ef7`（PR #84）；A在该精确源完成fanout+Scope保护106/106。完整集中回归run42957130347已启动，等待结论。
 - 本轮该精确源完整工作台Python实库回归632/632、150.198秒、0跳过；见[集成证据](WB-A-INTEGRATION-E7EDB8A9-20261111.md)。不等于完整RC7/RC7.2或真实Host/最终交付资格。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
@@ -23,8 +23,8 @@
 - Gates及原生fetch修复074b2f17已由F222精确复验接受并集成于2b94d236；旧60f013d9的F221默认浏览器Illegal invocation红灯保留。A在2b94实际Node120、原生/实库浏览器9（39.847秒）、纯模块20（0.328秒）通过；旧注入fetch包装的绿灯不能覆盖默认路径问题。
 - PG来源profile修复f4985abf由F226仅在源码/固定模板审查与既有自动化回归范围接受，已合入b4eb06be；F220两项旧P1保留。A在b4eb实际PG27/27（11.844秒）、模板2/2（0.016秒）。MATCHED_AS_OF仍admission_authorized=false，不是DDL/角色围栏或任意权限图穷尽证明。
 - E防丢失HOLD实现新1e3776bc已由F231限定组件接受并合入；旧F224/227/229红灯保留，不再把1b候选作者/CI绿灯当放行。仅本地受审入口负向保护，不是生产绑定或全writer围栏。
-- C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170已FAILURE：四native通过，全源码3110过/1失败/4跳过，见WB-A-INTEGRATION-16AE40E8-20261111.md。D211/B230及A最小项目改名决策正在D/E/F交叉审查，尚未数据库实施。
-- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，等待F及3.8/3.11精确CI。完整16ae红灯保留。B继续真实009/store施工，A HTTP候选PR239源32c3a4a7默认未配置503，等待真实store组合与独立验收。
+- C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170已FAILURE：四native通过，全源码3110过/1失败/4跳过，见WB-A-INTEGRATION-16AE40E8-20261111.md。D235/E233/F234/C237接受M1有界候选。纯codec经F238独立接受并合入；真实009/store候选施工中。D242闭包调查已合入，E续审typed absence及正式批次映射/首副作用边界。
+- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B继续真实009/store施工，A HTTP候选PR239源32c3a4a7默认未配置503，等待真实store组合与独立验收。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
