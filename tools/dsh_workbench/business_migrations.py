@@ -34,6 +34,8 @@ def rollback(connection):
     """Only empty schemas roll back automatically. Accepted writes require restore plan."""
     with connection.transaction():
         connection.execute('SELECT pg_advisory_xact_lock(684091210)')
+        if connection.execute('SELECT EXISTS(SELECT 1 FROM public.wb_schema_migration WHERE version>7)').fetchone()[0]:
+            raise RuntimeError('OPTIONAL_MIGRATION_REQUIRES_EXPLICIT_DOWNGRADE')
         for table in ['project','release_batch','system_identity','system_version','audit','batch_date_history','request_log']:
             if connection.execute('SELECT EXISTS(SELECT 1 FROM wb.'+table+')').fetchone()[0]:
                 raise RuntimeError('ROLLBACK_REQUIRES_BACKUP_AND_RECONCILIATION')
@@ -48,6 +50,8 @@ def downgrade(connection, target):
     with connection.transaction():
         connection.execute('SELECT pg_advisory_xact_lock(684091210)')
         versions=connection.execute('SELECT version FROM public.wb_schema_migration WHERE version>%s ORDER BY version DESC',(target,)).fetchall()
+        if any(version not in tables and version != 5 for (version,) in versions):
+            raise RuntimeError('OPTIONAL_MIGRATION_REQUIRES_EXPLICIT_DOWNGRADE')
         for (version,) in versions:
             if version==5:
                 raise RuntimeError('ROLLBACK_REQUIRES_BACKUP_AND_RECONCILIATION_SCOPE_CURSOR_KEY_ROTATION')
