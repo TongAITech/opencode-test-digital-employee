@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "52518b86d62d2785466cb8bd0361679b739e7f9d",
+    "last_tested_code_sha": "5634ba5a6252db25631c615c9dbcfe32ddd12467",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -129,8 +129,8 @@
       "owner": "C",
       "worktree": "c-project-metadata-ui",
       "branch": "work/dsh-wb-c-project-metadata-ui",
-      "state": "FIXED_SOURCE_F_EXACT_UI_RECHECK",
-      "next_action": "F actual old regression and new scope/ACL/native HTTP tests completed; await independent signed report before merge.",
+      "state": "INTEGRATED_F256_EXACT",
+      "next_action": "Keep F252 old red. Exact joint Node124+browser11 verified; governed root rename only.",
       "pr": 250,
       "source_sha": "a6ddfa7d58e3f09823a5d235ccc2b645251ee2a2"
     },
@@ -147,10 +147,21 @@
     {
       "ticket": "B_EXPLICIT_009_SCOPE_PROFILE",
       "owner": "B",
-      "state": "ISOLATED_READ_ONLY_IMPLEMENTATION",
-      "next_action": "Fixed explicit 009 source profile, keep v2 default and drift rejection, no admission or runtime learning.",
+      "state": "F_EXACT_REVIEW_RUNNING",
+      "next_action": "Existing PG profile real tests and fixed template proof; defaultv2 preserved; admission false.",
       "worktree": "b-scope-profile-009",
-      "branch": "work/dsh-wb-b-scope-profile-009"
+      "branch": "work/dsh-wb-b-scope-profile-009",
+      "pr": 255,
+      "source_sha": "7d7c3fcdc1449491ea3dea90aa1bd9be0c5591ca"
+    },
+    {
+      "ticket": "A_SOURCE_ARCHIVE_STARTUP",
+      "owner": "A",
+      "worktree": "a-product-source-archive",
+      "branch": "work/dsh-wb-a-product-source-archive",
+      "source_sha": "840629b3514caa444ac38f97c6454b3addd051bf",
+      "state": "F_EXACT_REVIEW_RUNNING",
+      "next_action": "Preserve real isolated old import failure, verify new archive and mounted HTTP; no final ZIP."
     }
   ],
   "accepted_integrated_components": [
@@ -234,6 +245,16 @@
       "f_report_pr": 254,
       "report": "5abbb07e",
       "qualification_limit": "SAME_ORIGIN_HTTP_COMPONENT; default unconfigured"
+    },
+    {
+      "pr": 250,
+      "source": "a6ddfa7d",
+      "f_report_pr": 256,
+      "report": "a84dd987",
+      "keep_failures": [
+        252
+      ],
+      "qualification_limit": "GOVERNED_ROOT_RENAME_UI_ONLY"
     }
   ],
   "exact_verification": [
@@ -328,6 +349,13 @@
       "windows_one_sst_run": 42970384073,
       "windows_one_sst_passed": 6,
       "scope": "Windows engineering runner; bank field and final delivery remain pending"
+    },
+    {
+      "sha": "5634ba5a6252db25631c615c9dbcfe32ddd12467",
+      "node": 124,
+      "real_pg_browser": 11,
+      "browser_seconds": 52.281,
+      "skipped": 0
     }
   ],
   "rules": [
