@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 INSTALLER_PATH = Path(__file__).resolve().parents[1] / "offline-ecosystem" / "install.py"
 BUILDER_PATH = Path(__file__).resolve().parents[1] / "tools" / "build_rc72_dsh_ecosystem_bundle.py"
 
