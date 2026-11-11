@@ -121,7 +121,7 @@
       "worktree": "a-fanout-guard-regression",
       "source_sha": "ec6d35c163926d74ce7d1439fb8de98ae159d89e",
       "state": "INTEGRATED_F243_EXACT_TEST_REPAIR",
-      "next_action": "Keep old full red, monitor complete exact71a run42957130347.",
+      "next_action": "Complete exact71a run42957130347 succeeded; preserve old16ae red and actual Windows-related skips.",
       "pr": 241
     },
     {
@@ -273,7 +273,14 @@
       "fanout_scope_guard_tests": 106,
       "seconds": 2.2,
       "abcd_v4_run": 42957130347,
-      "abcd_v4_status": "IN_PROGRESS_NOT_PASS"
+      "abcd_v4_status": "SUCCESS",
+      "jobs_passed": 5,
+      "complete_source": {
+        "passed": 3111,
+        "failed": 0,
+        "skipped": 4,
+        "seconds": 3224.52
+      }
     }
   ],
   "rules": [

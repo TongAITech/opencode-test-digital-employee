@@ -8,7 +8,7 @@
 
 接续索引：[ACTIVE-CONSTRUCTION-QUEUE.json](ACTIVE-CONSTRUCTION-QUEUE.json)。先刷新远端/同SHA检查再领取ready工单；本索引不是资格签署。
 
-- 当前代码集成检查点：`71a50aeeb92ba74468f05d00cb6d33af8a143ef7`（PR #84）；A在该精确源完成fanout+Scope保护106/106。完整集中回归run42957130347已启动，等待结论。
+- 当前代码集成检查点：`71a50aeeb92ba74468f05d00cb6d33af8a143ef7`（PR #84）；A在该精确源完成fanout+Scope保护106/106。同源完整回归run42957130347五job已SUCCESS；全源码3111通过、4跳过，见WB-A-FULL-REGRESSION-71A50AEE-20261111.md。
 - 本轮该精确源完整工作台Python实库回归632/632、150.198秒、0跳过；见[集成证据](WB-A-INTEGRATION-E7EDB8A9-20261111.md)。不等于完整RC7/RC7.2或真实Host/最终交付资格。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
