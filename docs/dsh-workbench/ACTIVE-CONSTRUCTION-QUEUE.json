@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "b05f7f3ef1f2619394cf75023d3dea5c437f4864",
+    "last_tested_code_sha": "c397d016b60146dd640cc2b87fb4513d8ef54b54",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -282,16 +282,18 @@
       "owner": "B",
       "pr": 296,
       "source_sha": "cb3106313becdc82eec9b38b64bd7c0ecce78df5",
-      "state": "F_REPORT_PENDING",
-      "next_action": "Isolated actual PG proof only. Production closure requires physical writer and all source mutations."
+      "state": "INTEGRATED_F299_TEST_FIXTURE_ONLY",
+      "next_action": "Isolated actual PG proof only. Production closure requires physical writer and all source mutations.",
+      "report_pr": 299
     },
     {
       "ticket": "A_R1_RAW_RECORD",
       "owner": "A",
       "pr": 297,
       "source_sha": "ddb59d3d8686b47e96b45a042b0d0e824275fbe3",
-      "state": "F_REPORT_PENDING",
-      "next_action": "Exact raw line bytes for future receipt verification."
+      "state": "INTEGRATED_F300_DETACHED",
+      "next_action": "Exact raw line bytes for future receipt verification.",
+      "report_pr": 300
     },
     {
       "ticket": "E_CREATE_CODEC",
@@ -300,6 +302,14 @@
       "source_sha": "acc1d80a2f6456c957e7fefb4a70d7a4a27f113d",
       "state": "EXACT_CI_PASSED_F_PENDING",
       "next_action": "Request and selection only. No PG or R1 route."
+    },
+    {
+      "ticket": "D_FORMAL_CREATION_SOURCE_EVENT",
+      "owner": "D",
+      "pr": 301,
+      "source_sha": "ce81483e9c56d8b52e671493f89daa0f7da6ca3e",
+      "state": "E_REVIEW_RUNNING",
+      "next_action": "Only detached event/receipt codec after precise schema; older runtime fail closed and deployment upgrade evidence required."
     }
   ],
   "accepted_integrated_components": [
