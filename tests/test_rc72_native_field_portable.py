@@ -138,3 +138,27 @@ def test_target_identity_is_explicit_and_never_windows():
     assert identity["platform"] in {"linux", "darwin"}
     assert identity["architecture"] in {"x86_64", "arm64"}
     assert "WINDOWS" not in identity["package_name"]
+
+
+def test_native_runtime_prunes_only_windows_shims_preserving_posix_tools(tmp_path):
+    from rc7_release.rc72_native_field_portable import _prune_windows_only_runtime_shims
+    runtime = tmp_path / "runtime"
+    for name, body in (
+        ("node/lib/node_modules/corepack/shims/corepack.cmd", "@echo off"),
+        ("node/lib/node_modules/corepack/shims/corepack.ps1", "Write-Host corepack"),
+        ("node/bin/node", "native-node"),
+        ("node/lib/node_modules/corepack/shims/corepack", "#!/bin/sh"),
+        ("node/lib/node_modules/npm/bin/npm-cli.js", "console.log(1)"),
+    ):
+        path = runtime / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+    removed = _prune_windows_only_runtime_shims(runtime)
+    assert removed == [
+        "node/lib/node_modules/corepack/shims/corepack.cmd",
+        "node/lib/node_modules/corepack/shims/corepack.ps1",
+    ]
+    assert (runtime / "node/bin/node").read_text() == "native-node"
+    assert (runtime / "node/lib/node_modules/corepack/shims/corepack").is_file()
+    assert (runtime / "node/lib/node_modules/npm/bin/npm-cli.js").is_file()
+    assert _prune_windows_only_runtime_shims(runtime) == []

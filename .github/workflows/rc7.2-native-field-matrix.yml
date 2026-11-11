@@ -85,7 +85,7 @@ jobs:
               bash packaging/rc7.2/BUILD-NATIVE-FIELD.sh
             '
       - name: Upload native Linux field package
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RC72-NATIVE-FIELD-${{ matrix.target }}-${{ github.sha }}
@@ -119,7 +119,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: bash packaging/rc7.2/BUILD-NATIVE-FIELD.sh
       - name: Upload native macOS field package
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RC72-NATIVE-FIELD-${{ matrix.target }}-${{ github.sha }}

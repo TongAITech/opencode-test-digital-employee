@@ -75,6 +75,22 @@ def _copy_runtime(src: Path, dst: Path) -> None:
         raise NativeFieldError("NATIVE_RUNTIME_TARGET_EXISTS:" + str(dst))
     shutil.copytree(str(src), str(dst), symlinks=False)
 
+def _prune_windows_only_runtime_shims(runtime_root: Path) -> List[str]:
+    """Remove foreign Windows launchers from the native acquired tool runtime only.
+
+    Product source, plugin archives, LICENSE files and authorized payloads are not
+    altered. The strict package-wide Windows contamination gate remains active.
+    """
+    root = Path(runtime_root)
+    if not root.is_dir():
+        raise NativeFieldError("NATIVE_RUNTIME_ROOT_REQUIRED")
+    removed: List[str] = []
+    for path in sorted(root.rglob("*")):
+        if (path.is_file() or path.is_symlink()) and path.suffix.lower() in EXCLUDED_SUFFIXES:
+            removed.append(path.relative_to(root).as_posix())
+            path.unlink()
+    return removed
+
 
 def _copy_packaging(repo: Path, root: Path) -> None:
     # Only POSIX launchers, runtime source, and the native README are copied.
@@ -227,6 +243,8 @@ def stage_package(
     _copy_runtime(Path(maven_repository).resolve(), runtime / "maven-repository")
     _copy_runtime(Path(allure_root).resolve(), runtime / "allure")
     _copy_runtime(Path(zap_root).resolve(), runtime / "zap")
+    # Native Node/Corepack distributions can include Windows .cmd/.ps1 shims.
+    pruned_foreign_runtime_shims = _prune_windows_only_runtime_shims(runtime)
 
     def copy_executable(source: Path, target: Path) -> None:
         source = Path(source).resolve()
@@ -343,6 +361,7 @@ def stage_package(
         },
         "browser_skill": {"cli": "0.4.1", "extension": "0.4.1"},
         "tool_versions": json.loads(os.environ.get("PFC_RC72_TOOL_VERSIONS_JSON", "{}")),
+        "windows_only_runtime_shims_removed": pruned_foreign_runtime_shims,
         "dsh_plugins": {
             "core_payload": "rc7_release/vendor/dsh-plugins-payload.zip",
             "optional_payload": "rc7_release/vendor/dsh-optional-plugins-payload.zip",

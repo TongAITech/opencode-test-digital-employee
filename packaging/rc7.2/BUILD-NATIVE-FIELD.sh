@@ -7,10 +7,10 @@ cd "$ROOT"
 SYSTEM="$(uname -s)"
 MACHINE="$(uname -m)"
 case "$SYSTEM:$MACHINE" in
-  Linux:x86_64) PLATFORM=linux; ARCH=x86_64; TRIPLE=x64; BSK_TRIPLE=x86_64-unknown-linux-musl; RG_TRIPLE=x86_64-unknown-linux-musl; K6_ASSET=k6-v1.8.2-linux-amd64.tar.gz; K6_SHA=37620781d35406ebf402397a6c5cf4adb62d175cb052ff45325ae0b860527063; CG_ASSET=codegraph-server-linux-x64; CG_SHA=15ef4a714bb163284a00dfdad88a244280659c4b240328c38953cfcd4bfbffba; BSK_SHA=8a6d503a07748fc8f5f4a9d262564dea011bf860c8294032f9fb84b10c006d8a; RG_SHA=33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c ;;
-  Linux:aarch64) PLATFORM=linux; ARCH=arm64; TRIPLE=arm64; BSK_TRIPLE=aarch64-unknown-linux-musl; RG_TRIPLE=aarch64-unknown-linux-musl; K6_ASSET=k6-v1.8.2-linux-arm64.tar.gz; K6_SHA=8b4e55024ffc8ed7ed4caabca054dfb5bafe16e7ee4235de57d01bf58d69e0d7; CG_ASSET=codegraph-server-linux-arm64; CG_SHA=32555d4c70c8dcbf8edcd88629348c995706daedaa89302623eaa9cae35f2495; BSK_SHA=c54a6af6ca9eb3abaee523427796817deb139b847cb76e8335da6804f35c441c; RG_SHA=800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915 ;;
-  Darwin:x86_64) PLATFORM=darwin; ARCH=x86_64; TRIPLE=x64; BSK_TRIPLE=x86_64-apple-darwin; RG_TRIPLE=x86_64-apple-darwin; K6_ASSET=k6-v1.8.2-macos-amd64.zip; K6_SHA=3309d7ef81283055f32cd4ad516e33cf8fcbcd33c3c2edbd82a135864fd9becf; CG_ASSET=codegraph-server-darwin-x64; CG_SHA=f6a0af8cdf8d8d5ee30a60a728b32659ccd1e4619bc7c9b14963698cdf519e16; BSK_SHA=1bcf15c2235437fe2c8931a7e915430be16ce02b39eb49a071fce97750b3a8c0; RG_SHA=af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1 ;;
-  Darwin:arm64) PLATFORM=darwin; ARCH=arm64; TRIPLE=arm64; BSK_TRIPLE=aarch64-apple-darwin; RG_TRIPLE=aarch64-apple-darwin; K6_ASSET=k6-v1.8.2-macos-arm64.zip; K6_SHA=2ce3ed837e9a7c7b1b7a594ff72861bbf9d94d5930ca6611bd6f1ef5a08f7d0a; CG_ASSET=codegraph-server-darwin-arm64; CG_SHA=a4f70942f9283ff2327a711ccf777cfa932187503c8945067aa6a21c82bc5f3b; BSK_SHA=8b9fb14a8f6231b2c11ed5494d45224a1860e2a85245a78d16995de50f2bd659; RG_SHA=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4 ;;
+  Linux:x86_64) PLATFORM=linux; ARCH=x86_64; TRIPLE=x64; BSK_TRIPLE=x86_64-unknown-linux-musl; RG_TRIPLE=x86_64-unknown-linux-musl; K6_ASSET=k6-v2.3.0-linux-amd64.tar.gz; K6_SHA=39c3117b6af817592dcd0ce4242105c0a7af10948c2a425306f0be8f7a8a8ab1; CG_ASSET=codegraph-server-linux-x64; CG_SHA=15ef4a714bb163284a00dfdad88a244280659c4b240328c38953cfcd4bfbffba; BSK_SHA=8a6d503a07748fc8f5f4a9d262564dea011bf860c8294032f9fb84b10c006d8a; RG_SHA=33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c ;;
+  Linux:aarch64) PLATFORM=linux; ARCH=arm64; TRIPLE=arm64; BSK_TRIPLE=aarch64-unknown-linux-musl; RG_TRIPLE=aarch64-unknown-linux-musl; K6_ASSET=k6-v2.3.0-linux-arm64.tar.gz; K6_SHA=5ca3433e8201da72a284aaa241a1bb5fb47f4abb4e384d39410ddd8062f49b90; CG_ASSET=codegraph-server-linux-arm64; CG_SHA=32555d4c70c8dcbf8edcd88629348c995706daedaa89302623eaa9cae35f2495; BSK_SHA=c54a6af6ca9eb3abaee523427796817deb139b847cb76e8335da6804f35c441c; RG_SHA=800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915 ;;
+  Darwin:x86_64) PLATFORM=darwin; ARCH=x86_64; TRIPLE=x64; BSK_TRIPLE=x86_64-apple-darwin; RG_TRIPLE=x86_64-apple-darwin; K6_ASSET=k6-v2.3.0-macos-amd64.zip; K6_SHA=c83bb16f54f0676afa4ea235fd757f3892d307dbd1bd201450de83af31986654; CG_ASSET=codegraph-server-darwin-x64; CG_SHA=f6a0af8cdf8d8d5ee30a60a728b32659ccd1e4619bc7c9b14963698cdf519e16; BSK_SHA=1bcf15c2235437fe2c8931a7e915430be16ce02b39eb49a071fce97750b3a8c0; RG_SHA=af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1 ;;
+  Darwin:arm64) PLATFORM=darwin; ARCH=arm64; TRIPLE=arm64; BSK_TRIPLE=aarch64-apple-darwin; RG_TRIPLE=aarch64-apple-darwin; K6_ASSET=k6-v2.3.0-macos-arm64.zip; K6_SHA=b2417a3038edc5fe81dc178a889237724b595c5c9cfed875822008e46e862c7d; CG_ASSET=codegraph-server-darwin-arm64; CG_SHA=a4f70942f9283ff2327a711ccf777cfa932187503c8945067aa6a21c82bc5f3b; BSK_SHA=8b9fb14a8f6231b2c11ed5494d45224a1860e2a85245a78d16995de50f2bd659; RG_SHA=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4 ;;
   *) echo "NATIVE_PLATFORM_UNSUPPORTED:$SYSTEM:$MACHINE" >&2; exit 2 ;;
 esac
 
@@ -111,13 +111,13 @@ RG_BIN="$(find "$TOOLS/rg" -type f -name rg -print -quit)"
 chmod +x "$RG_BIN"
 "$RG_BIN" --version | grep -F 'ripgrep 15.2.0'
 
-# k6 1.8.2 native archive.
-download "https://github.com/grafana/k6/releases/download/v1.8.2/$K6_ASSET" "$TOOLS/$K6_ASSET" "$K6_SHA"
+# k6 2.3.0 native archive; exact GitHub official asset digests.
+download "https://github.com/grafana/k6/releases/download/v2.3.0/$K6_ASSET" "$TOOLS/$K6_ASSET" "$K6_SHA"
 if [[ "$K6_ASSET" == *.zip ]]; then unpack_zip "$TOOLS/$K6_ASSET" "$TOOLS/k6"; else unpack_tar "$TOOLS/$K6_ASSET" "$TOOLS/k6"; fi
 K6_BIN="$(find "$TOOLS/k6" -type f -name k6 -print -quit)"
 [[ -n "$K6_BIN" ]] || { echo "NATIVE_K6_MISSING" >&2; exit 3; }
 chmod +x "$K6_BIN"
-"$K6_BIN" version >/dev/null
+"$K6_BIN" version | grep -F "v2.3.0" >/dev/null
 
 # Allure 2.46.2 is a platform-independent Java distribution.
 download "https://github.com/allure-framework/allure2/releases/download/2.46.2/allure-2.46.2.tgz" "$TOOLS/allure.tgz" 83021e2c02e9a3487df249ef7bbf51c1b9f23b722bd288c6d1785609303e0df8
@@ -271,9 +271,35 @@ const {chromium}=require(process.argv[1]);
 "$PACKAGE/workspace-template/runtime/allure/bin/allure" --version >/dev/null
 "$PACKAGE/workspace-template/runtime/zap/$(basename "$(dirname "$ZAP_BIN")")/zap.sh" -version >/dev/null 2>&1 || true
 
-ARCHIVE="$DIST/RC72-NATIVE-FIELD-$([ "$PLATFORM" = linux ] && echo LINUX || echo MACOS)-$([ "$ARCH" = x86_64 ] && echo X86_64 || echo ARM64)-${SOURCE_COMMIT:0:12}.tar.gz"
-mkdir -p "$DIST"
+# Archive is sealed into a private candidate directory, never uploaded until the
+# clean-unpack and runtime smoke gates pass. BUILD failure cannot leak an Artifact.
+ARCHIVE_NAME="RC72-NATIVE-FIELD-$([ "$PLATFORM" = linux ] && echo LINUX || echo MACOS)-$([ "$ARCH" = x86_64 ] && echo X86_64 || echo ARM64)-${SOURCE_COMMIT:0:12}.tar.gz"
+ARCHIVE="$TOOLS/$ARCHIVE_NAME"
 "$PYBIN" -m rc7_release.rc72_native_field_portable archive --package-root "$PACKAGE" --output "$ARCHIVE" | tee "$TOOLS/archive-evidence.json"
-cp "$TOOLS/stage-evidence.json" "$TOOLS/clean-identity.json" "$TOOLS/launcher-probe.txt" "$TOOLS/browser-smoke.txt" "$TOOLS/archive-evidence.json" "$DIST/"
+CLEAN="$TOOLS/clean-unpack-qualification"
+mkdir -p "$CLEAN"
+tar -xzf "$ARCHIVE" -C "$CLEAN"
+CLEAN_PACKAGE="$CLEAN/$PACKAGE_NAME"
+"$PYBIN" -m rc7_release.rc72_native_field_portable verify \
+  --package-root "$CLEAN_PACKAGE" --expected-source-commit "$SOURCE_COMMIT" | tee "$TOOLS/clean-unpack-evidence.json"
+PFC_RC72_NATIVE_PROBE_ONLY=1 bash "$CLEAN_PACKAGE/packaging/rc7.2/AITEST.sh" --verify-only | tee "$TOOLS/clean-unpack-probe.txt"
+"$CLEAN_PACKAGE/workspace-template/runtime/python/bin/python3" -B - "$CLEAN_PACKAGE" <<'PY'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1]).resolve()
+expected=(root/"workspace-template/runtime/python").resolve()
+if pathlib.Path(sys.prefix).resolve()!=expected:
+    raise SystemExit("NATIVE_RELOCATED_PYTHON_PREFIX_MISMATCH:%s != %s" % (sys.prefix,expected))
+import pytest,requests,openpyxl,docx,pptx,pypdf,PIL,numpy,onnxruntime,cv2,rapidocr_onnxruntime
+print("NATIVE_CLEAN_UNPACK_PYTHON_RELOCATION_PASS")
+PY
+PLAYWRIGHT_BROWSERS_PATH="$CLEAN_PACKAGE/workspace-template/runtime/browser/pw-browsers" \
+"$CLEAN_PACKAGE/workspace-template/runtime/node/bin/node" -e '
+const {chromium}=require(process.argv[1]);
+(async()=>{const b=await chromium.launch({headless:true,args:process.platform==="linux"?["--no-sandbox"]:[]});const p=await b.newPage();await p.goto("data:text/html,<title>RC72 Native Clean Unpack</title>");if(await p.title()!=="RC72 Native Clean Unpack")throw Error("NATIVE_CLEAN_UNPACK_BROWSER_SMOKE_FAILED");await b.close();console.log("NATIVE_CLEAN_UNPACK_CHROMIUM_PASS")})().catch(e=>{console.error(e);process.exit(1)});
+' "$CLEAN_PACKAGE/workspace-template/runtime/node-execution/node_modules/playwright" | tee "$TOOLS/clean-unpack-smoke.txt"
+mkdir -p "$DIST"
+cp "$TOOLS/stage-evidence.json" "$TOOLS/clean-identity.json" "$TOOLS/launcher-probe.txt" "$TOOLS/browser-smoke.txt" "$TOOLS/archive-evidence.json" "$TOOLS/clean-unpack-evidence.json" "$TOOLS/clean-unpack-probe.txt" "$TOOLS/clean-unpack-smoke.txt" "$DIST/"
 cp "$TOOLS"/*-version.txt "$DIST/"
-echo "NATIVE_FIELD_ARTIFACT_READY=$ARCHIVE"
+mv "$ARCHIVE" "$DIST/"
+mv "$ARCHIVE.sha256" "$DIST/"
+echo "NATIVE_FIELD_ARTIFACT_READY=$DIST/$ARCHIVE_NAME"

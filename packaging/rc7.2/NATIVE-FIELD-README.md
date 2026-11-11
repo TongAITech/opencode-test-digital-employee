@@ -7,7 +7,7 @@ This package is built natively for one exact OS and CPU architecture. Do not cop
 - Package variants: Linux x86_64 and Linux ARM64.
 - Build baseline: glibc >= 2.34 and kernel >= 4.18.
 - Intended candidates: RHEL/CentOS Stream 9 family, compatible Kylin/UOS releases whose glibc/kernel meet the baseline.
-- CentOS 7 / CentOS 8 and Rocky 8 are NOT supported by the supplied CodeGraph binaries by the Node 24 runtime and is not claimed compatible.
+- CentOS 7/8 and Rocky 8 are outside the glibc >= 2.34 baseline; Kylin/UOS require per-distribution validation, native dependencies and bank qualification.
 - Chromium requires the documented host shared libraries; use \`bash packaging/rc7.2/AITEST.sh --verify-only\` and \`ldd\` diagnostics on the target before field launch.
 
 ## macOS support boundary
@@ -33,7 +33,7 @@ The package does not contain the bank-controlled DSH main executable, credential
 - BrowserSkill CLI and extension 0.4.1
 - Java 17 + Maven 3.9.16 + seeded Maven local repository
 - Allure 2.46.2
-- k6 1.8.2
+- k6 2.3.0
 - OWASP ZAP 2.17.0
 - ripgrep 15.2.0
 - CodeGraph 0.21.0 native binary
@@ -49,7 +49,7 @@ Upstream pin: \`songofhawk/dsh-alpha\`, version \`0.2.2\`, commit \`f417e90ddd0e
 
 ## Acceptance boundary
 
-A successful package build verifies native executable formats, architecture, full SHA-256 coverage, Python/Node/BSK/CodeGraph/k6/ripgrep/Java/Maven/Allure/ZAP launchability, offline Playwright Chromium, and package-local tool binding. It does not prove the bank DSH CLI, Agent Teams, model providers, 4A, business Journey, database/CAT, Q3 or BANK_FINAL.
+A successful package build verifies a relocated clean-extracted package (Python and Chromium smoke), native executable formats, architecture, full SHA-256 coverage, Python/Node/BSK/CodeGraph/k6/ripgrep/Java/Maven/Allure/ZAP launchability, offline Playwright Chromium, and package-local tool binding. It does not prove the bank DSH CLI, Agent Teams, model providers, 4A, business Journey, database/CAT, Q3 or BANK_FINAL.
 
 ## Five additional licensed plugins
 
