@@ -51,7 +51,7 @@ export PATH="$UV_INSTALL_DIR:$PATH"
 uv python install 3.11
 PYBIN="$(uv python find 3.11 --managed-python)"
 PYROOT="$(dirname "$(dirname "$PYBIN")")"
-uv pip install --python "$PYBIN" \
+uv pip install --break-system-packages --python "$PYBIN" \
   "pip==25.2" "pytest==8.3.5" "requests==2.34.2" "openpyxl==3.1.5" \
   "python-docx==1.2.0" "python-pptx==1.0.2" "pypdf==7.0.1" "pillow==12.0.0" \
   "numpy==1.26.4" "onnxruntime==1.20.1" "opencv-python-headless==4.10.0.84" \
