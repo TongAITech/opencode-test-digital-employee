@@ -110,6 +110,16 @@ def test_rc72_field_and_final_transport_builds_use_node_24_for_dsh_cli_engine():
     assert "RC7.2 packaged Node >=24.9.0 required" in field
 
 
+
+def test_windows_offline_qualification_queries_the_firewall_rule_created_by_workflow():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/rc7.2-field-validation-portable.yml").read_text(encoding="utf-8")
+    qualification = (root / "rc7_release/rc72_execution_node_qualification.py").read_text(encoding="utf-8")
+    expected = "RC72-Execution-Node-Offline"
+    assert f"$rule = '{expected}'" in workflow
+    assert f"Get-NetFirewallRule -Name '{expected}'" in qualification
+    assert "RC72-Field-Node-" not in workflow
+
 def test_start_launcher_prompts_only_when_package_does_not_bundle_dsh():
     root = Path(__file__).resolve().parents[1]
     source = (root / "packaging/rc7.2/start-rc7.2.cmd").read_text(encoding="utf-8")

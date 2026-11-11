@@ -54,7 +54,7 @@ jobs:
           retention-days: 14
 
   build-field-validation-package:
-    if: github.ref == 'refs/heads/work/rc7.2-field-validation-transport-20261111' && github.sha == 'ba65e925d7e86f63c12d263f169684148010047f'
+    if: github.ref == 'refs/heads/work/rc7.2-field-validation-transport-20261111'
     needs: source-contract
     runs-on: windows-2022
     timeout-minutes: 180
@@ -137,7 +137,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'package-local Python/document capability qualification failed' }
             $node = Join-Path $pkg 'workspace-template/runtime/node/node.exe'
             Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
-            $rule = 'RC72-Field-Node-' + [guid]::NewGuid().ToString('N')
+            $rule = 'RC72-Execution-Node-Offline'
             New-NetFirewallRule -Name $rule -DisplayName 'RC7.2 field package offline Node probe' -Program $node -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null
             try {
               & $py -m rc7_release.rc72_execution_node_qualification --package-root $pkg --evidence-root (Join-Path $env:RUNNER_TEMP 'rc72-field-node') --require-windows-outbound-block --require-full-text-search
