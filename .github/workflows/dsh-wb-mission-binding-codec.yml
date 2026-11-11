@@ -9,6 +9,8 @@ on:
       - 'tests/test_dsh_workbench_runtime_batch_mapping.py'
       - 'tools/dsh_workbench/runtime_batch_history.py'
       - 'tests/test_dsh_workbench_runtime_batch_history.py'
+      - 'tools/dsh_workbench/r1_snapshot_events.py'
+      - 'tests/test_dsh_workbench_r1_snapshot_events.py'
       - '.github/workflows/dsh-wb-mission-binding-codec.yml'
 permissions:
   contents: read
@@ -36,3 +38,4 @@ jobs:
           python -m unittest discover -s tests -p test_dsh_workbench_mission_scope_binding_codec.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_mapping.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_history.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_r1_snapshot_events.py -v

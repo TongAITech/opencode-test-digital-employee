@@ -9,6 +9,7 @@ from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_domain import ReleaseBatch
 from rc7_runtime.rc72_repository import CanonicalRC72Repository
 from rc7_runtime.rc72_state_machine import RC72StateMachine
+from tools.dsh_workbench.r1_snapshot_events import R1SnapshotDecodeError
 from tools.dsh_workbench.runtime_batch_history import (
     RuntimeBatchHistoryError, verify_runtime_batch_history,
 )
@@ -32,7 +33,7 @@ class RuntimeBatchHistoryTest(unittest.TestCase):
     def verify(self):
         before = self.path.read_bytes()
         try:
-            return verify_runtime_batch_history(TruthRuntime(self.path).store.iter_raw(), self.mapping)
+            return verify_runtime_batch_history(before, self.mapping)
         finally:
             self.assertEqual(self.path.read_bytes(), before)
 
@@ -78,14 +79,14 @@ class RuntimeBatchHistoryTest(unittest.TestCase):
         event = next(self.truth.store.iter_raw())
         event["entity_id"] = "PG-BATCH"
         with self.assertRaisesRegex(RuntimeBatchHistoryError, "EVENT_INVALID"):
-            verify_runtime_batch_history([event], self.mapping)
+            verify_runtime_batch_history((json.dumps(event) + "\n").encode("utf-8"), self.mapping)
 
     def test_matching_event_must_pass_the_canonical_release_batch_validator(self):
         self.bootstrap()
         event = next(self.truth.store.iter_raw())
         del event["payload"]["name"]
         with self.assertRaisesRegex(RuntimeBatchHistoryError, "EVENT_INVALID"):
-            verify_runtime_batch_history([event], self.mapping)
+            verify_runtime_batch_history((json.dumps(event) + "\n").encode("utf-8"), self.mapping)
 
     def test_canonical_normalization_cannot_hide_a_foreign_update(self):
         self.bootstrap()
@@ -100,3 +101,15 @@ class RuntimeBatchHistoryTest(unittest.TestCase):
                          ["mission_id"], "OTHER-MISSION")
         with self.assertRaisesRegex(RuntimeBatchHistoryError, "HISTORY_CONFLICT"):
             self.verify()
+
+    def test_refuses_ambiguous_or_torn_events_after_valid_batch(self):
+        self.bootstrap()
+        snapshot = self.path.read_bytes()
+        for suffix, code in (
+            (b'{"event_type":"RC72_RELEASE_BATCH_UPSERTED","event_type":"OTHER"}\n', "EVENT_INVALID_LINE_12"),
+            (b'{"event_type":', "INCOMPLETE_TAIL"),
+        ):
+            with self.subTest(suffix=suffix):
+                with self.assertRaisesRegex(R1SnapshotDecodeError, code):
+                    verify_runtime_batch_history(snapshot + suffix, self.mapping)
+        self.assertEqual(self.path.read_bytes(), snapshot)
