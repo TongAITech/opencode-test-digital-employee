@@ -95,3 +95,19 @@ def test_source_build_fails_closed_when_pinned_pnpm_is_missing(tmp_path: Path, m
     monkeypatch.setattr(builder.shutil, "which", lambda _name: None)
     with pytest.raises(builder.BundleBuildError, match="PINNED_PNPM_10_13_1_REQUIRED_FOR_SOURCE_BUILD"):
         builder._prepare_source_build({"id": "dsh-mnemon"}, tmp_path)
+
+
+
+def test_run_stdout_keeps_json_separate_from_npm_diagnostics(monkeypatch, tmp_path: Path) -> None:
+    import subprocess
+
+    def _completed(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 0, stdout=b'[{"filename":"fixture.tgz"}]',
+            stderr=b"npm notice package contents are listed here",
+        )
+
+    monkeypatch.setattr(builder.subprocess, "run", _completed)
+    output = builder._run_stdout(["npm", "pack", ".", "--json"], cwd=tmp_path)
+    assert json.loads(output)[0]["filename"] == "fixture.tgz"
+    assert "npm notice" not in output

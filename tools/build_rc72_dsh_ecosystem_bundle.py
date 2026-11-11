@@ -159,6 +159,33 @@ def _run(command, cwd=None, timeout=900):
     return output
 
 
+def _run_stdout(command, cwd=None, timeout=900):
+    """Run a command while keeping machine-readable stdout separate from diagnostic stderr."""
+    try:
+        normalized = [str(x) for x in command]
+        kwargs = {
+            "cwd": str(cwd) if cwd else None,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "timeout": timeout,
+            "check": False,
+        }
+        if os.name == "nt" and Path(normalized[0]).suffix.lower() in (".cmd", ".bat"):
+            proc = subprocess.run(subprocess.list2cmdline(normalized), shell=True, **kwargs)
+        else:
+            proc = subprocess.run(normalized, **kwargs)
+    except Exception as exc:
+        raise BundleBuildError("BUILD_COMMAND_COULD_NOT_START:%s" % command[0]) from exc
+    stdout = (proc.stdout or b"").decode("utf-8", errors="replace")
+    stderr = (proc.stderr or b"").decode("utf-8", errors="replace")
+    if proc.returncode:
+        raise BundleBuildError(
+            "BUILD_COMMAND_FAILED:%s:stdout=%s:stderr=%s"
+            % (command[0], stdout[-1200:], stderr[-1200:])
+        )
+    return stdout
+
+
 def _safe_extract_npm(archive, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
@@ -292,15 +319,17 @@ def _pack_plugin(npm, spec, target, work):
     _prepare_source_build(spec, source)
     pack_dir = Path(work) / ("pack-" + spec["id"])
     pack_dir.mkdir(parents=True, exist_ok=True)
-    output = _run([
-        npm, "pack", ".", "--json", "--ignore-scripts",
+    output = _run_stdout([
+        npm, "pack", ".", "--json", "--silent", "--ignore-scripts",
         "--pack-destination", str(pack_dir),
     ], cwd=source, timeout=600)
     try:
         row = json.loads(output)[-1]
         archive = pack_dir / row["filename"]
     except Exception as exc:
-        raise BundleBuildError("NPM_PACK_RESULT_INVALID:%s" % spec["id"]) from exc
+        raise BundleBuildError(
+            "NPM_PACK_RESULT_INVALID:%s:stdout=%s" % (spec["id"], output[-1600:])
+        ) from exc
     if not archive.is_file():
         raise BundleBuildError("NPM_PACK_FILE_MISSING:%s" % spec["id"])
     import hashlib as _hashlib
