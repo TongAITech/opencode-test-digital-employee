@@ -7,7 +7,7 @@ const labels = {
     unknown: '提交结果未知。请用原身份核对原请求。',
     changed: '原改名操作已确认。', unchanged: '名称相同，已确认无需改名。',
     failure: '无法完成请求。', conflict: '项目版本已变化，请读取当前名称后重新填写。',
-    unavailable: '名称不可用。', denied: '当前权限或身份无法执行此操作。',
+    unavailable: '名称不可用。', exhausted: '名称版本已达上限，无法改名。', denied: '当前权限或身份无法执行此操作。',
     invalid: '请检查名称和改名原因的长度及字符。',
     policy: '名称最多128个Unicode标量、512个UTF-8字节。只去除首尾普通空格（U+0020）。大小写、组合字符及其他Unicode空白原样保留。',
   },
@@ -19,7 +19,7 @@ const labels = {
     unknown: 'The outcome is unknown. Check the original request with the original identity.',
     changed: 'The original rename was confirmed.', unchanged: 'The name was unchanged.',
     failure: 'The request could not be completed.', conflict: 'The project revision changed. Read the current name and enter a new request.',
-    unavailable: 'Name unavailable.', denied: 'The current permissions or identity do not allow this operation.',
+    unavailable: 'Name unavailable.', exhausted: 'The name revision has reached its limit. The rename was rejected.', denied: 'The current permissions or identity do not allow this operation.',
     invalid: 'Check the length and characters of the name and reason.',
     policy: 'Up to 128 Unicode scalar values and 512 UTF-8 bytes. Only leading and trailing ordinary spaces (U+0020) are removed. Case, combining characters and other Unicode whitespace are preserved.',
   },
@@ -62,14 +62,27 @@ function validReceipt(value, intent) {
         && value.applied_metadata_revision === intent.metadataRevision));
 }
 
+const invalidRequestCodes = [
+  'INVALID_METADATA_TARGET', 'INVALID_METADATA_QUERY', 'INVALID_METADATA_BODY',
+  'INCOMPLETE_METADATA_BODY', 'INVALID_METADATA_REQUEST', 'INVALID_METADATA_CANONICAL',
+  'PROJECT_TARGET_INVALID', 'BODY_BYTES_REQUIRED', 'BODY_BYTE_LIMIT',
+  'JSON_INVALID_UTF8', 'JSON_INVALID', 'JSON_INVALID_UNICODE', 'JSON_DUPLICATE_KEY',
+  'JSON_NUMBER_FORBIDDEN', 'REQUEST_FIELDS_INVALID', 'CHANGES_FIELDS_INVALID',
+  'REQUEST_ID_INVALID', 'REVISION_INVALID', 'NAME_INVALID_UTF8_OR_TYPE',
+  'NAME_CONTROL_FORBIDDEN', 'NAME_SCALAR_LIMIT', 'NAME_BYTE_LIMIT', 'NAME_NOT_CANONICAL',
+  'REASON_INVALID_UTF8_OR_TYPE', 'REASON_BYTE_LIMIT',
+];
 const knownRejections = new Map([
+  ...invalidRequestCodes.map(code => ['400:' + code, 'invalid']),
   ['409:NAME_UNAVAILABLE', 'unavailable'],
+  ['409:REVISION_EXHAUSTED', 'exhausted'],
   ['409:REVISION_CONFLICT', 'conflict'],
   ['409:WRITE_CONTEXT_CHANGED', 'denied'],
   ['409:METADATA_NOT_GOVERNED', 'readOnly'],
   ['409:GOVERNANCE_HOLD', 'readOnly'],
   ['409:IDEMPOTENCY_CONFLICT', 'conflict'],
   ['403:FORBIDDEN', 'denied'],
+  ['403:WRITE_CONTEXT_REQUIRED', 'denied'],
   ['403:MUTATION_AUTH_REQUIRED', 'denied'],
 ]);
 

@@ -14,3 +14,14 @@
 - 新的完整浏览器测试要求真实服务端提供 `can_rename`，在旧源上没有完整正向通过。测试含真实提交断线、重试原 body/context、不同主体拒绝、旧回执后较新名称、NO_CHANGE、隐藏重名、CAS、reader 只读、不同项目迟到响应、长名 375px、键盘、保留合法 Scope 及无业务 localStorage。
 
 最终候选须在已批准的新 B/A 源上完成完整浏览器回归和独立 F 复验。现场 Host、Windows 与离线交付证据仍待行内验证。
+
+## 新服务端候选联调
+
+在原候选上前向合入 A PR239 `26ef3c7b4173f9dd0a2b5240edd1039fb5a428ae`，其中 B 009 为 `3b74d5e0`。实测环境为独立 PostgreSQL 17.6 ICU、同源 HTTP 和普通 Chromium 原生 fetch，宿主身份来自明确的测试夹具。
+
+- 新改名浏览器用例定向通过。最终全套浏览器 **11/11**，无跳过，53.285 秒。最终 Node **124/124**，无跳过。
+- 真实服务端返回 writer `can_rename=true`、reader `false`。缺字段的旧响应降级验证只读。
+- 真正提交后由服务端断开 socket。原请求 body 和 context 保持一致，Bob 不发送 Alice 的原请求。另一次已提交成功回执延迟到切换主体后送达，界面保持未知并清当前字段，回到 Alice 后原请求对账成功。
+- 首次实际 HTTP 400 `REQUEST_FIELDS_INVALID` 和 403 `WRITE_CONTEXT_REQUIRED` 由请求传输故障注入触发，服务端拒绝并保持历史计数为零。首次明确拒绝后可重新填写。恢复阶段实际 403 保留原请求，之后取回原回执。精确 409 `REVISION_EXHAUSTED` 映射已纳入允许清除首次请求的协议代码集合。
+- PG 历史、outbox 与当前名称核对了隐藏同名拒绝、CAS、NO_CHANGE、旧回执之后读取最新值。项目目录刷新保留原批次、已验证 Scope 与需求筛选。真实迟到 GET 在切项目和主体后无法覆盖新项目显示。
+- 原生键盘、375px 长名和两语流程通过，业务值未写入浏览器 localStorage。集成仍以 B/A 和 C 的独立精确源接受为条件。

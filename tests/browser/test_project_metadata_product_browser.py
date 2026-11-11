@@ -1,4 +1,5 @@
 """M1 with real 009, PostgreSQL, same-origin HTTP and native Chromium fetch."""
+import json
 import pathlib
 import socket
 import sys
@@ -117,6 +118,41 @@ class ProjectMetadataBrowser(unittest.TestCase):
             self.assertNotIn('P2', status.inner_text())
             self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), 0)
 
+            def invalid_request(route):
+                if route.request.method != 'PATCH':
+                    route.continue_()
+                    return
+                value = json.loads(route.request.post_data)
+                value['unexpected'] = True
+                route.continue_(post_data=json.dumps(value))
+
+            def missing_context(route):
+                if route.request.method != 'PATCH':
+                    route.continue_()
+                    return
+                headers = dict(route.request.headers)
+                headers.pop('x-dsh-write-context')
+                route.continue_(headers=headers)
+
+            endpoint = '**/projects/P1/metadata'
+            page.route(endpoint, invalid_request)
+            with page.expect_response(lambda response: response.status == 400) as rejected:
+                rename('malformed delivery')
+            self.assertEqual(rejected.value.json()['error']['code'], 'REQUEST_FIELDS_INVALID')
+            wait_status('Check the length and characters')
+            expect(panel.locator('[data-check]')).to_be_hidden()
+            page.unroute(endpoint, invalid_request)
+
+            page.route(endpoint, missing_context)
+            with page.expect_response(lambda response: response.status == 403) as rejected:
+                rename('missing context delivery')
+            self.assertEqual(rejected.value.json()['error']['code'], 'WRITE_CONTEXT_REQUIRED')
+            wait_status('permissions or identity')
+            expect(panel.locator('[data-check]')).to_be_hidden()
+            page.unroute(endpoint, missing_context)
+            self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), 0)
+            load()
+
             lose_response.set()
             rename('  ' + '😀' * 128 + '  ')
             wait_status('outcome is unknown')
@@ -134,6 +170,13 @@ class ProjectMetadataBrowser(unittest.TestCase):
             wait_status('permissions or identity')
             self.assertEqual(len(patches), count)
             actor[0] = 'alice'
+            page.route(endpoint, missing_context)
+            with page.expect_response(lambda response: response.status == 403) as rejected:
+                panel.locator('[data-check]').click()
+            self.assertEqual(rejected.value.json()['error']['code'], 'WRITE_CONTEXT_REQUIRED')
+            wait_status('outcome is unknown')
+            expect(panel.locator('[data-check]')).to_be_visible()
+            page.unroute(endpoint, missing_context)
             panel.locator('[data-check]').click()
             wait_status('original rename was confirmed')
             expect(panel.locator('[data-current]')).to_have_text(latest)
@@ -164,6 +207,37 @@ class ProjectMetadataBrowser(unittest.TestCase):
             page.keyboard.press('Tab')
             self.assertEqual(page.locator('[name=rename-reason]').evaluate('(el) => el === document.activeElement'), True)
             self.assertNotIn('concurrent', page.evaluate('JSON.stringify(localStorage)'))
+            # The database commits before response delivery. A different receiver
+            # must get neither the confirmation nor the submitted name.
+            delayed = []
+            def hold_receipt(route):
+                if route.request.method == 'PATCH':
+                    response = route.fetch()
+                    delayed.append((route, response))
+                else:
+                    route.continue_()
+            page.route(endpoint, hold_receipt)
+            rename('receipt after subject change')
+            for _ in range(100):
+                if delayed:
+                    break
+                page.wait_for_timeout(20)
+            self.assertTrue(delayed)
+            self.assertEqual(delayed[0][1].status, 200)
+            self.assertEqual(data.scalar("SELECT name FROM wb.project WHERE project_id='P1'"),
+                             'receipt after subject change')
+            delayed_intent = patches[-1]
+            actor[0] = 'bob'
+            for route, response in delayed:
+                route.fulfill(response=response)
+            wait_status('permissions or identity')
+            expect(panel.locator('[data-current]')).to_have_text('')
+            self.assertNotIn('confirmed', status.inner_text())
+            page.unroute(endpoint, hold_receipt)
+            actor[0] = 'alice'
+            panel.locator('[data-check]').click()
+            expect(panel.locator('[data-current]')).to_have_text('receipt after subject change')
+            self.assertEqual(patches[-1], delayed_intent)
             actor[0] = 'reader'
             load()
             expect(panel.locator('form')).to_be_hidden()
