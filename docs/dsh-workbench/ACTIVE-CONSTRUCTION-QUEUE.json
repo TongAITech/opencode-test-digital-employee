@@ -101,19 +101,19 @@
       "owner": "B",
       "worktree": "b-project-metadata-pg",
       "branch": "work/dsh-wb-b-project-metadata-pg",
-      "state": "F246_REJECTED_GOVERNANCE_CONCURRENCY_FIX_IN_PROGRESS",
-      "next_action": "Retain actual 3 projects/2 dispositions ACTIVE and NO_CHANGE write; fence with genuine row-version update, verify both lock orders and stale snapshots; freeze corrected source then F.",
+      "state": "FIXED_SOURCE_F_EXACT_PG_REVIEW_RUNNING",
+      "next_action": "B304/0 skip PG17.6 ICU; exact optional and fullB CI successful; F recheck closes old785 only after report.",
       "pr": 244,
-      "source_sha": "785790deb6d277f3be0e363f4901835d1fa625be"
+      "source_sha": "3b74d5e00edb6c2c0304074bdc2699481309c52c"
     },
     {
       "ticket": "A_PROJECT_METADATA_HTTP",
       "owner": "A",
       "pr": 239,
       "worktree": "a-project-metadata-http",
-      "source_sha": "20a24361cc2292dbbd9c51d820c572844b62fa9b",
-      "state": "FOUR_REAL_PG_HTTP_TESTS_DEPENDENCY_P1",
-      "next_action": "Existing 4/4 local pairing was with rejected785; recompose/retest corrected independently accepted PG source before F HTTP."
+      "source_sha": "26ef3c7b4173f9dd0a2b5240edd1039fb5a428ae",
+      "state": "FOUR_REAL_PG_HTTP_TESTS_WITH_CORRECTED_B_F_PENDING",
+      "next_action": "After exact B acceptance, F independent HTTP and native recovery; keep default no adapter."
     },
     {
       "ticket": "A_FANOUT_GUARD_REGRESSION",
@@ -129,16 +129,18 @@
       "owner": "C",
       "worktree": "c-project-metadata-ui",
       "branch": "work/dsh-wb-c-project-metadata-ui",
-      "state": "ACTUAL_REAL_API_UI_IMPLEMENTATION",
-      "next_action": "Bilingual governed root rename/recovery and same-scope refresh against real API in isolated fixture; final approved dependency before freeze."
+      "state": "RECOMPOSING_REAL_APPROVED_DEPENDENCY_CANDIDATE",
+      "next_action": "Compose A26ef+B3b74 on isolated branch, actual browser regression, freeze and F after dependency acceptance.",
+      "pr": 250,
+      "source_sha": "5fc1db0ed8c9988bc58d0524ffde3af3e3f40244"
     },
     {
       "ticket": "E_TYPED_MISSION_PRESERVATION_DESIGN",
       "owner": "E",
       "pr": 245,
-      "source_sha": "ff98337d1b97da68082dbb96e262057a817aa0b5",
-      "state": "D247_REJECTED_GENERIC_SERIALIZER_PRESERVATION_FIX",
-      "next_action": "Retain reproduced direct append data loss; exact design must reject dynamic/typed bound and legacy overwrite of scoped row before any append."
+      "source_sha": "5be49d089cdf8e320c29276418e3069fe9c0e796",
+      "state": "B251_D248_F249_DESIGN_ACCEPTED_E_CODE_RUNNING",
+      "next_action": "Implement typed representation/isolation and negative append guard only; archive pure shared leaf, exact legacy regression and F."
     }
   ],
   "accepted_integrated_components": [
