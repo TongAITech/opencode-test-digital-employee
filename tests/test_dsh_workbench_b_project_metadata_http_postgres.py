@@ -87,6 +87,11 @@ class ProjectMetadataHTTPPostgres(unittest.TestCase):
         before_r1 = self.r1.read_bytes()
         status, initial = self.exchange(server, 'GET')
         self.assertEqual((status, initial['name'], initial['metadata_revision']), (200, 'first', '1'))
+        self.assertIs(initial['can_rename'], True)
+        status, reader = self.exchange(server, 'GET', headers=self.headers(server, 'reader'))
+        self.assertEqual((status, reader['name'], reader['governance_state']),
+                         (200, 'first', 'GOVERNED_ROOT_ACTIVE'))
+        self.assertIs(reader['can_rename'], False)
         original = self.body('  新项目  ', 'rename-1')
         status, receipt = self.exchange(server, 'PATCH', original)
         self.assertEqual((status, receipt['outcome'], receipt['name'], receipt['applied_metadata_revision']),

@@ -15,3 +15,5 @@ PATCH独立核可信mutation和原主体write-context，再当前PG项目授权�
 组合B候选785790de与真实PG17.6上的009，原生HTTP用真实store完成四项联调（3.702秒）。覆盖改名、隐藏重名、CAS、NO_CHANGE、原主体及历史回执、非法请求、重复长度、不完整body、TCP响应丢失恢复，以及现有batch/R1保持。显式启用metadata adapter时，项目Directory使用含metadata revision的服务端摘要。真实HTTP验证A→B→A后旧游标409，同时返回原v1结构及相同批次目录。
 
 B候选785790de随后在独立PG复验中证实治理并发P1：激活域与新增项目可并发提交，活动域完整分类缺一项。该依赖阻断合入及功能启用。四项HTTP通过只记录隔离联调，治理修复的新精确源必须重新组合并复验；旧失败保留。
+
+B治理修复精确3b74d5e已在本隔离候选重新组合。真实PG17.6+ICU原生HTTP四项全部通过（3.941秒）。新增同快照GET读者 `can_rename=false` 与writer `true` 断言，写入路径继续验证Host及当前权限。B修复源独立SQL审核和HTTP候选独立F审核均待完成；本组合可供C实库浏览器联调。
