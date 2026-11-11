@@ -163,6 +163,7 @@ class AdminProjection:
 
         This is a legacy in-process scope guard, not a replacement for DSH Host
         authorization or a production database row-level security policy.
+        It accepts only the legacy flat binding shape.
         Deliberately do not call refresh(): it replays the entire event log and
         rebuilds unrelated projections before the selected Mission is scoped.
         TruthRuntime's in-process projection is updated by append_atomic().
@@ -175,11 +176,12 @@ class AdminProjection:
         missions = self.truth.query("rc7_mission", mission_id=mission_id)
         mission = missions[0] if len(missions) == 1 else None
         if (not isinstance(mission, Mapping)
+                or "scope_binding" in mission
+                or "runtime_batch_mapping" in mission
                 or mission.get("mission_id") != mission_id
                 or mission.get("project_id") != project_id
                 or mission.get("batch_id") != batch_id):
-            # Same fail-closed result for absent, legacy-unbound, or
-            # cross-project/cross-batch Missions; do not disclose existence.
+            # Keep the same denial for every unsupported scope shape.
             raise AdminProjectionError("R1_MISSION_SCOPE_UNRESOLVED")
 
         # Return only the identity fields needed by E. Do not expose the full
