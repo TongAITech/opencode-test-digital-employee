@@ -3,10 +3,17 @@
 import io
 import json
 import math
+from typing import NamedTuple
 
 
 class R1SnapshotDecodeError(ValueError):
     pass
+
+
+class R1SnapshotRecord(NamedTuple):
+    line_number: int
+    raw_line: bytes
+    event: dict
 
 
 def _unique_object(pairs):
@@ -37,8 +44,8 @@ def _check_unicode(value):
             _check_unicode(item)
 
 
-def iter_r1_snapshot_events(snapshot):
-    """Yield original envelopes in order, retaining duplicates as distinct events.
+def iter_r1_snapshot_records(snapshot):
+    """Yield original line bytes including the terminator, with decoded envelopes.
 
     Callers must consume the complete iterator before accepting any result and
     enforce the snapshot byte limit when reading from the original ledger.
@@ -58,4 +65,10 @@ def iter_r1_snapshot_events(snapshot):
             _check_unicode(value)
         except (ValueError, RecursionError) as error:
             raise R1SnapshotDecodeError("R1_SNAPSHOT_EVENT_INVALID_LINE_%d" % number) from error
-        yield value
+        yield R1SnapshotRecord(number, raw, value)
+
+
+def iter_r1_snapshot_events(snapshot):
+    """Yield decoded envelopes while retaining distinct source records."""
+    for record in iter_r1_snapshot_records(snapshot):
+        yield record.event
