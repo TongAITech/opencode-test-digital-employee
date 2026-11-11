@@ -170,21 +170,35 @@
       "pr": 259,
       "worktree": "e-mission-stage1",
       "branch": "work/dsh-wb-e-mission-stage1",
-      "source_sha": "3514f7493b54d541a071ab411a6a2703a1858c81",
-      "state": "F262_REJECTED_COPY_HOOK_SCOPE_LOSS_FIX_IN_PROGRESS",
-      "next_action": "Safe explicit verified declared-field clone, no unknown copy hooks or Scope/identity change; preserve three exact old failures, then F new source."
+      "source_sha": "d0af934565fdeea1d363e211ebbf7396db069601",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "F262/F266 historical P1 preserved. Recheck exact dictionary and hostile key boundary on latest candidate."
     },
     {
       "ticket": "B_008_PHYSICAL_CONTRACT",
       "owner": "B",
-      "state": "EXACT_DESIGN_RUNNING",
-      "next_action": "PG snapshot/intent/receipt/journal, durable PREPARE, role/locked read/manifest/source profile, no R1 writes."
+      "state": "D267_REVIEWED_E_AUTHORITY_REVIEW_RUNNING",
+      "next_action": "Separate bounded PostgreSQL schema/PREPARE from final append. Resolve durable revocation ordering before any R1 writer admission.",
+      "pr": 265,
+      "source_sha": "4d058cf3363e129a45846fafd1f583850c07626a"
     },
     {
       "ticket": "D_RUNTIME_BATCH_AUTHORITY_CONTRACT",
       "owner": "D",
-      "state": "SOURCE_INVESTIGATION_RUNNING",
-      "next_action": "Real canonical ReleaseBatch and three distinct IDs, versioned single creation mapping, no production writer claim."
+      "state": "F264_ACCEPTED_BOUNDED_DESIGN",
+      "next_action": "Resolve mapping/digest wire and authority binding with B/E before production reader/creator.",
+      "pr": 263,
+      "source_sha": "4587b0c1050714553cc6a44fd0c58b919c17d5ac"
+    },
+    {
+      "ticket": "A_E02_OBLIGATION_LINEAGE",
+      "owner": "A",
+      "pr": 269,
+      "worktree": "a-e02-obligation-lineage",
+      "branch": "work/dsh-wb-a-e02-obligation-lineage",
+      "source_sha": "49fb6cae99c38f1cbd777d01ed3a25596d287e03",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "Preserve actual old 200 and require independent PG/HTTP 503 for foreign standalone obligations."
     }
   ],
   "accepted_integrated_components": [
