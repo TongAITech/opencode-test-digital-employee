@@ -54,11 +54,13 @@ if [[ ! -f "$DSH_MAIN" ]]; then
   }
 fi
 
-DSH_BIND_ARGS=(--executable "$DSH_BIND_PATH" --output "$ROOT/state/dsh-host-binding.json")
-if [[ -n "${PFC_RC72_DSH_HOST_SHA256:-}" ]]; then
-  DSH_BIND_ARGS+=(--expected-sha256 "$PFC_RC72_DSH_HOST_SHA256")
+if [[ "$DSH_BIND_SOURCE" == "EXTERNAL_BANK_HOST" ]]; then
+  DSH_BIND_ARGS=(--executable "$DSH_BIND_PATH" --output "$ROOT/state/dsh-host-binding.json")
+  if [[ -n "${PFC_RC72_DSH_HOST_SHA256:-}" ]]; then
+    DSH_BIND_ARGS+=(--expected-sha256 "$PFC_RC72_DSH_HOST_SHA256")
+  fi
+  "$PY" -m rc7_release.rc72_dsh_host_binding "${DSH_BIND_ARGS[@]}"
 fi
-"$PY" -m rc7_release.rc72_dsh_host_binding "${DSH_BIND_ARGS[@]}"
 
 command -v cygpath >/dev/null 2>&1 || {
   echo "[RC7.2] Git Bash cygpath is required for exact DSH host binding" >&2
