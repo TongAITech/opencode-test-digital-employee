@@ -137,8 +137,8 @@
       "owner": "E",
       "pr": 245,
       "source_sha": "ff98337d1b97da68082dbb96e262057a817aa0b5",
-      "state": "D_EXACT_REVIEW_RUNNING",
-      "next_action": "Scope absence/serializer fail closed at generic writer, typed HOLD only; runtime batch/first effects remain separate."
+      "state": "D247_REJECTED_GENERIC_SERIALIZER_PRESERVATION_FIX",
+      "next_action": "Retain reproduced direct append data loss; exact design must reject dynamic/typed bound and legacy overwrite of scoped row before any append."
     }
   ],
   "accepted_integrated_components": [

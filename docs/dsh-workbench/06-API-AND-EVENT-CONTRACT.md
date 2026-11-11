@@ -114,3 +114,5 @@ GET `/api/workbench/v1/projects/{project_id}/release-dates`先项目授权；rec
 PROJECT级outbox不得填假batch冒充BATCH事件或SSE；名称变更不触碰R1。Directory摘要须包含metadata_revision防ABA，具体项目wire兼容另审，不顺带改批次/Scope协议或清合法Scope。受审现有协议仍可只读；本增量尚无产品功能PASS。
 
 SQL冻结前须选择兼容现request_log FK/claim的锁级或统一顺序，真实PG两连接覆盖同K metadata与既有asset/batch跨动作、ACL/治理竞态、死锁及完整回滚。当前project FOR UPDATE先于claim的反向等待是源码审查假设，未实证为现存缺陷。D/E/F设计接受不替代具体SQL/runner/profile及客户端实现精确验收。
+
+metadata GET候选增加同一PG读取快照的布尔`can_rename`，仅当已治理活跃根项目允许rename且当前可信主体有项目write ACL时为true。界面据此呈现只读状态。PATCH仍须独立验证当前Host mutation、CSRF/Origin、原主体context与事务内权限。原目录v1字段及批次Scope wire沿用，项目内部摘要绑定metadata revision与投影版本。
