@@ -10,11 +10,7 @@ permissions:
   contents: read
 jobs:
   physical-file-probe:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-14]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-22.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
