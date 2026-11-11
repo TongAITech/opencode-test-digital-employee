@@ -17,7 +17,9 @@
       "10-RELEASE-CHECKPOINT.md",
       "ACTIVE-CONSTRUCTION-QUEUE.json"
     ],
-    "do_not_reset_force_push_or_write_rc72": true
+    "do_not_reset_force_push_or_write_rc72": true,
+    "last_joint_regression_failure_sha": "44222081f9267602aa635fda53db7b46f457f4be",
+    "full_rc72_ci_run": 43067301875
   },
   "active_work": [
     {
@@ -170,27 +172,32 @@
       "pr": 259,
       "worktree": "e-mission-stage1",
       "branch": "work/dsh-wb-e-mission-stage1",
-      "source_sha": "eb3138e011ad170293b24b1b476ec1007fd92d6b",
-      "state": "COMPATIBILITY_FIX_IN_PROGRESS",
-      "next_action": "Prior d0af identity drift rejected. Update legacy fixture to canonical serializer and recheck exact source."
+      "source_sha": "450d2932cd7261b733cc5832c5fddf8e0b5e5482",
+      "state": "INTEGRATED_F279_STAGE1_ONLY",
+      "next_action": "Full exact 44222081 CI underway; A joint fixture fix #291; production admission HOLD.",
+      "report_pr": 279
     },
     {
       "ticket": "B_008_PHYSICAL_CONTRACT",
       "owner": "B",
-      "state": "D267_E272_ISOLATED_PREPARE_ALLOWED",
-      "next_action": "B isolated real PG implementation underway. No production allocator or writer.",
+      "state": "INTEGRATED_F283_TEST_FIXTURE_ONLY",
+      "next_action": "Keep F280 ISO DateStyle limitation. No migration activation or writer. Production wire and ordering pending.",
       "pr": 265,
-      "source_sha": "4d058cf3363e129a45846fafd1f583850c07626a"
+      "source_sha": "4d058cf3363e129a45846fafd1f583850c07626a",
+      "implementation_pr": 278,
+      "implementation_sha": "e6eccf1d9a137ae4c9844efbad67f7e57ec155e4",
+      "report_pr": 283
     },
     {
       "ticket": "D_RUNTIME_BATCH_AUTHORITY_CONTRACT",
       "owner": "D",
-      "state": "PURE_COMPONENT_CI_PASSED_F_REPORT_PENDING",
+      "state": "MAPPING_CODEC_INTEGRATED_F277",
       "next_action": "Full request wire and runtime reader remain separate.",
       "pr": 263,
       "source_sha": "4587b0c1050714553cc6a44fd0c58b919c17d5ac",
       "implementation_pr": 273,
-      "implementation_sha": "7444f997109d9bdb7d1c571b8a63a7ab93c92fa3"
+      "implementation_sha": "7444f997109d9bdb7d1c571b8a63a7ab93c92fa3",
+      "report_pr": 277
     },
     {
       "ticket": "A_E02_OBLIGATION_LINEAGE",
@@ -208,16 +215,58 @@
       "owner": "A",
       "pr": 274,
       "source_sha": "05b6b9c90e9a2baa7fc8424dca25bf7480100690",
-      "state": "F_REPORT_PENDING",
-      "next_action": "Real PG/HTTP rechecks after evidence integrity. Preserve old 200 after committed revocation."
+      "state": "INTEGRATED_F276_EXACT",
+      "next_action": "Real PG/HTTP rechecks after evidence integrity. Preserve old 200 after committed revocation.",
+      "report_pr": 276
     },
     {
       "ticket": "A_DURABLE_ADMISSION_ORDER",
       "owner": "A",
       "pr": 275,
       "source_sha": "f4f6f557",
-      "state": "CROSS_GROUP_DESIGN_REVIEW_REQUIRED",
-      "next_action": "Assess revocation availability and actual R1 writer closure before any implementation."
+      "state": "D285_REJECTS_UNVERSIONED_MARKER_AND_EXISTING_WRITER_LOCK",
+      "next_action": "Isolated versioned serialization validation may proceed. Production requires stale writer and revocation order proof.",
+      "report_pr": 285
+    },
+    {
+      "ticket": "A_RUNTIME_BATCH_HISTORY",
+      "owner": "A",
+      "pr": 281,
+      "source_sha": "5e44028bf569e8dccced26189f1cf56838365e52",
+      "report_pr": 286,
+      "state": "INTEGRATED_F286_DETACHED",
+      "next_action": "Old normalized identity failure F282 retained. Composed strict snapshot entrypoint PR290 awaits independent acceptance."
+    },
+    {
+      "ticket": "A_STRICT_R1_SNAPSHOT",
+      "owner": "A",
+      "pr": 284,
+      "source_sha": "1dfcb38297fdac294fbaa8834be588a4c048af1e",
+      "report_pr": 287,
+      "state": "INTEGRATED_F287_DETACHED"
+    },
+    {
+      "ticket": "A_CREATE_WIRE",
+      "owner": "A",
+      "pr": 288,
+      "source_sha": "0d01905b3c38eae3e7360949da9f73ab7129380f",
+      "state": "CROSS_GROUP_REVIEW",
+      "next_action": "Resolve cross-language exact whitespace/i64, durable receipt identity and raw line bytes. E289 report."
+    },
+    {
+      "ticket": "A_PINNED_BATCH_HISTORY",
+      "owner": "A",
+      "pr": 290,
+      "source_sha": "34a63b23c5530bf7a09840a18b0024989a83d7d7",
+      "state": "F_RECHECK_RUNNING"
+    },
+    {
+      "ticket": "A_EVIDENCE_FIXTURE_REGRESSION",
+      "owner": "A",
+      "pr": 291,
+      "source_sha": "a5ae9bf271e8dd83b0cd2cdca389c8dcd5e91dcc",
+      "state": "F_RECHECK_RUNNING",
+      "next_action": "Retain 44222081 joint 720 run with two fixture errors. Exact candidate 2 real PG cases pass locally."
     }
   ],
   "accepted_integrated_components": [
