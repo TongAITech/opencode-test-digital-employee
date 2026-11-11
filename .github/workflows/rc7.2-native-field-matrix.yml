@@ -6,10 +6,14 @@ on:
       - work/rc7.2-native-linux-macos-20261112
     paths:
       - 'rc7_release/rc72_native_field_portable.py'
+      - 'rc7_release/rc72_native_additional_plugins.py'
+      - 'rc7_release/plugin_payload.py'
+      - 'rc7_release/optional_plugin_payload.py'
       - 'rc7_release/rc72_tool_environment.py'
       - 'rc7_release/toolchain_qualification.py'
       - 'packaging/rc7.2/BUILD-NATIVE-FIELD.sh'
       - 'packaging/rc7.2/NATIVE-FIELD-AITEST.sh'
+      - 'packaging/rc7.2/install-additional-plugins.sh'
       - 'packaging/rc7.2/start-rc7.2.sh'
       - 'packaging/rc7.2/NATIVE-FIELD-README.md'
       - 'packaging/rc7.2/dsh-alpha/**'
@@ -37,13 +41,14 @@ jobs:
       - name: Run native packaging contracts
         run: |
           python -m pip install -r rc7_release/requirements-qualification.txt
-          python -m compileall -q rc7_release/rc72_native_field_portable.py rc7_release/rc72_tool_environment.py
+          python -m compileall -q rc7_release/rc72_native_field_portable.py rc7_release/rc72_tool_environment.py rc7_release/rc72_native_additional_plugins.py
           python -m pytest -q \
             tests/test_rc72_native_field_portable.py \
             tests/test_rc72_native_tool_environment.py \
             tests/test_rc72_tool_environment.py
           bash -n packaging/rc7.2/BUILD-NATIVE-FIELD.sh
           bash -n packaging/rc7.2/NATIVE-FIELD-AITEST.sh
+          bash -n packaging/rc7.2/install-additional-plugins.sh
           bash -n packaging/rc7.2/start-rc7.2.sh
           bash -n packaging/rc7.2/dsh-alpha/install-dsh-alpha.sh
 
@@ -53,17 +58,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: linux-x86_64-rocky8-glibc228
+          - target: linux-x86_64-rocky9-glibc234
             runner: ubuntu-22.04
             docker_platform: linux/amd64
-          - target: linux-arm64-rocky8-glibc228
+          - target: linux-arm64-rocky9-glibc234
             runner: ubuntu-22.04-arm
             docker_platform: linux/arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
-      - name: Build inside native Rocky Linux 8 userspace
+      - name: Build inside native Rocky Linux 9 userspace
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: |
@@ -72,7 +77,7 @@ jobs:
             -e RUNNER_TEMP=/out \
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP:/out" \
-            rockylinux:8 bash -lc '
+            rockylinux:9 bash -lc '
               dnf install -y curl ca-certificates tar xz unzip gzip git findutils which file perl
               cd /src
               bash packaging/rc7.2/BUILD-NATIVE-FIELD.sh

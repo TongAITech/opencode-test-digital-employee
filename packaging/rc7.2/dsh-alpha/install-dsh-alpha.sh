@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../../.." && pwd -P)"
-ARCHIVE="\${1:-}"
-AUTH="\${2:-}"
-EXPECTED="\${3:-}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+ARCHIVE="${1:-}"
+AUTH="${2:-}"
+EXPECTED="${3:-}"
 [[ -f "$ARCHIVE" && -f "$AUTH" ]] || { echo "DSH_ALPHA_ARCHIVE_AND_AUTH_RECORD_REQUIRED" >&2; exit 4; }
 [[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "DSH_ALPHA_ARCHIVE_SHA256_REQUIRED" >&2; exit 4; }
 if command -v sha256sum >/dev/null 2>&1; then ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"; else ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"; fi
-[[ "$ACTUAL" == "\${EXPECTED,,}" ]] || { echo "DSH_ALPHA_ARCHIVE_SHA256_MISMATCH" >&2; exit 4; }
+EXPECTED_LOWER="$(printf '%s' "$EXPECTED" | tr '[:upper:]' '[:lower:]')"
+[[ "$ACTUAL" == "$EXPECTED_LOWER" ]] || { echo "DSH_ALPHA_ARCHIVE_SHA256_MISMATCH" >&2; exit 4; }
 PY="$ROOT/workspace-template/runtime/python/bin/python3"
 "$PY" - "$AUTH" <<'PY'
 import json,sys

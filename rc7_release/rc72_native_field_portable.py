@@ -51,7 +51,7 @@ def target_identity() -> Dict[str, str]:
         "platform": system,
         "architecture": arch,
         "package_name": "PFC-AITest-DSH-RC7.2-%s-%s-FIELD" % (suffix, arch.upper()),
-        "target_baseline": "glibc >= 2.28; kernel >= 4.18; native ELF64" if system == "linux" else "macOS >= 14.0; native Mach-O 64-bit",
+        "target_baseline": "glibc >= 2.34; kernel >= 4.18; native ELF64" if system == "linux" else "macOS >= 14.0; native Mach-O 64-bit",
     }
 
 
@@ -203,6 +203,13 @@ def stage_package(
     _copy_tree(coordinator, root / ".dsh/skills/pfc-full-chain-test")
     from rc6_release.static_skills import materialize_professional_skills
     materialize_professional_skills(root)
+    error_skill = repo / "rc7_release/vendor/dsh-error-handling-skill"
+    if not (error_skill / "SKILL.md").is_file() or not (error_skill / "LICENSE").is_file():
+        raise NativeFieldError("ERROR_HANDLING_SKILL_OFFLINE_PAYLOAD_REQUIRED")
+    _copy_tree(error_skill, root / ".dsh/skills/dsh-error-handling")
+    from rc7_release.rc72_native_additional_plugins import inspect as inspect_additions
+    if inspect_additions(repo).get("status") != "PASS":
+        raise NativeFieldError("FIVE_ADDITIONAL_PLUGINS_REQUIRED")
 
     baseline = repo / "docs/RC7_ACCEPTANCE_BASELINE.md"
     if baseline.is_file():
@@ -338,6 +345,9 @@ def stage_package(
         "tool_versions": json.loads(os.environ.get("PFC_RC72_TOOL_VERSIONS_JSON", "{}")),
         "dsh_plugins": {
             "core_payload": "rc7_release/vendor/dsh-plugins-payload.zip",
+            "optional_payload": "rc7_release/vendor/dsh-optional-plugins-payload.zip",
+            "five_additions": "rc7_release/vendor/dsh-additional-plugins-payload.zip",
+            "dsh_error_handling_skill": ".dsh/skills/dsh-error-handling/SKILL.md",
             "dsh_alpha": alpha_manifest,
         },
         "restricted_graph_component": {
@@ -349,7 +359,7 @@ def stage_package(
         "real_mission_pass": False,
         "q3_target_verified": False,
         "system_prerequisites": {
-            "linux": ["glibc >= 2.28", "kernel >= 4.18", "Chromium shared libraries; see README"],
+            "linux": ["glibc >= 2.34", "kernel >= 4.18", "Chromium shared libraries; see README"],
             "darwin": ["macOS >= 14.0"],
         }[identity["platform"]],
     }
@@ -390,6 +400,14 @@ def verify_package(root: Path, expected_source_commit: Optional[str] = None) -> 
         "packaging/rc7.2/AITEST.sh", "packaging/rc7.2/NATIVE-FIELD-AITEST.sh",
         "packaging/rc7.2/dsh-alpha/PAYLOAD-STATUS.json",
         "packaging/rc7.2/dsh-alpha/install-dsh-alpha.sh",
+        "packaging/rc7.2/install-additional-plugins.sh",
+        ".dsh/skills/dsh-error-handling/SKILL.md",
+        ".dsh/skills/dsh-error-handling/LICENSE",
+        "rc7_release/vendor/dsh-additional-plugins-payload.zip",
+        "rc7_release/vendor/dsh-additional-plugins-payload.manifest.json",
+        "rc7_release/vendor/dsh-optional-plugins-payload.zip",
+        "rc7_release/vendor/dsh-optional-plugins-payload.manifest.json",
+        "workspace-template/runtime/node-execution/node_modules/pnpm/bin/pnpm.cjs",
         "workspace-template/runtime/python/bin/python3",
         "workspace-template/runtime/node/bin/node",
         "workspace-template/runtime/browser/browserskill/bsk",
@@ -412,6 +430,12 @@ def verify_package(root: Path, expected_source_commit: Optional[str] = None) -> 
     zap_scripts = list((root / "workspace-template/runtime/zap").rglob("zap.sh"))
     if len(zap_scripts) != 1:
         raise NativeFieldError("NATIVE_ZAP_LAUNCHER_NOT_UNIQUE")
+    from rc7_release.rc72_native_additional_plugins import inspect as inspect_additions
+    if inspect_additions(root).get("status") != "PASS":
+        raise NativeFieldError("FIVE_ADDITIONAL_PLUGIN_PAYLOAD_INVALID")
+    optional_manifest = json.loads((root / "rc7_release/vendor/dsh-optional-plugins-payload.manifest.json").read_text(encoding="utf-8"))
+    if optional_manifest.get("status") != "PASS" or optional_manifest.get("missing"):
+        raise NativeFieldError("FOUR_OPTIONAL_PLUGIN_PAYLOAD_INCOMPLETE")
     _check_no_windows_payload(root)
 
     checksums = {}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd -P)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 PY="$ROOT/workspace-template/runtime/python/bin/python3"
 NODE="$ROOT/workspace-template/runtime/node/bin/node"
 BSK="$ROOT/workspace-template/runtime/browser/browserskill/bsk"
@@ -26,7 +26,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   "$PY" - "$GLIBC" "$(uname -r)" <<'PY'
 import sys
 def v(s): return tuple(int(x) for x in s.split(".")[:2])
-if v(sys.argv[1]) < (2,28): raise SystemExit("LINUX_GLIBC_2_28_REQUIRED")
+if v(sys.argv[1]) < (2,34): raise SystemExit("LINUX_GLIBC_2_34_REQUIRED")
 if v(sys.argv[2]) < (4,18): raise SystemExit("LINUX_KERNEL_4_18_REQUIRED")
 PY
   CHROMIUM_CHECK="$(find "$ROOT/workspace-template/runtime/browser/pw-browsers" -type f -name chrome -print -quit)"
@@ -47,8 +47,8 @@ fi
 
 export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
 export PFC_AITEST_HOME="$ROOT"
-export PFC_AITEST_STATE_DIR="\${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state}"
-export PFC_RC7_DSH_PROFILE="\${PFC_RC72_DSH_PROFILE:-rc7.2-bank-native}"
+export PFC_AITEST_STATE_DIR="${PFC_AITEST_STATE_DIR:-$ROOT/runtime-state}"
+export PFC_RC7_DSH_PROFILE="${PFC_RC72_DSH_PROFILE:-rc7.2-bank-native}"
 export PFC_RC72_TEAM_CAPACITY32=1
 export PLAYWRIGHT_BROWSERS_PATH="$ROOT/workspace-template/runtime/browser/pw-browsers"
 export PFC_PYTHON="$PY"
@@ -78,24 +78,24 @@ export MAVEN_HOME="$ROOT/workspace-template/runtime/maven"
 export PATH="$ROOT/workspace-template/runtime/node/bin:$ROOT/workspace-template/runtime/browser/browserskill:$ROOT/workspace-template/runtime/ripgrep:$ROOT/workspace-template/runtime/java/bin:$ROOT/workspace-template/runtime/maven/bin:$ROOT/workspace-template/runtime/allure/bin:$ROOT/workspace-template/runtime/k6:$PATH"
 
 if [[ "$(uname -s)" == "Linux" ]]; then
-  export LD_LIBRARY_PATH="$ROOT/workspace-template/runtime/syslib\${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH="$ROOT/workspace-template/runtime/syslib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
 SOURCE="$(tr -d '\r\n' < "$ROOT/SOURCE_COMMIT")"
 cd "$ROOT"
 "$PY" -B -m rc7_release.rc72_native_field_portable verify --package-root "$ROOT" --expected-source-commit "$SOURCE"
 
-if [[ "\${1:-}" == "--verify-only" || "\${PFC_RC72_NATIVE_PROBE_ONLY:-0}" == "1" ]]; then
+if [[ "${1:-}" == "--verify-only" || "${PFC_RC72_NATIVE_PROBE_ONLY:-0}" == "1" ]]; then
   echo "RC72_NATIVE_FIELD_PROBE source=$SOURCE platform=$(uname -s) arch=$(uname -m) node=$("$NODE" --version) bsk=$("$BSK" --version) field_verified=false bank_final=false"
   exit 0
 fi
 
-if [[ "$PFC_RC7_DSH_PROFILE" == "\${PFC_RC7_DSH_BASE_PROFILE:-web}" ]]; then
+if [[ "$PFC_RC7_DSH_PROFILE" == "${PFC_RC7_DSH_BASE_PROFILE:-web}" ]]; then
   echo "NATIVE_PROTECTED_DSH_PROFILE_REFUSED" >&2
   exit 4
 fi
 
-HOST_BIN="\${PFC_RC72_DSH_HOST_BIN:-}"
+HOST_BIN="${PFC_RC72_DSH_HOST_BIN:-}"
 if [[ -z "$HOST_BIN" || ! -f "$HOST_BIN" || ! -x "$HOST_BIN" ]]; then
   echo "[RC7.2] Set PFC_RC72_DSH_HOST_BIN to the absolute path of the bank-approved native DSH CLI." >&2
   echo "[RC7.2] This package does not redistribute the DSH main executable." >&2
@@ -138,7 +138,7 @@ elif system == "Darwin":
 else:
     raise SystemExit("DSH_HOST_PLATFORM_UNSUPPORTED")
 PY
-if [[ -n "\${PFC_RC72_DSH_HOST_SHA256:-}" ]]; then
+if [[ -n "${PFC_RC72_DSH_HOST_SHA256:-}" ]]; then
   if command -v sha256sum >/dev/null 2>&1; then ACTUAL="$(sha256sum "$HOST_BIN" | awk '{print $1}')"; else ACTUAL="$(shasum -a 256 "$HOST_BIN" | awk '{print $1}')"; fi
   EXPECTED="$(printf '%s' "$PFC_RC72_DSH_HOST_SHA256" | tr '[:upper:]' '[:lower:]')"
   [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "DSH_HOST_SHA256_MISMATCH" >&2; exit 4; }

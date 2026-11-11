@@ -1,5 +1,6 @@
 """Native RC7.2 package contracts: platform identity, Windows contamination and sealed inventory."""
 import json
+import hashlib
 import zipfile
 from pathlib import Path
 
@@ -25,6 +26,14 @@ def _sealed_fixture(tmp_path):
         "packaging/rc7.2/NATIVE-FIELD-AITEST.sh",
         "packaging/rc7.2/dsh-alpha/PAYLOAD-STATUS.json",
         "packaging/rc7.2/dsh-alpha/install-dsh-alpha.sh",
+        "packaging/rc7.2/install-additional-plugins.sh",
+        ".dsh/skills/dsh-error-handling/SKILL.md",
+        ".dsh/skills/dsh-error-handling/LICENSE",
+        "rc7_release/vendor/dsh-additional-plugins-payload.zip",
+        "rc7_release/vendor/dsh-additional-plugins-payload.manifest.json",
+        "rc7_release/vendor/dsh-optional-plugins-payload.zip",
+        "rc7_release/vendor/dsh-optional-plugins-payload.manifest.json",
+        "workspace-template/runtime/node-execution/node_modules/pnpm/bin/pnpm.cjs",
         "workspace-template/runtime/python/bin/python3",
         "workspace-template/runtime/node/bin/node",
         "workspace-template/runtime/browser/browserskill/bsk",
@@ -52,6 +61,20 @@ def _sealed_fixture(tmp_path):
                 bundle.writestr("plugins/manifest.json", "{}")
         else:
             p.write_bytes(b"fixture")
+    from rc7_release.rc72_native_additional_plugins import PINNED_PACKAGES, SCHEMA
+    extras = root / "rc7_release/vendor/dsh-additional-plugins-payload.zip"
+    with zipfile.ZipFile(extras, "w") as bundle:
+        for name,version,license_name in PINNED_PACKAGES:
+            bundle.writestr("node_modules/" + name + "/package.json",
+                            json.dumps({"name":name,"version":version,"license":license_name}))
+    extra_manifest = {
+        "schema": SCHEMA, "status": "PASS", "all_required_bundled": True,
+        "required_count": len(PINNED_PACKAGES),
+        "archive_sha256": hashlib.sha256(extras.read_bytes()).hexdigest(),
+    }
+    (root / "rc7_release/vendor/dsh-additional-plugins-payload.manifest.json").write_text(json.dumps(extra_manifest))
+    (root / "rc7_release/vendor/dsh-optional-plugins-payload.manifest.json").write_text(
+        json.dumps({"status":"PASS","missing":[]}))
     alpha = {
         "status": "LICENSE_HOLD_NOT_BUNDLED",
         "source_commit": "f417e90ddd0e20f08b82e0b79a8c29fdad45c8f4",

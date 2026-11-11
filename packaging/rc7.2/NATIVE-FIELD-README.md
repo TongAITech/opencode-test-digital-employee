@@ -5,9 +5,9 @@ This package is built natively for one exact OS and CPU architecture. Do not cop
 ## Linux support boundary
 
 - Package variants: Linux x86_64 and Linux ARM64.
-- Build baseline: glibc >= 2.28 and kernel >= 4.18.
-- Intended candidates: RHEL/CentOS Stream 8/9 family, compatible Kylin/UOS releases whose glibc/kernel meet the baseline.
-- CentOS 7 (glibc 2.17) is NOT supported by the Node 24 runtime and is not claimed compatible.
+- Build baseline: glibc >= 2.34 and kernel >= 4.18.
+- Intended candidates: RHEL/CentOS Stream 9 family, compatible Kylin/UOS releases whose glibc/kernel meet the baseline.
+- CentOS 7 / CentOS 8 and Rocky 8 are NOT supported by the supplied CodeGraph binaries by the Node 24 runtime and is not claimed compatible.
 - Chromium requires the documented host shared libraries; use \`bash packaging/rc7.2/AITEST.sh --verify-only\` and \`ldd\` diagnostics on the target before field launch.
 
 ## macOS support boundary
@@ -50,3 +50,9 @@ Upstream pin: \`songofhawk/dsh-alpha\`, version \`0.2.2\`, commit \`f417e90ddd0e
 ## Acceptance boundary
 
 A successful package build verifies native executable formats, architecture, full SHA-256 coverage, Python/Node/BSK/CodeGraph/k6/ripgrep/Java/Maven/Allure/ZAP launchability, offline Playwright Chromium, and package-local tool binding. It does not prove the bank DSH CLI, Agent Teams, model providers, 4A, business Journey, database/CAT, Q3 or BANK_FINAL.
+
+## Five additional licensed plugins
+
+Offline native payload `rc7_release/vendor/dsh-additional-plugins-payload.zip` is mandatory: `@michengai/dsh-skills-manager@1.4.1`, `dsh-mnemon@0.5.44`, `dsh-archify@0.1.0`, `@liustack/modlens@3.27.3`, and `graph-memory@1.6.0-beta.17` pinned to GitHub commit `5841b1987c3967998818764c9d4238add5f3aa7c`.
+
+The separate `dsh-error-handling` MIT Skill is carried in `.dsh/skills/dsh-error-handling`. The existing five core + four optional plugins are mandatory on this field variant. To install the five additions into a bank-approved isolated DSH profile (only after a target-side compatibility check), set `PFC_RC72_DSH_HOST_BIN` and run `bash packaging/rc7.2/install-additional-plugins.sh`. All plugin source licenses are included. Profile load/tool invocation and restart/rollback are mandatory BANK_FINAL gates. The DSH alpha source is not bundled pending commercial redistribution authorization.

@@ -31,14 +31,14 @@ download() {
 unpack_tar() { mkdir -p "$2"; tar -xzf "$1" -C "$2"; }
 unpack_zip() { mkdir -p "$2"; unzip -q "$1" -d "$2"; }
 
-# Linux native shared libraries are qualified in Rocky Linux 8, matching glibc 2.28.
+# Linux native shared libraries are qualified in Rocky Linux 9, matching glibc 2.34.
 if [[ "$PLATFORM" == "linux" ]]; then
   if command -v dnf >/dev/null 2>&1; then
     dnf install -y curl ca-certificates tar xz unzip gzip git findutils which file \
       alsa-lib atk at-spi2-atk cups-libs libXcomposite libXdamage libXext libXfixes \
       libXrandr libXtst libXcursor libXrender libXScrnSaver libxkbcommon libxcb \
       libX11 libX11-xcb libdrm mesa-libgbm gtk3 nss nspr pango cairo libxshmfence \
-      libuuid dbus-libs libstdc++ libgcc libatomic >/dev/null
+      libuuid dbus-libs libstdc++ libgcc libatomic mesa-libGL >/dev/null
   fi
 fi
 
@@ -48,8 +48,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$UV_INSTALL_DIR:$PATH"
 [[ -x "$UV_INSTALL_DIR/uv" ]] || { echo "NATIVE_UV_INSTALL_FAILED:$UV_INSTALL_DIR" >&2; exit 2; }
 "$UV_INSTALL_DIR/uv" --version
-uv python install 3.11
-PYBIN="$(uv python find 3.11 --managed-python)"
+uv python install 3.11.18
+PYBIN="$(uv python find 3.11.18 --managed-python)"
 PYROOT="$(dirname "$(dirname "$PYBIN")")"
 uv pip install --break-system-packages --python "$PYBIN" \
   "pip==25.2" "pytest==8.3.5" "requests==2.34.2" "openpyxl==3.1.5" \
@@ -91,7 +91,8 @@ EXT_ROOT="$(dirname "$EXT_MANIFEST")"
 # Playwright package and Chromium are installed for this runner's native architecture.
 NODE_EXEC="$TOOLS/node-execution"
 mkdir -p "$NODE_EXEC"
-npm install --prefix "$NODE_EXEC" --save-exact --omit=dev --ignore-scripts --no-audit --no-fund "playwright@1.65.0"
+npm install --prefix "$NODE_EXEC" --save-exact --omit=dev --ignore-scripts --no-audit --no-fund "playwright@1.65.0" "pnpm@10.24.0"
+[[ -f "$NODE_EXEC/node_modules/pnpm/bin/pnpm.cjs" ]] || { echo "NATIVE_OFFLINE_PNPM_MISSING" >&2; exit 3; }
 export PLAYWRIGHT_BROWSERS_PATH="$TOOLS/pw-browsers"
 "$NODEBIN" "$NODE_EXEC/node_modules/playwright/cli.js" install chromium
 BROWSER_ROOT="$TOOLS/pw-browsers"
@@ -141,20 +142,18 @@ find "$TOOLS/zap" -type f \( -iname '*.bat' -o -iname '*.cmd' -o -iname '*.ps1' 
 ZAP_BIN="$(find "$TOOLS/zap" -type f -name zap.sh -print -quit)"
 [[ -n "$ZAP_BIN" ]] || { echo "NATIVE_ZAP_LAUNCHER_MISSING_AFTER_PLATFORM_FILTER" >&2; exit 3; }
 
-# Eclipse Temurin Java 17 archive, checksum taken from Adoptium's release metadata.
+# Eclipse Temurin 17.0.21+9, exact native architecture and pinned upstream asset SHA256.
 if [[ "$PLATFORM" == "linux" ]]; then JDK_OS=linux; else JDK_OS=mac; fi
 if [[ "$ARCH" == "x86_64" ]]; then JDK_ARCH=x64; else JDK_ARCH=aarch64; fi
-"$PYBIN" - "$JDK_OS" "$JDK_ARCH" "$TOOLS" <<'PY'
-import json,sys,urllib.request,pathlib
-os_name,arch,out=sys.argv[1],sys.argv[2],pathlib.Path(sys.argv[3])
-url=f"https://api.adoptium.net/v3/assets/latest/17/hotspot?architecture={arch}&image_type=jdk&os={os_name}&vendor=eclipse"
-with urllib.request.urlopen(url,timeout=60) as r: data=json.load(r)
-row=data[0]; p=row["binary"]["package"]
-(out/"jdk-url.txt").write_text(p["link"])
-(out/"jdk-sha256.txt").write_text(p["checksum"].lower())
-PY
-JDK_URL="$(cat "$TOOLS/jdk-url.txt")"
-JDK_SHA="$(cat "$TOOLS/jdk-sha256.txt")"
+case "$JDK_OS:$JDK_ARCH" in
+  linux:x64) JDK_SHA=8b9b611d917e3dfd8419d3566b5949226f69b052fed7e109c1368add1dfe8711 ;;
+  linux:aarch64) JDK_SHA=3e4eca7ead088f080af1476007decf010a240a1eb4e1e78c54fa32fbcc347084 ;;
+  mac:x64) JDK_SHA=868f5c672b3389fdbe48e44f94ae170f01668b1401360944fc7159d7cc9772cc ;;
+  mac:aarch64) JDK_SHA=78b08c7f5a0598242d5719c022e19479cb4a3aa45c37c19726a757a469ed1c15 ;;
+  *) echo "NATIVE_TEMURIN_PLATFORM_UNSUPPORTED" >&2; exit 2 ;;
+esac
+JDK_ARCHIVE="OpenJDK17U-jdk_${JDK_ARCH}_${JDK_OS}_hotspot_17.0.21_9.tar.gz"
+JDK_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.21%2B9/$JDK_ARCHIVE"
 download "$JDK_URL" "$TOOLS/jdk.tar.gz" "$JDK_SHA"
 unpack_tar "$TOOLS/jdk.tar.gz" "$TOOLS/java"
 JAVA_BIN="$(find "$TOOLS/java" -path '*/bin/java' -print -quit)"
@@ -193,7 +192,24 @@ JAVA
 "$MAVEN_ROOT/bin/mvn" -q -o -f "$SEED/pom.xml" "-Dmaven.repo.local=$M2" test
 
 # Required DSH plugin payload; no registry is needed at field install time.
-"$PYBIN" -m rc7_release.plugin_payload acquire --repo-root .
+"$PYBIN" -m rc7_release.plugin_payload acquire --repo-root . | tee "$TOOLS/plugin-core-acquire.json"
+"$PYBIN" -m rc7_release.rc72_native_additional_plugins acquire --repo-root . | tee "$TOOLS/plugin-additions-acquire.json"
+"$PYBIN" -m rc7_release.rc72_native_additional_plugins inspect --repo-root . | tee "$TOOLS/plugin-additions-inspect.json"
+"$PYBIN" - "$ROOT/rc7_release/vendor/dsh-optional-plugins-payload.manifest.json" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1],encoding="utf-8"))
+if m.get("status")!="PASS" or m.get("missing"):
+    raise SystemExit("DSH_OPTIONAL_PLUGINS_NOT_ALL_BUNDLED")
+print("DSH_OPTIONAL_PLUGIN_FOUR_REQUIRED_PASS")
+PY
+# The error-handling Skill is a distinct (non-npm) MIT-licensed asset.
+git clone --depth 1 https://github.com/qufei1993/skills-hub.git "$TOOLS/error-handling-source"
+git -C "$TOOLS/error-handling-source" fetch --depth=1 origin a8cee8831f288376b8cc5d7d0d28485a03911c1e
+git -C "$TOOLS/error-handling-source" checkout --detach a8cee8831f288376b8cc5d7d0d28485a03911c1e
+test -f "$TOOLS/error-handling-source/skills/dsh-error-handling/SKILL.md"
+mkdir -p "$ROOT/rc7_release/vendor"
+cp -R "$TOOLS/error-handling-source/skills/dsh-error-handling" "$ROOT/rc7_release/vendor/dsh-error-handling-skill"
+
 
 # Tool versions and source evidence are recorded before packaging.
 "$JAVA_BIN" -version 2>"$TOOLS/java-version.txt"
