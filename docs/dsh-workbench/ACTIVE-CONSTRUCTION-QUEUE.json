@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "5634ba5a6252db25631c615c9dbcfe32ddd12467",
+    "last_tested_code_sha": "800dfa3742f6f093989c140b178c79d92d43c18f",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -147,8 +147,8 @@
     {
       "ticket": "B_EXPLICIT_009_SCOPE_PROFILE",
       "owner": "B",
-      "state": "F_EXACT_REVIEW_RUNNING",
-      "next_action": "Existing PG profile real tests and fixed template proof; defaultv2 preserved; admission false.",
+      "state": "INTEGRATED_F260_EXACT_INTERNAL_ONLY",
+      "next_action": "No admission or DDL fence. Preserve known inherited base diagnostic raw definitions as P2 internal boundary.",
       "worktree": "b-scope-profile-009",
       "branch": "work/dsh-wb-b-scope-profile-009",
       "pr": 255,
@@ -159,9 +159,32 @@
       "owner": "A",
       "worktree": "a-product-source-archive",
       "branch": "work/dsh-wb-a-product-source-archive",
-      "source_sha": "840629b3514caa444ac38f97c6454b3addd051bf",
-      "state": "F_EXACT_REVIEW_RUNNING",
-      "next_action": "Preserve real isolated old import failure, verify new archive and mounted HTTP; no final ZIP."
+      "source_sha": "90bdfafc792fb3ed03bd5f6ca1f96f9140166bf2",
+      "state": "INTEGRATED_F261_EXACT",
+      "next_action": "Keep F258 older defect and old source missing tools failure; source layout only, field pending.",
+      "pr": 257
+    },
+    {
+      "ticket": "E_TYPED_MISSION_PRESERVATION_CODE",
+      "owner": "E",
+      "pr": 259,
+      "worktree": "e-mission-stage1",
+      "branch": "work/dsh-wb-e-mission-stage1",
+      "source_sha": "3514f7493b54d541a071ab411a6a2703a1858c81",
+      "state": "F262_REJECTED_COPY_HOOK_SCOPE_LOSS_FIX_IN_PROGRESS",
+      "next_action": "Safe explicit verified declared-field clone, no unknown copy hooks or Scope/identity change; preserve three exact old failures, then F new source."
+    },
+    {
+      "ticket": "B_008_PHYSICAL_CONTRACT",
+      "owner": "B",
+      "state": "EXACT_DESIGN_RUNNING",
+      "next_action": "PG snapshot/intent/receipt/journal, durable PREPARE, role/locked read/manifest/source profile, no R1 writes."
+    },
+    {
+      "ticket": "D_RUNTIME_BATCH_AUTHORITY_CONTRACT",
+      "owner": "D",
+      "state": "SOURCE_INVESTIGATION_RUNNING",
+      "next_action": "Real canonical ReleaseBatch and three distinct IDs, versioned single creation mapping, no production writer claim."
     }
   ],
   "accepted_integrated_components": [
@@ -255,6 +278,23 @@
         252
       ],
       "qualification_limit": "GOVERNED_ROOT_RENAME_UI_ONLY"
+    },
+    {
+      "pr": 255,
+      "source": "7d7c3fcd",
+      "f_report_pr": 260,
+      "report": "2290b1bb",
+      "qualification_limit": "INTERNAL_CATALOG_OBSERVER; ADMISSION_FALSE"
+    },
+    {
+      "pr": 257,
+      "source": "90bdfafc",
+      "f_report_pr": 261,
+      "report": "e553e9c1",
+      "keep_failures": [
+        258
+      ],
+      "qualification_limit": "SOURCE_ARCHIVE_STARTUP_ONLY"
     }
   ],
   "exact_verification": [
@@ -356,6 +396,17 @@
       "real_pg_browser": 11,
       "browser_seconds": 52.281,
       "skipped": 0
+    },
+    {
+      "sha": "800dfa3742f6f093989c140b178c79d92d43c18f",
+      "python_workbench_real_pg": {
+        "executed": 713,
+        "passed": 713,
+        "skipped": 0,
+        "seconds": 177.687
+      },
+      "real_pg_browser": 11,
+      "browser_seconds": 59.428
     }
   ],
   "rules": [

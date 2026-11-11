@@ -4,7 +4,7 @@
 
 接续索引：[ACTIVE-CONSTRUCTION-QUEUE.json](ACTIVE-CONSTRUCTION-QUEUE.json)。先刷新远端/同SHA检查再领取ready工单；本索引不是资格签署。
 
-- 当前代码集成检查点：`5634ba5a6252db25631c615c9dbcfe32ddd12467`（PR #84），M1联合Node124/124及真实PG/HTTP/browser11/11。前一DB+HTTP精确52518b86实库702/702零跳过单列。见WB-A-M1-INTEGRATION-5634BA5A-20261111.md。
+- 当前代码集成检查点：`800dfa3742f6f093989c140b178c79d92d43c18f`（PR #84），实库工作台713/713、真实PG/HTTP/browser11/11，零跳过。见WB-A-INTEGRATION-800DFA37-20261111.md。
 - 本轮该精确源完整工作台Python实库回归632/632、150.198秒、0跳过；见[集成证据](WB-A-INTEGRATION-E7EDB8A9-20261111.md)。不等于完整RC7/RC7.2或真实Host/最终交付资格。
 - W0设计冻结源`a73ed52d`及F #121保持历史结论。已正向合入RC7.2新基线`edaf9290`，未修改主线。精确`7586a80c`的ABCD-v4完整源码/Chromium及四组Ubuntu/Windows原生资格共五job全部SUCCESS（run42847197247）；F联合报告#173。该结论不转签d31或现场Windows离线安装。
 - 本轮d31本地回归：真实PostgreSQL222/222、真实PG→浏览器6/6、目录键盘/撤权3/3、Node43/43；轻量561项中269执行通过、292明确跳过。A复跑F测试不构成新独立F签署；目录修复独立F源16fe658d、报告777b8bd7（#178）已集成。
@@ -20,7 +20,8 @@
 - PG来源profile修复f4985abf由F226仅在源码/固定模板审查与既有自动化回归范围接受，已合入b4eb06be；F220两项旧P1保留。A在b4eb实际PG27/27（11.844秒）、模板2/2（0.016秒）。MATCHED_AS_OF仍admission_authorized=false，不是DDL/角色围栏或任意权限图穷尽证明。
 - E防丢失HOLD实现新1e3776bc已由F231限定组件接受并合入；旧F224/227/229红灯保留，不再把1b候选作者/CI绿灯当放行。仅本地受审入口负向保护，不是生产绑定或全writer围栏。
 - C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170已FAILURE：四native通过，全源码3110过/1失败/4跳过，见WB-A-INTEGRATION-16AE40E8-20261111.md。D235/E233/F234/C237接受M1有界候选。纯codec经F238独立接受并合入；真实009/store候选施工中。D242闭包调查已合入。E245第一阶段设计被D247实证拒绝：通用append_entity可丢动态Scope后写入。修订5be49d08由D248/F249/B251限域接受，已集成设计并启动E隔离代码。正式创建、008、运行批次映射与Host另验。
-- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B009候选PR244源785790de经F246实库独立复现治理并发P1后拒绝，失败报告已保留。B修复3b74d5e由F253真实PG304/304零跳过限定接受，A HTTP26ef3c7b由F254独立6项接受，两组件已合入，默认未配置503。C PR250旧a99经F252实证完整撤权仍残留READY Scope而拒绝，新a6dd经F256独立接受并合入。B显式009只读来源profile新7d7c交F，保留v2和admission边界。A实证源码归档旧启动缺tools，修复840629b3已通过隔离启动及HTTP/浏览器，F复验中。
+- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B009候选PR244源785790de经F246实库独立复现治理并发P1后拒绝，失败报告已保留。B修复3b74d5e由F253真实PG304/304零跳过限定接受，A HTTP26ef3c7b由F254独立6项接受，两组件已合入，默认未配置503。C PR250旧a99经F252实证完整撤权仍残留READY Scope而拒绝，新a6dd经F256独立接受并合入。B显式009只读来源profile7d7c经F260内部限域接受并集成，保留v2与admission=false及基础诊断P2。A归档修复90bdfafc经F261接受并集成，旧缺tools与840返回码缺口保留。
+- E typed实现PR259的3514f749真实3.8/3.11各223通过，但F262实证复制钩子可丢Scope、替换身份或改写引用，拒绝该源，未合入。E修复中，B准备008物理合同，D核正式运行批次映射。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 精确12989ad4真实Windows工程验证：用户pip镜像74/74、One-SST CMD 6/6，覆盖71a Linux原四个Windows相关跳过的实际执行。完整71a原skip记录保持，见WB-A-WINDOWS-ENGINEERING-12989AD4-20261111.md。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
