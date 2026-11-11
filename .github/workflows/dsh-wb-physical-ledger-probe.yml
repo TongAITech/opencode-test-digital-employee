@@ -1,4 +1,4 @@
-name: DSH Workbench physical ledger POSIX probe
+name: DSH Workbench physical ledger probe
 on:
   workflow_dispatch:
   pull_request:
@@ -56,3 +56,21 @@ jobs:
         env:
           WB_PG_TEST_DSN: host=localhost port=5432 dbname=postgres user=postgres password=local-ci-only
         run: python -W error -m unittest discover -s tests -p test_dsh_workbench_b_pg_r1_recovery_postgres.py -v
+
+  windows-physical-file-probe:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record exact source and platform
+        run: |
+          git rev-parse HEAD
+          python -c "import platform; print(platform.platform())"
+          python --version
+      - name: Run Windows disposable physical-file probe
+        run: python -W error -m unittest discover -s tests -p test_dsh_workbench_physical_ledger_writer.py -k windows_hard_links -v
