@@ -101,17 +101,19 @@
       "owner": "B",
       "worktree": "b-project-metadata-pg",
       "branch": "work/dsh-wb-b-project-metadata-pg",
-      "state": "ACTUAL_PG_IMPLEMENTATION_TESTS_RUNNING",
-      "next_action": "Freeze SQL/store/runner after real concurrency/permission/rollback tests; precise review before HTTP activation."
+      "state": "F246_REJECTED_GOVERNANCE_CONCURRENCY_FIX_IN_PROGRESS",
+      "next_action": "Retain actual 3 projects/2 dispositions ACTIVE and NO_CHANGE write; fence with genuine row-version update, verify both lock orders and stale snapshots; freeze corrected source then F.",
+      "pr": 244,
+      "source_sha": "785790deb6d277f3be0e363f4901835d1fa625be"
     },
     {
       "ticket": "A_PROJECT_METADATA_HTTP",
       "owner": "A",
       "pr": 239,
       "worktree": "a-project-metadata-http",
-      "source_sha": "32c3a4a7",
-      "state": "DRAFT_REAL_STORE_DEPENDENCY_PENDING",
-      "next_action": "Compose approved real009 store then test actual business API and recovery; default explicit adapter unready."
+      "source_sha": "20a24361cc2292dbbd9c51d820c572844b62fa9b",
+      "state": "FOUR_REAL_PG_HTTP_TESTS_DEPENDENCY_P1",
+      "next_action": "Existing 4/4 local pairing was with rejected785; recompose/retest corrected independently accepted PG source before F HTTP."
     },
     {
       "ticket": "A_FANOUT_GUARD_REGRESSION",
@@ -121,6 +123,22 @@
       "state": "INTEGRATED_F243_EXACT_TEST_REPAIR",
       "next_action": "Keep old full red, monitor complete exact71a run42957130347.",
       "pr": 241
+    },
+    {
+      "ticket": "C_PROJECT_METADATA_UI",
+      "owner": "C",
+      "worktree": "c-project-metadata-ui",
+      "branch": "work/dsh-wb-c-project-metadata-ui",
+      "state": "ACTUAL_REAL_API_UI_IMPLEMENTATION",
+      "next_action": "Bilingual governed root rename/recovery and same-scope refresh against real API in isolated fixture; final approved dependency before freeze."
+    },
+    {
+      "ticket": "E_TYPED_MISSION_PRESERVATION_DESIGN",
+      "owner": "E",
+      "pr": 245,
+      "source_sha": "ff98337d1b97da68082dbb96e262057a817aa0b5",
+      "state": "D_EXACT_REVIEW_RUNNING",
+      "next_action": "Scope absence/serializer fail closed at generic writer, typed HOLD only; runtime batch/first effects remain separate."
     }
   ],
   "accepted_integrated_components": [

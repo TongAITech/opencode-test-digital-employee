@@ -24,7 +24,7 @@
 - PG来源profile修复f4985abf由F226仅在源码/固定模板审查与既有自动化回归范围接受，已合入b4eb06be；F220两项旧P1保留。A在b4eb实际PG27/27（11.844秒）、模板2/2（0.016秒）。MATCHED_AS_OF仍admission_authorized=false，不是DDL/角色围栏或任意权限图穷尽证明。
 - E防丢失HOLD实现新1e3776bc已由F231限定组件接受并合入；旧F224/227/229红灯保留，不再把1b候选作者/CI绿灯当放行。仅本地受审入口负向保护，不是生产绑定或全writer围栏。
 - C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170已FAILURE：四native通过，全源码3110过/1失败/4跳过，见WB-A-INTEGRATION-16AE40E8-20261111.md。D235/E233/F234/C237接受M1有界候选。纯codec经F238独立接受并合入；真实009/store候选施工中。D242闭包调查已合入，E续审typed absence及正式批次映射/首副作用边界。
-- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B继续真实009/store施工，A HTTP候选PR239源32c3a4a7默认未配置503，等待真实store组合与独立验收。
+- 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B009候选PR244源785790de经F246实库独立复现治理并发P1后拒绝，失败报告已保留，正在修复。A HTTP PR239源20a24361隔离组合实库四项通过（含断线恢复及目录ABA），等待新B源重验，默认未配置503。C已在独立worktree接真实接口开发。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
