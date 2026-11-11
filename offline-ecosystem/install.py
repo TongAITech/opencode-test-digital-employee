@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -245,7 +246,156 @@ def _require_node(node_bin, minimum, purpose):
     return output
 
 
-def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
+def _dsh_home():
+    configured = os.environ.get("DSH_HOME")
+    return Path(configured).expanduser().resolve() if configured else (Path.home() / ".dsh").resolve()
+
+
+def _profile_dir(profile):
+    return _dsh_home() / "profiles" / profile
+
+
+def _profile_contract_snapshot(profile):
+    root = _profile_dir(profile)
+    if not root.is_dir():
+        return {"profile": profile, "exists": False, "digest": None}
+    rows = {}
+    for name in ("package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock"):
+        path = root / name
+        if path.is_file():
+            rows[name] = _sha256(path)
+    node_modules = root / "node_modules"
+    if node_modules.is_dir():
+        for child in sorted(node_modules.iterdir()):
+            if not child.is_dir():
+                continue
+            if child.name.startswith("@"):
+                for package in sorted(child.iterdir()):
+                    manifest = package / "package.json"
+                    if manifest.is_file():
+                        rows[manifest.relative_to(root).as_posix()] = _sha256(manifest)
+            else:
+                manifest = child / "package.json"
+                if manifest.is_file():
+                    rows[manifest.relative_to(root).as_posix()] = _sha256(manifest)
+    payload = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return {
+        "profile": profile,
+        "exists": True,
+        "digest": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "files": rows,
+    }
+
+
+def _activation_receipt_path(rc72_home, profile, package_id):
+    return (
+        Path(rc72_home) / "runtime-state" / "ecosystem-extensions"
+        / "activation-receipts" / profile / (package_id + ".json")
+    )
+
+
+def _atomic_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    os.replace(str(temp), str(path))
+
+
+def _ensure_dsh_profile(dsh, profile, env):
+    profile_root = _profile_dir(profile)
+    if not profile_root.is_dir():
+        _run([dsh, "--profile", profile, "--from-default-profile", "web", "--dump-config"], env=env)
+    if not (profile_root / "package.json").is_file():
+        raise InstallError("DSH_ISOLATED_PROFILE_INITIALIZATION_FAILED")
+    return profile_root
+
+
+def _profile_link_matches(profile_root, package_name, package_path):
+    try:
+        manifest = json.loads((profile_root / "package.json").read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    dependencies = manifest.get("dependencies") or {}
+    spec = dependencies.get(package_name)
+    if not isinstance(spec, str) or not spec.startswith("link:"):
+        return False
+    target = Path(spec[5:])
+    if not target.is_absolute():
+        target = profile_root / target
+    bundles = (((manifest.get("dsh") or {}).get("profile") or {}).get("bundles") or [])
+    return target.resolve() == Path(package_path).resolve() and package_name in bundles
+
+
+def _boot_profile(dsh, profile, env, seconds=3):
+    if seconds < 2 or seconds > 30:
+        raise InstallError("PROFILE_BOOT_WINDOW_OUT_OF_RANGE")
+    port = 43000 + (os.getpid() % 18000)
+    command = [dsh, "--profile", profile, "--no-open", "--port", str(port)]
+    try:
+        if os.name == "nt" and Path(str(dsh)).suffix.lower() in (".cmd", ".bat"):
+            proc = subprocess.Popen(
+                subprocess.list2cmdline(command), shell=True, env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            proc = subprocess.Popen(
+                command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+    except Exception as exc:
+        raise InstallError("DSH_PROFILE_BOOT_COULD_NOT_START") from exc
+    started = time.monotonic()
+    try:
+        while time.monotonic() - started < seconds:
+            code = proc.poll()
+            if code is not None:
+                raise InstallError("DSH_PROFILE_EXITED_BEFORE_BOOT_WINDOW:%s" % code)
+            time.sleep(0.2)
+        return {"status": "PASS", "boot_window_seconds": seconds, "port": port}
+    finally:
+        if proc.poll() is None:
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=10, check=False,
+                    )
+                except Exception:
+                    proc.kill()
+            else:
+                proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+
+
+def _validate_modlens_config(internal_host_suffix):
+    suffix = (internal_host_suffix or "").strip().lower().lstrip(".")
+    config_path = Path.home() / ".modlens" / "config.json"
+    if not config_path.is_file():
+        raise InstallError("MODLENS_INTERNAL_CONFIG_MISSING")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    openai = (config.get("providers") or {}).get("openai") or {}
+    parsed = urlparse(openai.get("baseUrl") or "")
+    host = (parsed.hostname or "").lower()
+    if config.get("provider") != "openai" or not openai.get("apiKey") or not openai.get("model"):
+        raise InstallError("MODLENS_INTERNAL_PROVIDER_NOT_CONFIGURED")
+    if parsed.scheme != "https" or openai.get("proxy") != "":
+        raise InstallError("MODLENS_ENDPOINT_MUST_USE_DIRECT_HTTPS")
+    if not suffix or not (host == suffix or host.endswith("." + suffix)):
+        raise InstallError("MODLENS_ENDPOINT_NOT_IN_APPROVED_INTERNAL_SUFFIX")
+    reuse = config.get("reuse") or {}
+    if any(reuse.get(key) is not False for key in ("claude", "codex", "opencode", "pi", "grok")):
+        raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
+    if not (config.get("guards") or {}).get("denyWhenUnknown"):
+        raise InstallError("MODLENS_DENY_UNKNOWN_GUARD_REQUIRED")
+    return host
+
+
+def install(root=None, *, rc72_home, profile=PROFILE_DEFAULT):
     checked = verify_bundle(root)
     root = Path(checked["root"])
     if not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
@@ -254,11 +404,6 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
     if not ((rc72_home / "SOURCE_COMMIT").is_file()
             and (rc72_home / "packaging/rc7.2/AITEST.sh").is_file()):
         raise InstallError("RC72_PACKAGE_ROOT_REQUIRED")
-    dsh = _resolve_dsh(dsh_bin)
-    dsh_version = _dsh_version(_run([dsh, "--version"]))
-    _check_dsh_compatibility(dsh_version)
-    node_bin = _resolve_node(rc72_home)
-    node_version = _require_node(node_bin, (20, 0, 0), "ECOSYSTEM")
 
     runtime_root = rc72_home / "workspace-template" / "runtime"
     extension_root = runtime_root / "dsh-ecosystem-extensions"
@@ -276,13 +421,11 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
     if template_target.exists() or receipt_path.exists():
         raise InstallError("ECOSYSTEM_INSTALL_RECEIPT_OR_POLICY_TEMPLATE_ALREADY_EXISTS")
 
-    installed = []
-    native_created = False
     extension_created = False
+    native_created = False
     template_created = False
     receipt_created = False
     receipt_temp = receipt_path.with_name(receipt_path.name + ".tmp")
-    env = os.environ.copy()
     try:
         extension_root.mkdir(parents=True)
         extension_created = True
@@ -303,67 +446,36 @@ def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
         if native["version"] not in mnemon_version_output:
             raise InstallError("MNEMON_CLI_VERSION_MISMATCH")
 
-        env.update({
-            "npm_config_offline": "true",
-            "npm_config_audit": "false",
-            "npm_config_fund": "false",
-            "PNPM_CONFIG_OFFLINE": "true",
-            "COREPACK_ENABLE_NETWORK": "0",
-            "MNEMON_CLI_PATH": str(native_target),
-            "PATH": os.pathsep.join([str(mnemon_root), str(Path(node_bin).parent), env.get("PATH", "")]),
-            "PFC_RC72_ECOSYSTEM_OFFLINE": "1",
-        })
-        for row in checked["manifest"]["extensions"]:
-            package_path = package_target / row["id"]
-            if row["id"] == "modlens":
-                # ModLens is staged, not registered, until internal-only
-                # provider configuration has been explicitly supplied.
-                continue
-            installed.append(row["package"])
-            _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
-        listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
-        expected = [row["package"] for row in checked["manifest"]["extensions"] if row["id"] != "modlens"]
-        missing = [name for name in expected if name not in listing]
-        if missing:
-            raise InstallError("DSH_PLUGIN_LIST_MISSING:" + ",".join(missing))
-
         policy_dir.mkdir(parents=True, exist_ok=True)
-        if template_target.exists():
-            raise InstallError("MODLENS_POLICY_TEMPLATE_ALREADY_EXISTS")
         shutil.copy2(str(template_source), str(template_target))
         template_created = True
         receipt = {
             "schema_version": "pfc.rc72.ecosystem-install-receipt.v1",
-            "status": "INSTALLED_HOST_ACTIVATION_NOT_BANK_ACCEPTANCE",
+            "status": "STAGED_OPTIONAL_NOT_ACTIVATED",
             "platform": checked["platform"],
-            "dsh_version": dsh_version,
-            "node_version": node_version,
             "profile": profile,
             "rc72_source_commit": (rc72_home / "SOURCE_COMMIT").read_text(encoding="utf-8").strip(),
             "extensions": [
                 {"id": row["id"], "package": row["package"], "version": row["version"],
                  "bundle_tree_sha256": row.get("bundle_tree_sha256"),
-                 "installed": row["id"] != "modlens",
-                 "activation_state": "staged_until_internal_endpoint_configured" if row["id"] == "modlens" else "installed"}
+                 "installed": False,
+                 "activation_state": "staged_optional_default_disabled"}
                 for row in checked["manifest"]["extensions"]
             ],
-            "mnemon_cli": {"path": str(native_target), "version": native["version"], "sha256": native["sha256"],
-                           "version_output": mnemon_version_output.strip()},
+            "mnemon_cli": {"path": str(native_target), "version": native["version"],
+                           "sha256": native["sha256"], "version_output": mnemon_version_output.strip()},
             "modlens_policy_template_sha256": _sha256(template_target),
-            "modlens_enabled": False,
+            "default_enabled": False,
+            "activation_optional": True,
+            "activation_receipt_required": True,
             "bank_final": False,
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        receipt_temp.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+        receipt_temp.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         os.replace(str(receipt_temp), str(receipt_path))
         receipt_created = True
         return receipt
     except Exception:
-        for package in reversed(installed):
-            try:
-                _run([dsh, "plugin", "--profile", profile, "remove", package], env=env)
-            except Exception:
-                pass
         if receipt_temp.exists():
             receipt_temp.unlink()
         if receipt_created and receipt_path.exists():
@@ -389,54 +501,45 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("profile") != profile or not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("ECOSYSTEM_PROFILE_RECEIPT_MISMATCH")
-    dsh = _resolve_dsh(dsh_bin)
-    native_path = Path(receipt["mnemon_cli"]["path"])
-    env = os.environ.copy()
-    env["MNEMON_CLI_PATH"] = str(native_path)
-    env["PATH"] = str(native_path.parent) + os.pathsep + env.get("PATH", "")
-    listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
+    package_root = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages"
     active = [row for row in receipt["extensions"] if row.get("installed")]
     staged = [row for row in receipt["extensions"] if not row.get("installed")]
-    missing = [row["package"] for row in active if row["package"] not in listing]
-    if missing:
-        raise InstallError("ECOSYSTEM_HEALTH_PLUGIN_MISSING:" + ",".join(missing))
-    package_root = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages"
+    activation_receipts = []
     for row in receipt["extensions"]:
         staged_path = package_root / row["id"]
         if not staged_path.is_dir() or (row.get("bundle_tree_sha256") and _tree_sha256(staged_path) != row["bundle_tree_sha256"]):
             raise InstallError("ECOSYSTEM_HEALTH_STAGED_PACKAGE_MISMATCH:" + row["id"])
+        if row.get("installed"):
+            proof = _activation_receipt_path(rc72_home, profile, row["id"])
+            if not proof.is_file():
+                raise InstallError("DSH_PROFILE_ACTIVATION_RECEIPT_MISSING:" + row["id"])
+            proof_data = json.loads(proof.read_text(encoding="utf-8"))
+            if (proof_data.get("status") != "PROFILE_CONFIG_AND_BOOT_PASS_RUNTIME_EFFECT_HOLD"
+                    or proof_data.get("package_tree_sha256") != row.get("bundle_tree_sha256")):
+                raise InstallError("DSH_PROFILE_ACTIVATION_RECEIPT_INVALID:" + row["id"])
+            profile_root = _profile_dir(profile)
+            if not _profile_link_matches(profile_root, row["package"], staged_path):
+                raise InstallError("DSH_PROFILE_LOCAL_LINK_MISMATCH:" + row["id"])
+            activation_receipts.append(str(proof))
+    native_path = Path(receipt["mnemon_cli"]["path"])
     if not native_path.is_file() or _sha256(native_path) != receipt["mnemon_cli"]["sha256"]:
         raise InstallError("MNEMON_CLI_HEALTH_SHA256_MISMATCH")
     native_version = _run([str(native_path), "--version"])
     if receipt["mnemon_cli"]["version"] not in native_version:
         raise InstallError("MNEMON_CLI_HEALTH_VERSION_MISMATCH")
-    if receipt.get("modlens_enabled"):
-        node_bin = _resolve_node(rc72_home)
-        node_version = _require_node(node_bin, (22, 19, 0), "MODLENS")
-        config_path = Path.home() / ".modlens" / "config.json"
-        if not config_path.is_file():
-            raise InstallError("MODLENS_INTERNAL_CONFIG_MISSING")
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-        openai = (config.get("providers") or {}).get("openai") or {}
-        parsed = urlparse(openai.get("baseUrl") or "")
-        host = (parsed.hostname or "").lower()
-        if (config.get("provider") != "openai" or parsed.scheme != "https"
-                or openai.get("proxy") != ""
-                or host != receipt.get("modlens_internal_endpoint_host")):
-            raise InstallError("MODLENS_INTERNAL_ENDPOINT_HEALTH_MISMATCH")
-        reuse = config.get("reuse") or {}
-        if any(reuse.get(key) is not False for key in ("claude", "codex", "opencode", "pi", "grok")):
-            raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
-    else:
-        node_version = receipt.get("node_version")
+    if active and dsh_bin:
+        dsh = _resolve_dsh(dsh_bin)
+        _run([dsh, "--profile", profile, "--dump-config"], env=os.environ.copy())
     return {
-        "status": "PASS",
+        "status": "PASS" if active else "STAGED",
         "profile": profile,
         "installed_plugins": len(active),
         "staged_plugins": [row["package"] for row in staged],
-        "node_version": node_version,
+        "activation_receipts": activation_receipts,
+        "runtime_effect_verified": False,
         "mnemon_cli": str(native_path),
-        "modlens_enabled": receipt.get("modlens_enabled", False),
+        "modlens_enabled": any(row["id"] == "modlens" and row.get("installed") for row in active),
+        "bank_final": False,
     }
 
 
@@ -456,13 +559,35 @@ def uninstall(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     native_path = Path(receipt["mnemon_cli"]["path"])
     if not native_path.is_file() or _sha256(native_path) != receipt["mnemon_cli"]["sha256"]:
         raise InstallError("REFUSE_UNINSTALL_TAMPERED_OR_MISSING_MNEMON_CLI")
-    dsh = _resolve_dsh(dsh_bin)
-    env = os.environ.copy()
-    env["MNEMON_CLI_PATH"] = str(native_path)
-    env["PATH"] = str(native_path.parent) + os.pathsep + env.get("PATH", "")
-    for row in reversed(receipt["extensions"]):
-        if row.get("installed"):
+
+    active = [row for row in reversed(receipt["extensions"]) if row.get("installed")]
+    if active:
+        dsh = _resolve_dsh(dsh_bin)
+        env = os.environ.copy()
+        env.update({
+            "npm_config_offline": "true",
+            "PNPM_CONFIG_OFFLINE": "true",
+            "COREPACK_ENABLE_NETWORK": "0",
+            "PATH": os.pathsep.join([str(native_path.parent), env.get("PATH", "")]),
+            "PFC_RC72_ECOSYSTEM_OFFLINE": "1",
+        })
+        profile_root = _profile_dir(profile)
+        protected_before = _profile_contract_snapshot("web")
+        for row in active:
+            staged_path = package_root / row["id"]
+            if not _profile_link_matches(profile_root, row["package"], staged_path):
+                raise InstallError("REFUSE_UNINSTALL_NONLOCAL_OR_CHANGED_PROFILE_DEPENDENCY:" + row["id"])
             _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
+            row["installed"] = False
+            row["activation_state"] = "staged_optional_default_disabled"
+            proof = _activation_receipt_path(rc72_home, profile, row["id"])
+            if proof.exists():
+                proof.unlink()
+            _atomic_json(receipt_path, receipt)
+        protected_after = _profile_contract_snapshot("web")
+        if protected_before.get("digest") != protected_after.get("digest") or protected_before.get("exists") != protected_after.get("exists"):
+            raise InstallError("PROTECTED_WEB_PROFILE_CHANGED_DURING_UNINSTALL")
+
     native_path.unlink()
     try:
         native_path.parent.rmdir()
@@ -474,7 +599,8 @@ def uninstall(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     if template_path.is_file() and _sha256(template_path) == receipt.get("modlens_policy_template_sha256"):
         template_path.unlink()
     receipt_path.unlink()
-    return {"status": "UNINSTALLED", "profile": profile, "memory_data_preserved": True}
+    return {"status": "UNINSTALLED", "profile": profile, "memory_data_preserved": True,
+            "protected_web_profile_mutated": False}
 
 
 def configure_modlens(*, internal_host_suffix, replace_existing=False):
@@ -513,27 +639,16 @@ def configure_modlens(*, internal_host_suffix, replace_existing=False):
     return {"status": "CONFIGURED_INTERNAL_ENDPOINT_ONLY", "config_path": str(target), "host": host, "api_key_written": True}
 
 
-def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PROFILE_DEFAULT):
-    suffix = (internal_host_suffix or "").strip().lower().lstrip(".")
-    config_path = Path.home() / ".modlens" / "config.json"
-    if not config_path.is_file():
-        raise InstallError("MODLENS_INTERNAL_CONFIG_MISSING")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    openai = (config.get("providers") or {}).get("openai") or {}
-    parsed = urlparse(openai.get("baseUrl") or "")
-    host = (parsed.hostname or "").lower()
-    if config.get("provider") != "openai" or not openai.get("apiKey") or not openai.get("model"):
-        raise InstallError("MODLENS_INTERNAL_PROVIDER_NOT_CONFIGURED")
-    if parsed.scheme != "https" or openai.get("proxy") != "":
-        raise InstallError("MODLENS_ENDPOINT_MUST_USE_DIRECT_HTTPS")
-    if not suffix or not (host == suffix or host.endswith("." + suffix)):
-        raise InstallError("MODLENS_ENDPOINT_NOT_IN_APPROVED_INTERNAL_SUFFIX")
-    reuse = config.get("reuse") or {}
-    required_reuse_grants = ("claude", "codex", "opencode", "pi", "grok")
-    if any(reuse.get(key) is not False for key in required_reuse_grants):
-        raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
-    if not (config.get("guards") or {}).get("denyWhenUnknown"):
-        raise InstallError("MODLENS_DENY_UNKNOWN_GUARD_REQUIRED")
+def enable_plugin(rc72_home, package_id, *, dsh_bin=None, profile=PROFILE_DEFAULT,
+                  internal_host_suffix=None, boot_seconds=3):
+    if package_id not in PACKAGE_IDS:
+        raise InstallError("UNKNOWN_ECOSYSTEM_PACKAGE_ID")
+    if package_id == "modlens":
+        if not internal_host_suffix:
+            raise InstallError("MODLENS_INTERNAL_HOST_SUFFIX_REQUIRED")
+        internal_host = _validate_modlens_config(internal_host_suffix)
+    else:
+        internal_host = None
     if not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN")
 
@@ -542,19 +657,26 @@ def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PRO
     if not receipt_path.is_file():
         raise InstallError("ECOSYSTEM_INSTALL_RECEIPT_MISSING")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    row = next((item for item in receipt["extensions"] if item["id"] == "modlens"), None)
+    if receipt.get("profile") != profile:
+        raise InstallError("ECOSYSTEM_PROFILE_RECEIPT_MISMATCH")
+    row = next((item for item in receipt["extensions"] if item["id"] == package_id), None)
     if row is None:
-        raise InstallError("MODLENS_PACKAGE_NOT_STAGED")
+        raise InstallError("ECOSYSTEM_PACKAGE_NOT_STAGED")
     if row.get("installed"):
-        return {"status": "ALREADY_ENABLED", "host": host}
-    package_path = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages/modlens"
+        return {"status": "ALREADY_ENABLED", "profile": profile, "package": row["package"]}
+    package_path = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages" / package_id
     if not package_path.is_dir() or _tree_sha256(package_path) != row["bundle_tree_sha256"]:
-        raise InstallError("MODLENS_STAGED_PACKAGE_SHA256_MISMATCH")
+        raise InstallError("ECOSYSTEM_PACKAGE_TREE_SHA256_MISMATCH")
     node_bin = _resolve_node(rc72_home)
-    node_version = _require_node(node_bin, (22, 19, 0), "MODLENS")
+    node_min = (22, 19, 0) if package_id == "modlens" else (20, 0, 0)
+    node_version = _require_node(node_bin, node_min, package_id.upper())
     dsh = _resolve_dsh(dsh_bin)
-    version = _dsh_version(_run([dsh, "--version"]))
-    _check_dsh_compatibility(version)
+    dsh_version = _dsh_version(_run([dsh, "--version"]))
+    if package_id in ("dsh-skills-manager", "dsh-mnemon"):
+        _check_dsh_compatibility(dsh_version)
+    if not shutil.which("pnpm"):
+        raise InstallError("PNPM_REQUIRED_FOR_DSH_LOCAL_LINK_ACTIVATION")
+
     native_path = Path(receipt["mnemon_cli"]["path"])
     env = os.environ.copy()
     env.update({
@@ -567,31 +689,72 @@ def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PRO
         "PATH": os.pathsep.join([str(native_path.parent), str(Path(node_bin).parent), env.get("PATH", "")]),
         "PFC_RC72_ECOSYSTEM_OFFLINE": "1",
     })
+    protected_before = _profile_contract_snapshot("web")
+    profile_root = _ensure_dsh_profile(dsh, profile, env)
+    link_spec = "link:" + package_path.as_posix()
     registered = False
+    proof_path = _activation_receipt_path(rc72_home, profile, package_id)
     try:
-        _run([dsh, "plugin", "--profile", profile, "add", "file:" + str(package_path)], env=env)
+        _run([dsh, "plugin", "--profile", profile, "add", link_spec], env=env)
         registered = True
-        listing = _run([dsh, "plugin", "--profile", profile, "list"], env=env)
-        if row["package"] not in listing:
-            raise InstallError("MODLENS_PLUGIN_NOT_VISIBLE_AFTER_ENABLE")
+        dump = _run([dsh, "--profile", profile, "--dump-config"], env=env)
+        if not _profile_link_matches(profile_root, row["package"], package_path):
+            raise InstallError("DSH_PROFILE_LOCAL_LINK_OR_BUNDLE_LAYER_MISSING")
+        boot = _boot_profile(dsh, profile, env, seconds=boot_seconds)
+        protected_after = _profile_contract_snapshot("web")
+        if protected_before.get("digest") != protected_after.get("digest") or protected_before.get("exists") != protected_after.get("exists"):
+            raise InstallError("PROTECTED_WEB_PROFILE_CHANGED_DURING_ACTIVATION")
+        proof = {
+            "schema_version": "pfc.rc72.dsh-profile-activation-receipt.v1",
+            "status": "PROFILE_CONFIG_AND_BOOT_PASS_RUNTIME_EFFECT_HOLD",
+            "profile": profile,
+            "package_id": package_id,
+            "package": row["package"],
+            "version": row["version"],
+            "package_tree_sha256": row["bundle_tree_sha256"],
+            "link_spec": link_spec,
+            "dsh_version": dsh_version,
+            "node_version": node_version,
+            "profile_manifest_sha256": _sha256(profile_root / "package.json"),
+            "dump_config_sha256": hashlib.sha256(dump.encode("utf-8")).hexdigest(),
+            "boot": boot,
+            "protected_web_profile_before": protected_before,
+            "protected_web_profile_after": protected_after,
+            "protected_web_profile_unchanged": True,
+            "runtime_effect_verified": False,
+            "bank_final": False,
+            "modlens_internal_endpoint_host": internal_host,
+        }
+        _atomic_json(proof_path, proof)
         row["installed"] = True
-        row["activation_state"] = "enabled_internal_endpoint_only"
-        receipt["modlens_enabled"] = True
-        receipt["modlens_internal_endpoint_host"] = host
-        receipt["dsh_version"] = version
+        row["activation_state"] = "profile_config_and_boot_pass_runtime_effect_hold"
+        row["activation_receipt"] = str(proof_path)
+        receipt["dsh_version"] = dsh_version
         receipt["node_version"] = node_version
-        temp = receipt_path.with_name(receipt_path.name + ".tmp")
-        temp.write_text(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        os.replace(str(temp), str(receipt_path))
-        return {"status": "MODLENS_ENABLED_INTERNAL_ENDPOINT_ONLY", "host": host, "restart_dsh_required": True}
+        receipt["status"] = "PARTIALLY_ACTIVATED_RUNTIME_EFFECT_HOLD"
+        if internal_host:
+            receipt["modlens_enabled"] = True
+            receipt["modlens_internal_endpoint_host"] = internal_host
+        _atomic_json(receipt_path, receipt)
+        return {"status": proof["status"], "profile": profile, "package": row["package"],
+                "activation_receipt": str(proof_path), "runtime_effect_verified": False}
     except Exception:
         if registered:
             try:
                 _run([dsh, "plugin", "--profile", profile, "remove", row["package"]], env=env)
             except Exception:
                 pass
+        if proof_path.exists():
+            proof_path.unlink()
         raise
 
+
+def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PROFILE_DEFAULT,
+                   boot_seconds=3):
+    return enable_plugin(
+        rc72_home, "modlens", dsh_bin=dsh_bin, profile=profile,
+        internal_host_suffix=internal_host_suffix, boot_seconds=boot_seconds,
+    )
 
 
 def main(argv=None):
@@ -600,9 +763,14 @@ def main(argv=None):
     sub.add_parser("verify")
     ins = sub.add_parser("install")
     ins.add_argument("--rc72-home", required=True)
-    ins.add_argument("--dsh-bin")
     ins.add_argument("--profile", default=PROFILE_DEFAULT)
     ins.add_argument("--bundle-root")
+    en = sub.add_parser("enable-plugin")
+    en.add_argument("--rc72-home", required=True)
+    en.add_argument("--package-id", required=True, choices=[item for item in PACKAGE_IDS if item != "modlens"])
+    en.add_argument("--dsh-bin")
+    en.add_argument("--profile", default=PROFILE_DEFAULT)
+    en.add_argument("--boot-seconds", type=int, default=3)
     un = sub.add_parser("uninstall")
     un.add_argument("--rc72-home", required=True)
     un.add_argument("--dsh-bin")
@@ -614,25 +782,31 @@ def main(argv=None):
     cfg = sub.add_parser("configure-modlens")
     cfg.add_argument("--internal-host-suffix", required=True)
     cfg.add_argument("--replace-existing", action="store_true")
-    en = sub.add_parser("enable-modlens")
-    en.add_argument("--rc72-home", required=True)
-    en.add_argument("--internal-host-suffix", required=True)
-    en.add_argument("--dsh-bin")
-    en.add_argument("--profile", default=PROFILE_DEFAULT)
+    enm = sub.add_parser("enable-modlens")
+    enm.add_argument("--rc72-home", required=True)
+    enm.add_argument("--internal-host-suffix", required=True)
+    enm.add_argument("--dsh-bin")
+    enm.add_argument("--profile", default=PROFILE_DEFAULT)
+    enm.add_argument("--boot-seconds", type=int, default=3)
     args = parser.parse_args(argv)
     if args.command == "verify":
         result = verify_bundle()
     elif args.command == "install":
-        result = install(args.bundle_root, rc72_home=args.rc72_home, dsh_bin=args.dsh_bin, profile=args.profile)
+        result = install(args.bundle_root, rc72_home=args.rc72_home, profile=args.profile)
+    elif args.command == "enable-plugin":
+        result = enable_plugin(args.rc72_home, args.package_id, dsh_bin=args.dsh_bin,
+                               profile=args.profile, boot_seconds=args.boot_seconds)
     elif args.command == "uninstall":
         result = uninstall(args.rc72_home, dsh_bin=args.dsh_bin, profile=args.profile)
     elif args.command == "health":
         result = health(args.rc72_home, dsh_bin=args.dsh_bin, profile=args.profile)
     elif args.command == "configure-modlens":
-        result = configure_modlens(internal_host_suffix=args.internal_host_suffix, replace_existing=args.replace_existing)
+        result = configure_modlens(internal_host_suffix=args.internal_host_suffix,
+                                   replace_existing=args.replace_existing)
     else:
         result = enable_modlens(args.rc72_home, internal_host_suffix=args.internal_host_suffix,
-                                dsh_bin=args.dsh_bin, profile=args.profile)
+                                dsh_bin=args.dsh_bin, profile=args.profile,
+                                boot_seconds=args.boot_seconds)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
