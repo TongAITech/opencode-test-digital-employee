@@ -83,13 +83,13 @@ jobs:
         run: python tools/build_rc72_dsh_ecosystem_bundle.py --platform ${{ matrix.platform }} --output-dir dist/offline-ecosystem
       - name: Verify archive checksum
         if: runner.os == 'Linux'
-        run: sha256sum -c dist/offline-ecosystem/${{ matrix.bundle }}.zip.sha256
+        run: cd dist/offline-ecosystem && sha256sum -c ${{ matrix.bundle }}.zip.sha256
       - name: Verify archive checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $line = Get-Content "dist/offline-ecosystem/${{ matrix.bundle }}.zip.sha256"
-          $expected = ($line -split '\\s+')[0]
+          $expected = ($line -split '\s+')[0]
           $actual = (Get-FileHash "dist/offline-ecosystem/${{ matrix.bundle }}.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw "SHA256 mismatch" }
       - name: Extract and verify bundle contents
