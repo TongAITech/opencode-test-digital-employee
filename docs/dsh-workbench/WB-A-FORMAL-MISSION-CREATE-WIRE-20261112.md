@@ -20,3 +20,12 @@
 ## 评审与验收
 
 B 核 selection/prepare 兼容及 008 存储上限。E 核初始状态、回执来源和正式事件边界。D 核实际 Host 请求来源和映射。A/F 核纯组件向量。首批向量须包括中文、组合字符、非 BMP、控制字符、重试改 goal、过长、交叉 authority、错误批次、失联后原字节恢复和双份源事件。先完成独立编码与拒绝测试，再进入正式事件和跨存储验收。
+
+## B、D、E 实证后的编码决定
+
+本段收敛 #289、#292、#293 的评审。优先于上文未确定项，范围限独立纯组件。
+
+- goal 首尾拒绝集合固定为 U+0009–000D、U+001C–0020、U+0085、U+00A0、U+1680、U+2000–200A、U+2028、U+2029、U+202F、U+205F、U+3000。U+FEFF 不属于首尾集合。禁用平台默认 trim，禁止 NUL，内部控制字符按规范 JSON 转义。
+- JSON 的引号、反斜杠以及退格、制表、换行、换页、回车使用短转义。其余 U+0000–001F 使用小写四位十六进制。斜杠及所有其余有效 Unicode 直接编码。BIGINT 用无损十进制整数保留至 9223372036854775807，服务端生成摘要，普通 JavaScript Number 不参与权威摘要。请求和选择各自对最终规范字节限 65536。所有用于 PostgreSQL text 的新引用同时校验 UTF-8 上限 384 和 NUL。
+- 正式选择使用 schema_version 2，键为 `schema_version,formal_authority_ref,actor_ref,project_id,creation_key,batch_id,filters,mapping_policy,command`，领域前缀 `dsh.mission-prepare-selection.v2` 加 LF。保留三类筛选的 V3 排序语义。测试夹具的旧选择与请求永远不转换成正式 intent。重试比对已核实的原规范字节，独立校验原 context。
+- Mission revision 与 R1 artifact_version 分别固定为整数 1，时间使用一个整数 Unix 秒填两个字段。回执引用在正式追加前由原权威生成并保存于同一原事件；原 event_id 是该权威内 event_ref。V1 正式创建行固定 LF，读取原字节时拒 CRLF 的该类事件。旧 R1 其他事件仍可按兼容规则读。事件哈希使用排除终止 LF 的原始行字节。实现回执需待 E 的正式事件 schema 签署，本轮可施工请求和选择的纯编码与黄金向量。
