@@ -21,7 +21,8 @@
     "last_joint_regression_failure_sha": "44222081f9267602aa635fda53db7b46f457f4be",
     "full_rc72_ci_run": 43067301875,
     "latest_joint_candidate_sha": "c397d016b60146dd640cc2b87fb4513d8ef54b54",
-    "latest_joint_full_rc72_ci_run": 43069965805
+    "latest_joint_full_rc72_ci_run": 43069965805,
+    "last_targeted_sha": "c6c58b39aefc353a12df7ad43926f2cc0700cf09"
   },
   "active_work": [
     {
@@ -300,16 +301,49 @@
       "owner": "E",
       "pr": 298,
       "source_sha": "acc1d80a2f6456c957e7fefb4a70d7a4a27f113d",
-      "state": "EXACT_CI_PASSED_F_PENDING",
-      "next_action": "Request and selection only. No PG or R1 route."
+      "state": "INTEGRATED_F302_DETACHED",
+      "next_action": "Require canonical allocated R1 IDs at the event/allocator seam. No production port.",
+      "report_pr": 302
     },
     {
       "ticket": "D_FORMAL_CREATION_SOURCE_EVENT",
       "owner": "D",
       "pr": 301,
       "source_sha": "ce81483e9c56d8b52e671493f89daa0f7da6ca3e",
-      "state": "E_REVIEW_RUNNING",
-      "next_action": "Only detached event/receipt codec after precise schema; older runtime fail closed and deployment upgrade evidence required."
+      "state": "E303_DETACHED_VALIDATOR_ALLOWED",
+      "next_action": "Only detached event/receipt codec after precise schema; older runtime fail closed and deployment upgrade evidence required.",
+      "review_pr": 303
+    },
+    {
+      "ticket": "D_POSIX_PHYSICAL_WRITER_PROBE",
+      "owner": "D",
+      "pr": 304,
+      "source_sha": "3ee01c3289b88f69e7e97859675c237811f596ea",
+      "state": "INTEGRATED_F305_TEST_FIXTURE_ONLY",
+      "report_pr": 305,
+      "next_action": "Ubuntu and Darwin x86_64 tested. Mac ARM infrastructure and Windows unqualified. Advisory lock does not exclude direct writers."
+    },
+    {
+      "ticket": "E_FORMAL_EVENT_CODEC",
+      "owner": "E",
+      "pr": 306,
+      "source_sha": "867d365f1017f5af2be598a1d690dbb0818f4551",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "Detached event only. Exact CI 43071117778 succeeded."
+    },
+    {
+      "ticket": "A_FORMAL_RECEIPT_LOOKUP_CODEC",
+      "owner": "A",
+      "pr": 307,
+      "source_sha": "2f9a8141453c0106cf11ce54430edd17922723a6",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "Stacked on #306. No production projection or authorization."
+    },
+    {
+      "ticket": "B_PG_R1_RECOVERY_PROBE",
+      "owner": "B",
+      "state": "ISOLATED_IMPLEMENTATION_RUNNING",
+      "next_action": "Actual PG + disposable writer process before/after durable append, no formal event or production adapter."
     }
   ],
   "accepted_integrated_components": [

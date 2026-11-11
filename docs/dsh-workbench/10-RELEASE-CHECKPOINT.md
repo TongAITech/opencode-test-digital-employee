@@ -353,3 +353,5 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 精确 c397d016 的 PostgreSQL/HTTP 组件 CI 43069965675 已通过，本地真实 Chromium 11 项和 JavaScript 124 项通过。完整 Workbench 与精确继承回归 43069965805 仍待最终状态。
 
 精确 c397d016 Workbench 743、Chromium 11、JavaScript 124 均通过。组件 CI 43069965675 成功，完整 RC7/RC7.2 43069965805 尚在排队。
+
+精确 c6c58b39 PostgreSQL Scope 专项 100 项、纯编码/批次/快照 72 项通过。F #305 的 Linux、Darwin x86_64 为隔离验证。真实 Host、Windows 现场和跨存储生产发布保持 HOLD。
