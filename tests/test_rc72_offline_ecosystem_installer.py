@@ -67,7 +67,7 @@ def _fake_dsh(tmp_path: Path, log: Path, version: str = "0.2.2-rc.1") -> Path:
         "args=sys.argv[1:]\n"
         "if args == ['--version']:\n print('DSH " + version + "'); raise SystemExit(0)\n"
         "if 'list' in args:\n"
-        " print('\\n'.join(['@michengai/dsh-skills-manager','dsh-mnemon','dsh-archify','@liustack/modlens'])); raise SystemExit(0)\n"
+        " print('\\n'.join(['@michengai/dsh-skills-manager','dsh-mnemon','dsh-archify'])); raise SystemExit(0)\n"
         "if 'add' in args or 'remove' in args:\n"
         " assert os.environ.get('npm_config_offline') == 'true'\n"
         " assert os.environ.get('PNPM_CONFIG_OFFLINE') == 'true'\n"
@@ -130,9 +130,13 @@ def test_install_and_uninstall_are_offline_and_never_target_web(tmp_path: Path, 
     receipt = installer.install(bundle, rc72_home=rc72_home, dsh_bin=dsh, profile="rc7.2-bank")
     assert receipt["status"] == "INSTALLED_HOST_ACTIVATION_NOT_BANK_ACCEPTANCE"
     assert receipt["profile"] == "rc7.2-bank"
-    assert installer.health(rc72_home, dsh_bin=dsh)["status"] == "PASS"
+    health = installer.health(rc72_home, dsh_bin=dsh)
+    assert health["status"] == "PASS"
+    assert health["installed_plugins"] == 3
+    assert health["staged_plugins"] == ["@liustack/modlens"]
+    assert receipt["extensions"][-1]["installed"] is False
     lines = log.read_text(encoding="utf-8").splitlines()
-    assert len([line for line in lines if '"add"' in line]) == 4
+    assert len([line for line in lines if '"add"' in line]) == 3
     with pytest.raises(installer.InstallError, match="PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN"):
         installer.install(bundle, rc72_home=rc72_home, dsh_bin=dsh, profile="web")
     result = installer.uninstall(rc72_home, dsh_bin=dsh, profile="rc7.2-bank")
@@ -148,3 +152,45 @@ def test_dsh_host_version_outside_peer_range_fails_before_copy(tmp_path: Path) -
     with pytest.raises(installer.InstallError, match="DSH_VERSION_OUTSIDE_SKILLS_MANAGER_RANGE"):
         installer.install(bundle, rc72_home=rc72_home, dsh_bin=dsh, profile="rc7.2-bank")
     assert not (rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions").exists()
+
+
+def test_native_cli_version_failure_rolls_back_all_staged_files(tmp_path: Path, monkeypatch) -> None:
+    bundle = _make_bundle(tmp_path / "bundle")
+    rc72_home = _fake_rc72_home(tmp_path / "RC72")
+    dsh = _fake_dsh(tmp_path, tmp_path / "dsh.log")
+    original_run = installer._run
+
+    def _wrong_native_version(command, env=None):
+        if Path(str(command[0])).name in ("mnemon.exe", "mnemon"):
+            return "mnemon 0.2.8"
+        return original_run(command, env=env)
+
+    monkeypatch.setattr(installer, "_run", _wrong_native_version)
+    with pytest.raises(installer.InstallError, match="MNEMON_CLI_VERSION_MISMATCH"):
+        installer.install(bundle, rc72_home=rc72_home, dsh_bin=dsh, profile="rc7.2-bank")
+    assert not (rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions").exists()
+    assert not (rc72_home / "workspace-template/runtime/mnemon/mnemon").exists()
+    assert not (rc72_home / "workspace-template/runtime/mnemon/mnemon.exe").exists()
+    assert not (rc72_home / "runtime-state/ecosystem-extensions/install-receipt.json").exists()
+
+
+def test_modlens_configuration_requires_internal_https_and_disables_credential_reuse(tmp_path: Path, monkeypatch) -> None:
+    import builtins
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    values = iter(["http://vision.bank.internal/v1", "vision-model"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(values))
+    monkeypatch.setattr(installer.getpass, "getpass", lambda _prompt: "test-secret")
+    with pytest.raises(installer.InstallError, match="MODLENS_ENDPOINT_NOT_IN_APPROVED_INTERNAL_SUFFIX"):
+        installer.configure_modlens(internal_host_suffix="bank.internal")
+    assert not (tmp_path / ".modlens/config.json").exists()
+
+    values = iter(["https://vision.bank.internal/v1", "vision-model"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(values))
+    result = installer.configure_modlens(internal_host_suffix="bank.internal")
+    assert result["status"] == "CONFIGURED_INTERNAL_ENDPOINT_ONLY"
+    config = json.loads((tmp_path / ".modlens/config.json").read_text(encoding="utf-8"))
+    assert config["provider"] == "openai"
+    assert config["providers"]["openai"]["proxy"] == ""
+    assert all(value is False for value in config["reuse"].values())
+    assert config["guards"]["denyWhenUnknown"] is True
