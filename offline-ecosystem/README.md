@@ -20,12 +20,12 @@ dsh-qa, dsh-routing-suite (no new integration), Tencent WeKnora and dsh-weknora 
 ## Requirements
 
 - An existing RC7.2-compatible DSH host; the DSH engine itself is not bundled.
-- Node.js 22.19+ in the DSH host runtime.
+- Node.js 20+ in the DSH host runtime for Skills Manager and Mnemon. ModLens activation additionally requires Node.js 22.19+.
 - Python 3.8+ for the installer.
 - An existing RC7.2 package root with `SOURCE_COMMIT` and `packaging/rc7.2/AITEST.sh`.
 - DSH profile `rc7.2-bank` (or another explicitly named `rc7.2-*` profile). The protected `web` profile is forbidden.
 
-The installer checks the DSH engine range declared by Skills Manager and Mnemon and then asks the local DSH CLI to install each bundled local package. It sets npm/pnpm offline flags; it never runs `npm install`, `npm pack`, `pip install`, or a public registry download on the bank host.
+The installer checks the DSH engine range declared by Skills Manager and Mnemon and asks the local DSH CLI to install the three approved default plugins. ModLens is copied and hash-verified but deliberately remains staged and unregistered until an internal endpoint is explicitly configured. The installer sets npm/pnpm offline flags; it never runs `npm install`, `npm pack`, `pip install`, or a public registry download on the bank host.
 
 ## Verify before installation
 
@@ -63,19 +63,19 @@ Keep the extracted bundle until the install receipt is written. The installer co
 
 ## Mnemon
 
-The native CLI is copied to `workspace-template/runtime/mnemon`. The RC7.2 launcher sets `MNEMON_CLI_PATH` for the DSH process. Mnemon's runtime memory and project documents are local. Auto-capture and skill self-evolution remain disabled by upstream defaults; third-party Memory Space providers remain unconfigured.
+The native CLI is copied to `workspace-template/runtime/mnemon`. The RC7.2 launcher sets `MNEMON_CLI_PATH` for the DSH process. Mnemon's runtime memory and project documents use the local native provider by default. The bank bundle rewrites the provider list to `mnemon-native` only; remote Memory Space providers are not enabled. Auto-capture and skill self-evolution remain disabled.
 
 Memory is not the execution truth source. R1/event-stream remains authoritative for task state, test results and evidence.
 
 ## ModLens safe activation
 
-ModLens is installed **disabled by default**. Its upstream default can select a public provider when no config exists, so this bundle deliberately prevents that.
+ModLens is **staged but not registered by default**. Its upstream default can select a public provider when no config exists, so the installer prevents activation until an approved internal endpoint is configured.
 
 1. Configure an approved internal OpenAI-compatible multimodal endpoint:
    `python install.py configure-modlens --internal-host-suffix <bank-internal-domain-suffix>`
-2. The command prompts for endpoint/model and reads the API key through hidden input. It refuses endpoints outside the supplied internal DNS suffix. Existing config is preserved unless `--replace-existing` is explicitly supplied; any replaced config is backed up.
+2. The command prompts for endpoint/model and reads the API key through hidden input. It requires HTTPS and refuses endpoints outside the supplied internal DNS suffix. Existing config is preserved unless `--replace-existing` is explicitly supplied; any replaced config is backed up.
 3. Enable the plugin only after configuration:
-   `python install.py enable-modlens --rc72-home <RC72_ROOT> --internal-host-suffix <bank-internal-domain-suffix>`
+   `python install.py enable-modlens --rc72-home <RC72_ROOT> --internal-host-suffix <bank-internal-domain-suffix> --profile rc7.2-bank --dsh-bin <DSH_CLI>`
 4. Restart DSH. ModLens is pinned to the internal OpenAI-compatible provider, proxy inheritance is disabled, and reuse of Claude/Codex/OpenCode/Pi/Grok local credentials is false.
 
 ## Health and uninstall
@@ -85,7 +85,7 @@ python install.py health --rc72-home <RC72_ROOT> --profile rc7.2-bank
 python install.py uninstall --rc72-home <RC72_ROOT> --profile rc7.2-bank
 ```
 
-Uninstall removes the four plugin registrations and the bundled Mnemon executable only when its SHA-256 still matches the install receipt. It preserves `~/.mnemon` memory data and never touches the protected `web` profile.
+Uninstall removes the three active plugin registrations, the staged ModLens payload, and the bundled Mnemon executable only when package and binary hashes still match the install receipt. It preserves `~/.mnemon` memory data and never touches the protected `web` profile.
 
 ## Qualification boundary
 
