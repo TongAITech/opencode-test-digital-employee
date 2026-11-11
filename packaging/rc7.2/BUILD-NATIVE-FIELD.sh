@@ -217,6 +217,43 @@ cp -R "$TOOLS/error-handling-source/skills/dsh-error-handling" "$ROOT/rc7_releas
 find "$NODE_ROOT" "$NODE_EXEC" -type f \
   \( -iname '*.cmd' -o -iname '*.bat' -o -iname '*.ps1' -o -iname '*.exe' -o -iname '*.dll' -o -iname '*.msi' -o -iname '*.pdb' \) -delete
 
+# Strip optional prebuilt Node addons for foreign OS/CPU from the npm/pnpm
+# distribution; keep only native-architecture ELF/Mach-O binaries for this host.
+# The strict stage scan independently rejects any Windows PE payload remaining.
+"$PYBIN" - "$NODE_EXEC" "$PLATFORM" "$ARCH" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+node_root = Path(sys.argv[1])
+system, arch = sys.argv[2:]
+expected_elf = 62 if arch == "x86_64" else 183
+expected_macho = 0x01000007 if arch == "x86_64" else 0x0100000c
+removed = []
+kept = []
+for p in sorted(node_root.rglob("*.node")):
+    with p.open("rb") as stream:
+        b = stream.read(64)
+    valid = False
+    if system == "linux":
+        valid = b[:4] == b"\\x7fELF" and len(b) >= 20 and b[4] == 2 and int.from_bytes(b[18:20], "little") == expected_elf
+    elif system == "darwin":
+        if b[:4] in (b"\\xcf\\xfa\\xed\\xfe", b"\\xfe\\xed\\xfa\\xcf") and len(b) >= 8:
+            endian = "little" if b[:4] == b"\\xcf\\xfa\\xed\\xfe" else "big"
+            valid = int.from_bytes(b[4:8], endian) == expected_macho
+        elif b[:4] in (b"\\xca\\xfe\\xba\\xbe", b"\\xbe\\xba\\xfe\\xca"):
+            arches = subprocess.run(["lipo", "-archs", str(p)], capture_output=True, text=True, check=False)
+            valid = arches.returncode == 0 and ("x86_64" if arch == "x86_64" else "arm64") in arches.stdout.split()
+    if valid:
+        kept.append(str(p.relative_to(node_root)))
+    else:
+        removed.append(str(p.relative_to(node_root)))
+        p.unlink()
+print("NATIVE_NODE_ADDON_PLATFORM_FILTER removed=%d kept=%d" % (len(removed), len(kept)))
+for name in removed[:30]:
+    print("  stripped foreign native addon:", name)
+PY
+"$NODEBIN" "$NODE_EXEC/node_modules/pnpm/bin/pnpm.cjs" --version
+
 # Tool versions and source evidence are recorded before packaging.
 "$JAVA_BIN" -version 2>"$TOOLS/java-version.txt"
 "$MAVEN_ROOT/bin/mvn" -version > "$TOOLS/maven-version.txt"
