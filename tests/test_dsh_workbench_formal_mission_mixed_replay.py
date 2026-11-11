@@ -8,7 +8,7 @@ from rc6_runtime.truth import EVENT_TYPES, ProjectionIntegrityError, TruthRuntim
 from rc7_runtime.models import Mission
 from rc7_runtime.truth_overlay import append_entity
 from test_dsh_workbench_formal_mission_receipt import json_bytes, source_event
-from test_truth_layer import make_intent
+from test_truth_layer import make_case, make_intent
 from tools.dsh_workbench.formal_mission_event import FORMAL_MISSION_EVENT_TYPE
 from tools.dsh_workbench.formal_mission_mixed_replay import (
     FormalMissionReplayHold, replay_formal_mission_snapshot,
@@ -96,6 +96,25 @@ class FormalMissionMixedReplayTest(unittest.TestCase):
             with self.assertRaises(FormalMissionReplayHold):
                 replay_formal_mission_snapshot(original, "authority")
             self.assertEqual(path.read_bytes(), original)
+
+    def test_raw_typed_markers_cannot_disappear_during_legacy_batch_expansion(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "r1.jsonl"
+            for marker in ("scope_binding", "runtime_batch_mapping"):
+                for cases in ([], [make_case(1)]):
+                    with self.subTest(marker=marker, case_count=len(cases)):
+                        row = {
+                            "event_type": "RC7_MISSION_UPSERTED", "event_id": "legacy-batch", "seq": 1,
+                            "payload": {"mission_id": "legacy", marker: None, "cases": cases},
+                        }
+                        original = lines(row)
+                        path.write_bytes(original)
+                        native = TruthRuntime(path)
+                        self.assertEqual(native.query("rc7_mission"), [])
+                        self.assertEqual(len(native.query("test_case")), len(cases))
+                        with self.assertRaises(FormalMissionReplayHold):
+                            replay_formal_mission_snapshot(original, "authority")
+                        self.assertEqual(path.read_bytes(), original)
 
     def test_malformed_or_conflicting_trailing_records_never_return_projection(self):
         _, formal = source_event()
