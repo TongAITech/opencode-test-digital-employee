@@ -57,7 +57,7 @@ class E01(prior.Scope):
         record = Evidence(evidence_id='E1', mission_id='M1', kind='fixture',
                           source_ref='test-fixture', content_ref=evidence.as_uri(),
                           content_hash='sha256:' + hashlib.sha256(evidence.read_bytes()).hexdigest())
-        TruthRuntime(self.r1).append_atomic('RC7_EVIDENCE_UPSERTED', dict(release_id='B1', **asdict(record)))
+        TruthRuntime(self.r1).append_atomic('RC7_EVIDENCE_UPSERTED', dict(release_id='B1', **to_payload(record)))
         before = self.r1.read_bytes()
         origin = self.quality_server()
         path = '/api/workbench/v1/projects/P1/release-dates/2026-11-12/quality?batch_id=B1&mission_id=M1'
