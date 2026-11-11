@@ -313,3 +313,123 @@ def test_scope_check_rejects_effective_getter_from_later_mixin():
 
     with pytest.raises(ValueError, match=HOLD):
         to_payload(Exceptional('M1', 'RT1', 'goal'))
+
+
+@pytest.mark.parametrize('hook', ['__deepcopy__', '__reduce__', '__reduce_ex__', '__getstate__', '__iter__'])
+def test_bound_clone_rejects_instance_hooks_without_losing_scope(tmp_path, hook):
+    truth = TruthRuntime(tmp_path / 'r1')
+    value = isolate_mission_scope(mission(), bound())
+    scope = value._scope_state
+    before = snapshot(truth)
+    calls = []
+
+    def lose_scope(*args):
+        calls.append(hook)
+        return mission()
+
+    setattr(value, hook, lose_scope)
+    with pytest.raises(ValueError, match=HOLD):
+        clone_mission(value)
+    assert calls == [] and value._scope_state is scope
+    assert snapshot(truth) == before
+
+
+def test_isolate_rejects_instance_hook_that_substitutes_mission_identity(tmp_path):
+    truth = TruthRuntime(tmp_path / 'r1')
+    value = mission()
+    before = snapshot(truth)
+    calls = []
+
+    def substitute(memo):
+        calls.append('substitute')
+        return Mission('OTHER', 'OTHER-RT', 'substitute')
+
+    value.__deepcopy__ = substitute
+    with pytest.raises(ValueError, match=HOLD):
+        isolate_mission_scope(value, bound())
+    assert calls == []
+    assert value.mission_id == 'M1' and value.release_id == 'RT1'
+    assert serialize_mission_scope(value) == {} and snapshot(truth) == before
+
+
+@pytest.mark.parametrize('attribute', ['artifact_refs', 'open_gap_ids', 'active_task_ids', 'residual_risk_ids'])
+def test_nested_string_subclass_cannot_change_a_reference_during_isolation(tmp_path, attribute):
+    truth = TruthRuntime(tmp_path / 'r1')
+    calls = []
+
+    class NestedRef(str):
+        def __deepcopy__(self, memo):
+            calls.append('nested copy')
+            return 'changed'
+
+        __reduce__ = tripwire
+        __reduce_ex__ = tripwire
+        __getstate__ = tripwire
+        __iter__ = tripwire
+
+    value = mission()
+    ref = NestedRef('reference')
+    setattr(value, attribute, [ref])
+    before = snapshot(truth)
+    with pytest.raises(ValueError, match=HOLD):
+        isolate_mission_scope(value, bound())
+    assert calls == [] and getattr(value, attribute)[0] is ref
+    assert snapshot(truth) == before
+
+
+def test_clone_does_not_iterate_unknown_reference_container():
+    class UnknownList(list):
+        __iter__ = tripwire
+        __deepcopy__ = tripwire
+        __reduce__ = tripwire
+        __reduce_ex__ = tripwire
+        __getstate__ = tripwire
+
+    value = mission()
+    value.artifact_refs = UnknownList(['reference'])
+    with pytest.raises(ValueError, match=HOLD):
+        clone_mission(value)
+
+
+def test_clone_does_not_probe_unknown_scalar():
+    class UnknownScalar:
+        __getattribute__ = tripwire
+        __deepcopy__ = tripwire
+        __reduce__ = tripwire
+        __reduce_ex__ = tripwire
+        __getstate__ = tripwire
+        __iter__ = tripwire
+
+    value = mission()
+    value.goal = UnknownScalar()
+    with pytest.raises(ValueError, match=HOLD):
+        clone_mission(value)
+
+
+def test_clone_keeps_all_declared_values_and_detaches_reference_lists():
+    from dataclasses import fields
+
+    base = mission()
+    base.state = MissionStatus.RUNNING
+    base.goal = ' preserve existing text '
+    base.latest_evaluation_id = 'E1'
+    reference_fields = ('artifact_refs', 'open_gap_ids', 'active_task_ids', 'residual_risk_ids')
+    for name in reference_fields:
+        setattr(base, name, [name])
+    value = isolate_mission_scope(base, bound())
+    cloned = clone_mission(value)
+    assert set(vars(cloned)) == {item.name for item in fields(Mission)}
+    assert vars(cloned) == vars(value)
+    assert cloned._scope_state is value._scope_state
+    assert deepcopy(value)._scope_state.binding_bytes == value._scope_state.binding_bytes
+    for name in reference_fields:
+        getattr(cloned, name).append('detached')
+        assert getattr(value, name) == [name]
+        assert getattr(value, name) is not getattr(base, name)
+
+
+def test_clone_rejects_missing_declared_value():
+    value = mission()
+    del value.created_at
+    with pytest.raises(ValueError, match=HOLD):
+        clone_mission(value)
