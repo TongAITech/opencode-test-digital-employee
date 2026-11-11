@@ -1,5 +1,6 @@
 """Native RC7.2 package contracts: platform identity, Windows contamination and sealed inventory."""
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,8 @@ def _sealed_fixture(tmp_path):
         "workspace-template/runtime/browser/browserskill/bsk",
         "workspace-template/runtime/browser/browserskill-extension/manifest.json",
         "workspace-template/runtime/node-execution/node_modules/playwright/package.json",
+        "workspace-template/runtime/node-execution/package-lock.json",
+        "workspace-template/runtime/python/PACKAGE-PYTHON-LOCK.txt",
         "workspace-template/runtime/code-intelligence/codegraph/" + (
             "codegraph-server-linux-x64" if identity["platform"] == "linux" and identity["architecture"] == "x86_64"
             else "codegraph-server-linux-arm64" if identity["platform"] == "linux"
@@ -44,7 +47,11 @@ def _sealed_fixture(tmp_path):
     for rel in required:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"fixture")
+        if rel.endswith(".zip"):
+            with zipfile.ZipFile(p, "w") as bundle:
+                bundle.writestr("plugins/manifest.json", "{}")
+        else:
+            p.write_bytes(b"fixture")
     alpha = {
         "status": "LICENSE_HOLD_NOT_BUNDLED",
         "source_commit": "f417e90ddd0e20f08b82e0b79a8c29fdad45c8f4",
@@ -90,6 +97,16 @@ def test_native_package_rejects_windows_payload_by_extension_and_pe_magic(tmp_pa
     (root / "start.cmd").unlink()
     (root / "renamed-native").write_bytes(b"MZ\x90\x00fake-pe")
     with pytest.raises(NativeFieldError, match="WINDOWS_PE_PAYLOAD_IN_NATIVE_PACKAGE"):
+        _check_no_windows_payload(root)
+
+
+def test_native_package_rejects_windows_payload_hidden_inside_plugin_zip(tmp_path):
+    root = tmp_path / "fixture"
+    root.mkdir()
+    archive = root / "vendor.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("node_modules/.bin/tool.cmd", "@echo off")
+    with pytest.raises(NativeFieldError, match="WINDOWS_ARCHIVE_MEMBER_IN_NATIVE_PACKAGE"):
         _check_no_windows_payload(root)
 
 

@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -128,20 +129,38 @@ def _native_binary_check(path: Path, system: str, arch: str) -> None:
         if machine != expected:
             raise NativeFieldError("LINUX_ELF_ARCH_MISMATCH:" + str(path))
     else:
-        # Mach-O thin/fat magic; lipo in CI verifies the requested slice.
-        if head[:4] not in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}:
+        if head[:4] in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}:
+            endian = "little" if head[:4] == b"\xcf\xfa\xed\xfe" else "big"
+            cpu = int.from_bytes(head[4:8], endian)
+            expected = 0x01000007 if arch == "x86_64" else 0x0100000c
+            if cpu != expected:
+                raise NativeFieldError("MACOS_MACHO_ARCH_MISMATCH:" + str(path))
+        elif head[:4] in {b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}:
+            result = subprocess.run(["lipo", "-archs", str(path)], stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True, timeout=30, check=False)
+            if result.returncode or arch not in result.stdout.split():
+                raise NativeFieldError("MACOS_FAT_MACHO_ARCH_MISMATCH:" + str(path))
+        else:
             raise NativeFieldError("MACOS_MACHO_REQUIRED:" + str(path))
 
 
 def _check_no_windows_payload(root: Path) -> None:
     for path in _files(root):
+        relative = path.relative_to(root).as_posix()
         if path.suffix.lower() in EXCLUDED_SUFFIXES:
-            raise NativeFieldError("WINDOWS_PAYLOAD_IN_NATIVE_PACKAGE:" + path.relative_to(root).as_posix())
+            raise NativeFieldError("WINDOWS_PAYLOAD_IN_NATIVE_PACKAGE:" + relative)
         try:
             with path.open("rb") as stream:
                 if stream.read(2) == b"MZ":
-                    raise NativeFieldError("WINDOWS_PE_PAYLOAD_IN_NATIVE_PACKAGE:" + path.relative_to(root).as_posix())
-        except OSError as exc:
+                    raise NativeFieldError("WINDOWS_PE_PAYLOAD_IN_NATIVE_PACKAGE:" + relative)
+            if path.suffix.lower() == ".zip":
+                with zipfile.ZipFile(str(path), "r") as archive:
+                    for member in archive.namelist():
+                        if Path(member).suffix.lower() in EXCLUDED_SUFFIXES:
+                            raise NativeFieldError("WINDOWS_ARCHIVE_MEMBER_IN_NATIVE_PACKAGE:%s:%s" % (relative, member))
+        except NativeFieldError:
+            raise
+        except (OSError, zipfile.BadZipFile) as exc:
             raise NativeFieldError("NATIVE_FILE_READ_FAILED:" + str(path)) from exc
 
 
@@ -233,6 +252,13 @@ def stage_package(
             raise NativeFieldError("NATIVE_REQUIRED_RUNTIME_MISSING:" + str(path))
     for path in (python_bin, node_bin, java_bin):
         _native_binary_check(path, identity["platform"], identity["architecture"])
+    python_lock = runtime / "python/PACKAGE-PYTHON-LOCK.txt"
+    freeze = subprocess.run([str(python_bin), "-B", "-m", "pip", "freeze"],
+                            cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, timeout=120, check=False)
+    if freeze.returncode:
+        raise NativeFieldError("NATIVE_PYTHON_FREEZE_FAILED")
+    python_lock.write_text(freeze.stdout, encoding="utf-8")
     for path in (runtime / "browser/browserskill/bsk", runtime / "k6/k6",
                  runtime / "ripgrep/rg", runtime / ("code-intelligence/codegraph/" + codegraph_name)):
         _native_binary_check(path, identity["platform"], identity["architecture"])
@@ -369,6 +395,8 @@ def verify_package(root: Path, expected_source_commit: Optional[str] = None) -> 
         "workspace-template/runtime/browser/browserskill/bsk",
         "workspace-template/runtime/browser/browserskill-extension/manifest.json",
         "workspace-template/runtime/node-execution/node_modules/playwright/package.json",
+        "workspace-template/runtime/node-execution/package-lock.json",
+        "workspace-template/runtime/python/PACKAGE-PYTHON-LOCK.txt",
         "workspace-template/runtime/code-intelligence/codegraph/" + ("codegraph-server-linux-x64" if platform_name == "linux" and arch == "x86_64" else "codegraph-server-linux-arm64" if platform_name == "linux" else "codegraph-server-darwin-x64" if arch == "x86_64" else "codegraph-server-darwin-arm64"),
         "workspace-template/runtime/k6/k6",
         "workspace-template/runtime/ripgrep/rg",

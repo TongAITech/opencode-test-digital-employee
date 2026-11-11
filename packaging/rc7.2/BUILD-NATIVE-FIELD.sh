@@ -199,6 +199,7 @@ JAVA
 "$ALLURE_BIN" --version > "$TOOLS/allure-version.txt"
 "$K6_BIN" version > "$TOOLS/k6-version.txt"
 "$RG_BIN" --version > "$TOOLS/rg-version.txt"
+if "$TOOLS/$CG_ASSET" --version > "$TOOLS/codegraph-version.txt" 2>&1; then :; else "$TOOLS/$CG_ASSET" --help > "$TOOLS/codegraph-version.txt" 2>&1; fi
 "$TOOLS/$CG_ASSET" --help > "$TOOLS/codegraph-help.txt"
 "$ZAP_BIN" -version > "$TOOLS/zap-version.txt" 2>&1 || true
 "$BSK_BIN" --version > "$TOOLS/bsk-version.txt"
@@ -212,7 +213,7 @@ SOURCE_COMMIT="\${GITHUB_SHA:-$(git rev-parse HEAD)}"
 export PFC_RC72_TOOL_VERSIONS_JSON="$("$PYBIN" - "$TOOLS" <<'PY'
 import json,sys,pathlib
 r=pathlib.Path(sys.argv[1])
-names=("python-version.txt","node-version.txt","bsk-version.txt","java-version.txt","maven-version.txt","allure-version.txt","k6-version.txt","rg-version.txt","zap-version.txt")
+names=("python-version.txt","node-version.txt","bsk-version.txt","java-version.txt","maven-version.txt","allure-version.txt","k6-version.txt","rg-version.txt","zap-version.txt","codegraph-version.txt")
 print(json.dumps({n.removesuffix("-version.txt"): (r/n).read_text(errors="replace").strip() for n in names},sort_keys=True))
 PY
 )"
@@ -238,6 +239,11 @@ const {chromium}=require(process.argv[1]);
 "$PACKAGE/workspace-template/runtime/code-intelligence/codegraph/$CG_ASSET" --help >/dev/null
 "$PACKAGE/workspace-template/runtime/java/bin/java" -version >/dev/null 2>&1
 "$PACKAGE/workspace-template/runtime/maven/bin/mvn" -version >/dev/null
+"$PACKAGE/workspace-template/runtime/python/bin/python3" -B -c "import requests,pytest,openpyxl,docx,pptx,pypdf,PIL,numpy,onnxruntime,cv2,rapidocr_onnxruntime;print('NATIVE_PACKAGE_PYTHON_IMPORTS_PASS')"
+"$PACKAGE/workspace-template/runtime/maven/bin/mvn" -q -o \
+  -s "$PACKAGE/packaging/rc7/maven-offline-settings.xml" \
+  "-Dmaven.repo.local=$PACKAGE/workspace-template/runtime/maven-repository" \
+  -f "$SEED/pom.xml" test
 "$PACKAGE/workspace-template/runtime/allure/bin/allure" --version >/dev/null
 "$PACKAGE/workspace-template/runtime/zap/$(basename "$(dirname "$ZAP_BIN")")/zap.sh" -version >/dev/null 2>&1 || true
 

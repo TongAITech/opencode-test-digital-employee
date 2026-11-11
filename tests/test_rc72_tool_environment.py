@@ -45,7 +45,7 @@ def test_carried_tool_cannot_escape_through_parent_directory_symlink(tmp_path):
     binary=runtime/FIXED_FILES['PFC_CODEGRAPH_BIN'];binary.unlink()
     outside=tmp_path/'host-binary.exe';outside.write_bytes(b'not the carried tool')
     binary.symlink_to(outside)
-    with pytest.raises(ContractError,match='TOOL_REQUIRED'):package_tool_environment(root)
+    with pytest.raises(ContractError,match='OUTSIDE_RUNTIME|SYMLINK'):package_tool_environment(root)
 
 
 def test_component_has_no_implied_full_runtime_projection(tmp_path):
