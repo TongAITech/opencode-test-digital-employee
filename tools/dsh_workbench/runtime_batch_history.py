@@ -5,6 +5,7 @@ from typing import NamedTuple
 from rc6_runtime.contracts import DomainValidationError
 from rc7_runtime.rc72_truth import validate_release_batch
 
+from .r1_snapshot_events import iter_r1_snapshot_events
 from .runtime_batch_mapping import RuntimeBatchMapping
 
 
@@ -18,11 +19,11 @@ class RuntimeBatchHistory(NamedTuple):
     latest_version: int
 
 
-def verify_runtime_batch_history(events, mapping):
+def verify_runtime_batch_history(snapshot, mapping):
     """Return batch history or None for a missing batch in this snapshot.
 
-    The caller must pin the original ledger bytes, decode strictly, and verify
-    its authority and the mapping's creation event independently.
+    The caller must pin the original ledger bytes and verify its authority and
+    the mapping's creation event independently.
     """
     if type(mapping) is not RuntimeBatchMapping:
         raise RuntimeBatchHistoryError("RUNTIME_BATCH_MAPPING_REQUIRED")
@@ -32,7 +33,7 @@ def verify_runtime_batch_history(events, mapping):
     history = None
     seen = set()
     latest_seq = 0
-    for event in events:
+    for event in iter_r1_snapshot_events(snapshot):
         if type(event) is not dict or any(type(key) is not str for key in event):
             raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID")
         kind = event.get("event_type")
