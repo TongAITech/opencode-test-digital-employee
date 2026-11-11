@@ -1,0 +1,32 @@
+name: DSH Workbench physical ledger POSIX probe
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tests/fixtures/workbench_physical_ledger/**'
+      - 'tests/test_dsh_workbench_physical_ledger_writer.py'
+      - '.github/workflows/dsh-wb-physical-ledger-probe.yml'
+permissions:
+  contents: read
+jobs:
+  physical-file-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record exact source and platform
+        run: |
+          git rev-parse HEAD
+          uname -sm
+          python --version
+      - name: Run disposable physical-file probes
+        run: python -W error -m unittest discover -s tests -p test_dsh_workbench_physical_ledger_writer.py -v
