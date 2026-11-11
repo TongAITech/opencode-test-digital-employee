@@ -54,7 +54,7 @@ jobs:
           retention-days: 14
 
   build-field-validation-package:
-    if: github.ref == 'refs/heads/work/rc7.2'
+    if: github.ref == 'refs/heads/work/rc7.2-field-validation-transport-20261111'
     needs: source-contract
     runs-on: windows-2022
     timeout-minutes: 180
