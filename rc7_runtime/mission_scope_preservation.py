@@ -5,8 +5,8 @@ from dsh_scope_codec.mission_binding import (
 )
 
 from .models import (
-    ContractError, Mission, MissionStatus, MISSION_SCOPE_HOLD, _MISSION_DICT,
-    _SCOPE_ABSENT, _mission_scope_state, require_unbound_mission,
+    ContractError, Mission, MissionStatus, MISSION_SCOPE_HOLD, _SCOPE_ABSENT,
+    _mission_instance_dict, _mission_scope_state, _plain_string_dict, require_unbound_mission,
 )
 
 
@@ -56,8 +56,8 @@ _COPY_FIELDS = _DECLARED_FIELDS | {"_scope_state"}
 
 
 def _copy_declared_fields(mission):
-    source = _MISSION_DICT.__get__(mission, Mission).copy()
-    if (any(type(name) is not str or name not in _COPY_FIELDS for name in source) or
+    source = dict.copy(_mission_instance_dict(mission))
+    if (any(name not in _COPY_FIELDS for name in source) or
             not _DECLARED_FIELDS.issubset(source)):
         raise ContractError(MISSION_SCOPE_HOLD)
 
@@ -94,16 +94,32 @@ def clone_mission(mission):
     _require_exact_mission(mission)
     copied = _copy_declared_fields(mission)
     result = object.__new__(Mission)
-    _MISSION_DICT.__get__(result, Mission).update(copied)
+    dict.update(_mission_instance_dict(result), copied)
     serialize_mission_scope(result)
     return result
+
+
+def _parse_isolated_scope(envelope):
+    # The shared codec accepts decoded JSON data. An in-process DTO can also
+    # carry arbitrary Python keys, so prove key types before its lookups.
+    if not _plain_string_dict(envelope):
+        raise BindingStructureError("MISSION_ENVELOPE_INVALID")
+    binding = dict.get(envelope, "scope_binding")
+    if type(binding) is dict:
+        if not _plain_string_dict(binding):
+            raise BindingStructureError("BINDING_STRUCTURE_INVALID")
+        for name in ("creation_key_scope", "mapping"):
+            child = dict.get(binding, name)
+            if type(child) is dict and not _plain_string_dict(child):
+                raise BindingStructureError("BINDING_STRUCTURE_INVALID")
+    return parse_scope(envelope)
 
 
 def isolate_mission_scope(mission, envelope):
     """Decode Scope from a DTO into a detached copy of an existing Mission."""
     result = clone_mission(mission)
     require_unbound_mission(result)
-    scope = parse_scope(envelope)
+    scope = _parse_isolated_scope(envelope)
     _check_identity(result, scope)
     if scope.classification == "BOUND_STRUCTURAL_ONLY":
         result._scope_state = scope

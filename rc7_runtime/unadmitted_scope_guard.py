@@ -16,7 +16,7 @@ from .rc72_economy_scheduler import EconomyAwareReadySelector
 from .rc72_model_economy import BankCostWindowConfig
 
 from .models import MISSION_SCOPE_FIELDS as RESERVED, MISSION_SCOPE_HOLD as HOLD
-from .models import is_mission_object, require_unbound_mission
+from .models import _mission_instance_dict, _plain_string_dict, is_mission_object, require_unbound_mission
 UNRESOLVED = 'MISSION_SCOPE_TARGET_UNRESOLVED'
 _SCHEDULER = {name: getattr(TaskScheduler, name) for name in vars(TaskScheduler)
               if name != '__init__' and callable(getattr(TaskScheduler, name))}
@@ -86,8 +86,8 @@ def reject_reserved(value, error=ControlPlaneError):
     if is_mission_object(value):
         require_unbound_mission(value, error)
         return
-    values = value if isinstance(value, dict) else vars(value)
-    if RESERVED.intersection(values):
+    values = value if issubclass(type(value), dict) else vars(value)
+    if not _plain_string_dict(values) or RESERVED.intersection(values):
         raise error(HOLD)
 
 
@@ -185,13 +185,16 @@ class Targets:
     def entity(self, value):
         if value is None:
             return
-        if isinstance(value, (list, tuple)):
-            for item in value:
-                self.entity(item)
-            return
-        if not hasattr(value, '__dict__'):
-            return
-        row = vars(value)
+        if is_mission_object(value):
+            row = _mission_instance_dict(value, self.error)
+        else:
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    self.entity(item)
+                return
+            if not hasattr(value, '__dict__'):
+                return
+            row = vars(value)
         if 'mission_id' in row:
             self.mission(row['mission_id'])
         for field, kind in (('task_id','rc7_task'),('gap_id','rc7_gap'),('evaluation_id','rc7_evaluation'),
@@ -303,13 +306,13 @@ def protected(method):
                 raise ControlPlaneError('TASK_LEASE_OWNER_MISMATCH')
         if name == 'lease_next':
             bound.arguments['capabilities'] = tuple(bound.arguments['capabilities'])
+        if 'mission' in values:
+            reject_reserved(values['mission'], error)
         targets = Targets(self.truth, error)
         targets.mission(self.mission_id)
         for key, value in values.items():
             if key != 'self':
                 targets.entity(value)
-        if 'mission' in values:
-            reject_reserved(values['mission'], error)
         if 'task_id' in values:
             targets.task(values['task_id'])
         if 'output' in values:

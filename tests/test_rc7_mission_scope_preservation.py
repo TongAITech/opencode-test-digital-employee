@@ -433,3 +433,122 @@ def test_clone_rejects_missing_declared_value():
     del value.created_at
     with pytest.raises(ValueError, match=HOLD):
         clone_mission(value)
+
+
+@pytest.mark.parametrize('structural_bound', [False, True])
+def test_phase_one_rejects_instance_dictionary_subclass_before_hooks(tmp_path, structural_bound):
+    truth = TruthRuntime(tmp_path / 'r1')
+    controller = ClosedLoopControlPlane.bootstrap(truth, mission())
+    value = isolate_mission_scope(mission(), bound()) if structural_bound else mission()
+    original_scope = vars(value).get('_scope_state')
+    calls = []
+
+    class DictionaryHooks(dict):
+        def copy(self):
+            calls.append('copy')
+            return {k: v for k, v in dict.items(self) if k != '_scope_state'}
+
+        def get(self, key, default=None):
+            calls.append('get')
+            if key == '_scope_state':
+                return default
+            return dict.get(self, key, default)
+
+        __iter__ = tripwire
+        __contains__ = tripwire
+        __getitem__ = tripwire
+        keys = tripwire
+        items = tripwire
+
+    raw = DictionaryHooks(vars(value))
+    value.__dict__ = raw
+    before = snapshot(truth)
+    actions = (
+        lambda: clone_mission(value),
+        lambda: isolate_mission_scope(value, bound()),
+        lambda: serialize_mission_scope(value),
+        lambda: to_payload(value),
+        lambda: reject_reserved(value),
+        lambda: truth_overlay.append_entity(truth, value, release_id='RT1', artifact_version=2),
+        lambda: controller._persist_mission(value),
+        lambda: controller._sync_mission(value),
+    )
+    for action in actions:
+        with pytest.raises((ValueError, RuntimeError), match=HOLD):
+            action()
+    assert calls == []
+    assert dict.get(raw, '_scope_state') is original_scope
+    assert dict.get(raw, 'mission_id') == 'M1' and dict.get(raw, 'release_id') == 'RT1'
+    assert snapshot(truth) == before
+
+
+@pytest.mark.parametrize('structural_bound,collision', [(False, '_scope_state'), (True, 'scope_binding')])
+def test_phase_one_rejects_non_string_instance_key_before_comparison(tmp_path, structural_bound, collision):
+    truth = TruthRuntime(tmp_path / 'r1')
+    controller = ClosedLoopControlPlane.bootstrap(truth, mission())
+    value = isolate_mission_scope(mission(), bound()) if structural_bound else mission()
+    raw = vars(value)
+    original_scope = raw.get('_scope_state')
+    calls = []
+
+    class CollidingKey:
+        def __hash__(self):
+            calls.append('hash')
+            return hash(collision)
+
+        def __eq__(self, other):
+            calls.append('comparison')
+            return other == collision
+
+    key = CollidingKey()
+    raw[key] = None
+    calls.clear()
+    before = snapshot(truth)
+    actions = (
+        lambda: clone_mission(value),
+        lambda: isolate_mission_scope(value, bound()),
+        lambda: serialize_mission_scope(value),
+        lambda: to_payload(value),
+        lambda: reject_reserved(value),
+        lambda: truth_overlay.append_entity(truth, value, release_id='RT1', artifact_version=2),
+        lambda: controller._persist_mission(value),
+    )
+    for action in actions:
+        with pytest.raises((ValueError, RuntimeError), match=HOLD):
+            action()
+    assert calls == []
+    safe_fields = {name: field_value for name, field_value in dict.items(raw) if type(name) is str}
+    assert safe_fields.get('_scope_state') is original_scope
+    assert safe_fields['mission_id'] == 'M1' and safe_fields['release_id'] == 'RT1'
+    assert snapshot(truth) == before
+
+
+@pytest.mark.parametrize('path,name,code', [
+    ((), 'mission_id', 'MISSION_ENVELOPE_INVALID'),
+    (('scope_binding',), 'snapshot_ref', 'BINDING_STRUCTURE_INVALID'),
+    (('scope_binding', 'creation_key_scope'), 'actor_ref', 'BINDING_STRUCTURE_INVALID'),
+    (('scope_binding', 'mapping'), 'runtime_release_id', 'BINDING_STRUCTURE_INVALID'),
+])
+def test_isolated_scope_dto_rejects_alias_keys_before_parsing(path, name, code):
+    calls = []
+
+    class AliasKey:
+        def __hash__(self):
+            calls.append('hash')
+            return hash(name)
+
+        def __eq__(self, other):
+            calls.append('comparison')
+            return other == name
+
+    envelope = bound()
+    target = envelope
+    for item in path:
+        target = target[item]
+    value = target.pop(name)
+    target[AliasKey()] = value
+    calls.clear()
+    incoming = mission()
+    with pytest.raises(BindingStructureError, match=code):
+        isolate_mission_scope(incoming, envelope)
+    assert calls == [] and serialize_mission_scope(incoming) == {}

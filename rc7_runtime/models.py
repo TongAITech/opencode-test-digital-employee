@@ -147,11 +147,26 @@ def is_mission_object(value: Any) -> bool:
     return issubclass(type(value), Mission)
 
 
+def _plain_string_dict(value: Any) -> bool:
+    """Prove dictionary and key types before any lookup or copy."""
+    return type(value) is dict and all(type(key) is str for key in value)
+
+
+def _mission_instance_dict(value: Mission, error=ContractError) -> Dict[str, Any]:
+    kind = type(value)
+    if (type(kind) is not type or not issubclass(kind, Mission) or
+            inspect.getattr_static(kind, "__dict__", None) is not _MISSION_DICT):
+        raise error(MISSION_SCOPE_HOLD)
+    raw = _MISSION_DICT.__get__(value, Mission)
+    if not _plain_string_dict(raw):
+        raise error(MISSION_SCOPE_HOLD)
+    return raw
+
+
 def _mission_scope_state(value: Mission, error=ContractError):
     """Read the known Mission state without invoking a substituted getter."""
     kind = type(value)
-    if type(kind) is not type or not issubclass(kind, Mission):
-        raise error(MISSION_SCOPE_HOLD)
+    raw = _mission_instance_dict(value, error)
     if (inspect.getattr_static(kind, "__getattribute__", None) is not object.__getattribute__ or
             inspect.getattr_static(kind, "__getattr__", _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE):
         raise error(MISSION_SCOPE_HOLD)
@@ -161,15 +176,14 @@ def _mission_scope_state(value: Mission, error=ContractError):
         if "_scope_state" in vars(base):
             raise error(MISSION_SCOPE_HOLD)
     fields = inspect.getattr_static(kind, "__dataclass_fields__", None)
-    if (type(fields) is not dict or fields.get("_scope_state") is not _MISSION_SCOPE_FIELD or
-            MISSION_SCOPE_FIELDS.intersection(fields) or
-            inspect.getattr_static(kind, "_scope_state", None) is not _SCOPE_ABSENT or
-            inspect.getattr_static(value, "__dict__", None) is not _MISSION_DICT):
+    if (not _plain_string_dict(fields) or dict.get(fields, "_scope_state") is not _MISSION_SCOPE_FIELD or
+            MISSION_SCOPE_FIELDS.intersection(fields) or MISSION_SCOPE_FIELDS.intersection(raw) or
+            inspect.getattr_static(kind, "_scope_state", None) is not _SCOPE_ABSENT):
         raise error(MISSION_SCOPE_HOLD)
-    if any(inspect.getattr_static(value, name, _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE
+    if any(inspect.getattr_static(kind, name, _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE
            for name in MISSION_SCOPE_FIELDS):
         raise error(MISSION_SCOPE_HOLD)
-    return _MISSION_DICT.__get__(value, Mission).get("_scope_state", _SCOPE_ABSENT)
+    return dict.get(raw, "_scope_state", _SCOPE_ABSENT)
 
 
 def require_unbound_mission(value: Mission, error=ContractError) -> None:

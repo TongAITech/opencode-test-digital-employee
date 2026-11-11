@@ -21,7 +21,7 @@ from rc6_runtime import truth as _truth
 from .defect_loop import DefectRecord
 from .models import (
     Artifact, ContractError, Evaluation, EventRecord, Evidence, Gap, Mission,
-    MISSION_SCOPE_FIELDS, MISSION_SCOPE_HOLD, Task, is_mission_object,
+    MISSION_SCOPE_FIELDS, MISSION_SCOPE_HOLD, Task, _plain_string_dict, is_mission_object,
     require_unbound_mission, to_payload,
 )
 
@@ -387,7 +387,8 @@ def append_entity(
         if type(entity) is Mission:
             mission_id = _contracts._require_str({"mission_id": entity.mission_id}, "mission_id")
             rows = truth_runtime.query("rc7_mission", mission_id=mission_id)
-            if len(rows) > 1 or any(MISSION_SCOPE_FIELDS.intersection(row) for row in rows):
+            if len(rows) > 1 or any(not _plain_string_dict(row) or MISSION_SCOPE_FIELDS.intersection(row)
+                                    for row in rows):
                 raise ContractError(MISSION_SCOPE_HOLD)
     install_rc7_truth_overlay()
     _enforce_durable_acceptance(truth_runtime, entity)
