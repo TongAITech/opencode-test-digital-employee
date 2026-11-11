@@ -4,7 +4,7 @@
 
 This is a **field-validation transport**, built from one exact RC7.2 source commit. It carries the RC7.2 source/runtime, package-local Python, Node, BrowserSkill/Chromium, CodeGraph, Java/Maven, offline plugin payloads, test tooling and the other runtime payloads listed in PACKAGE_MANIFEST.json and FULL-CAPABILITY-INVENTORY.json.
 
-It deliberately **does not contain a native DSH CLI executable**. The bank must bind an already installed and approved Windows x64 DSH CLI on the target machine. This separates the ability to transport and inspect RC7.2 from permission to redistribute a third-party/bank-controlled executable.
+The package carries Node.js 24.9.0 or newer for the DSH CLI runtime contract. It deliberately **does not contain a native DSH CLI executable**. The bank must bind an already installed and approved Windows x64 DSH CLI on the target machine. This separates the ability to transport and inspect RC7.2 from permission to redistribute a third-party/bank-controlled executable.
 
 This is not the final C12 turnkey package, is not a bank release, and does not claim that any Q3-Q9 field gate has passed. The package identity and manifest keep field_verified=false and bank_final=false.
 

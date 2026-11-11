@@ -101,6 +101,15 @@ def test_rc72_launcher_supports_exact_external_host_binding_and_keeps_local_pref
     assert 'bank_authorization_verified' not in source
 
 
+def test_rc72_field_and_final_transport_builds_use_node_24_for_dsh_cli_engine():
+    root = Path(__file__).resolve().parents[1]
+    field = (root / ".github/workflows/rc7.2-field-validation-portable.yml").read_text(encoding="utf-8")
+    final = (root / ".github/workflows/rc7.2-portable-transport.yml").read_text(encoding="utf-8")
+    assert "node-version: '24.9.0'" in field
+    assert "node-version: '24.9.0'" in final
+    assert "RC7.2 packaged Node >=24.9.0 required" in field
+
+
 def test_start_launcher_prompts_only_when_package_does_not_bundle_dsh():
     root = Path(__file__).resolve().parents[1]
     source = (root / "packaging/rc7.2/start-rc7.2.cmd").read_text(encoding="utf-8")
