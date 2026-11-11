@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/dsh_workbench/e01_service.py'
       - 'rc7_admin/product_server.py'
+      - 'rc7_admin/projection.py'
       - 'tests/test_dsh_workbench_mount_auth.py'
       - 'tools/dsh_workbench/e02_service.py'
       - 'tools/dsh_workbench/e02_lineage.py'
