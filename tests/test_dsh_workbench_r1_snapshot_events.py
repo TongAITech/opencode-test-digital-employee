@@ -52,7 +52,7 @@ class SnapshotEventsTest(unittest.TestCase):
             list(iter_r1_snapshot_events(bytearray(b"{}\n")))
 
     def test_original_record_bytes_and_line_number_survive_decoding(self):
-        first = b'{"name": "\u0061"}\n'
+        first = rb'{"name": "\u0061"}' + b"\n"
         second = b'{"name":"a"}\r\n'
         source = b"\n" + first + second
         records = list(iter_r1_snapshot_records(source))
