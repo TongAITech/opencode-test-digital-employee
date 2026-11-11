@@ -18,6 +18,7 @@ on:
       - 'packaging/rc7.2/NATIVE-FIELD-README.md'
       - 'packaging/rc7.2/dsh-alpha/**'
       - 'tests/test_rc72_native_field_portable.py'
+      - 'tests/test_rc72_native_additional_plugins.py'
       - 'tests/test_rc72_native_tool_environment.py'
       - 'tests/test_rc72_tool_environment.py'
       - '.github/workflows/rc7.2-native-field-matrix.yml'
@@ -44,6 +45,7 @@ jobs:
           python -m compileall -q rc7_release/rc72_native_field_portable.py rc7_release/rc72_tool_environment.py rc7_release/rc72_native_additional_plugins.py
           python -m pytest -q \
             tests/test_rc72_native_field_portable.py \
+            tests/test_rc72_native_additional_plugins.py \
             tests/test_rc72_native_tool_environment.py \
             tests/test_rc72_tool_environment.py
           bash -n packaging/rc7.2/BUILD-NATIVE-FIELD.sh

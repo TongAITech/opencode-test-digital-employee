@@ -263,13 +263,70 @@ def inspect(repo_root: Path) -> Dict[str, object]:
     return {"status": "PASS", "plugin_count": len(PINNED_PACKAGES), "sha256":m["archive_sha256"]}
 
 
+def verify_extracted(repo_root: Path, destination: Path) -> Dict[str, object]:
+    """Validate every byte of the already-extracted offline payload before DSH links it.
+
+    This checks the local source snapshot only. It does not imply plugin activation
+    or any bank-side DSH/Agent Teams acceptance.
+    """
+    info = inspect(repo_root)
+    root = Path(destination)
+    if root.is_symlink() or not root.is_dir():
+        raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_ROOT_INVALID")
+    marker = root / ".verified-source.sha256"
+    if marker.is_symlink() or not marker.is_file():
+        raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_MARKER_MISSING")
+    if marker.read_text(encoding="utf-8").strip() != info["sha256"]:
+        raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_MARKER_MISMATCH")
+    expected = set()
+    with zipfile.ZipFile(str(Path(repo_root) / ARCHIVE_REL), "r") as z:
+        for member in z.infolist():
+            if member.is_dir():
+                continue
+            rel = Path(member.filename)
+            if rel.is_absolute() or ".." in rel.parts or stat.S_ISLNK(member.external_attr >> 16):
+                raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_MEMBER_UNSAFE")
+            key = rel.as_posix()
+            if key in expected or key == marker.name:
+                raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_DUPLICATE_MEMBER")
+            expected.add(key)
+            path = root / rel
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != member.file_size:
+                raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_MISSING_OR_CHANGED:" + key)
+            with z.open(member) as source, path.open("rb") as local:
+                digest_source, digest_local = hashlib.sha256(), hashlib.sha256()
+                while True:
+                    source_block, local_block = source.read(1024 * 1024), local.read(1024 * 1024)
+                    if not source_block and not local_block:
+                        break
+                    digest_source.update(source_block)
+                    digest_local.update(local_block)
+                if digest_source.digest() != digest_local.digest():
+                    raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_CONTENT_MISMATCH:" + key)
+    actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() or p.is_symlink()}
+    actual.discard(marker.name)
+    if actual != expected:
+        raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_FILESET_MISMATCH")
+    return {"status": "PASS", "scope": "LOCAL_EXTRACTED_SOURCE_ONLY",
+            "plugin_count": len(PINNED_PACKAGES), "sha256": info["sha256"],
+            "verified_file_count": len(expected)}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("acquire","inspect"))
+    parser.add_argument("command", choices=("acquire","inspect","verify-extracted"))
     parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--dest")
     args = parser.parse_args(argv)
     try:
-        result = acquire(Path(args.repo_root)) if args.command == "acquire" else inspect(Path(args.repo_root))
+        if args.command == "acquire":
+            result = acquire(Path(args.repo_root))
+        elif args.command == "inspect":
+            result = inspect(Path(args.repo_root))
+        else:
+            if not args.dest:
+                raise AdditionalPluginError("ADDITIONAL_PLUGIN_EXTRACTED_DEST_REQUIRED")
+            result = verify_extracted(Path(args.repo_root), Path(args.dest))
         print(json.dumps(result, sort_keys=True, ensure_ascii=False))
         return 0
     except (AdditionalPluginError, OSError, subprocess.TimeoutExpired) as exc:

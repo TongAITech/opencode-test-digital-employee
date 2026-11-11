@@ -44,6 +44,8 @@ path=pathlib.Path(sys.argv[1])
 out=pathlib.Path(sys.argv[2]);out.write_text(hashlib.sha256(path.read_bytes()).hexdigest()+"\n")
 PY
 fi
+# Rehash every extracted entry, including preexisting cached files. A marker alone is not proof.
+"$PY" -B -m rc7_release.rc72_native_additional_plugins verify-extracted --repo-root "$ROOT" --dest "$DEST"
 "$NODE_ROOT/bin/node" "$PNPM_CLI" --version
 for module in \
   "@michengai/dsh-skills-manager" \
