@@ -78,6 +78,13 @@ def prepare_env(home: Path) -> Dict[str, str]:
             for exe in item.rglob("rg.exe"):
                 flat.append(str(exe.parent))
                 break
+    mnemon_dir = runtime / "mnemon"
+    mnemon_binary = mnemon_dir / ("mnemon.exe" if os.name == "nt" else "mnemon")
+    if mnemon_binary.is_file():
+        flat.insert(0, str(mnemon_dir))
+        # The RC7.2-bundled binary is checksum-qualified and takes precedence
+        # over any unrelated global Mnemon installation.
+        env["MNEMON_CLI_PATH"] = str(mnemon_binary)
     env["PATH"] = os.pathsep.join(flat + [env.get("PATH", "")])
     env.setdefault("PFC_AITEST_HOME", str(home))
     env.setdefault("PFC_AITEST_STATE_DIR", str(home / "runtime-state"))

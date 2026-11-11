@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from rc7_release import package as rc7_package
+from rc7_release.rc72_package_root import resolve_package_root
 
 
 BUILD_STATUS = "ENGINEERING_CANDIDATE_NOT_BANK_FINAL"
@@ -225,7 +226,7 @@ def verify_package(
     *,
     expected_source_commit: Optional[str] = None,
 ) -> Dict[str, object]:
-    root = Path(package_root).resolve()
+    root = resolve_package_root(Path(package_root))
     required_files = {
         "BUILD_ID",
         "SOURCE_COMMIT",
