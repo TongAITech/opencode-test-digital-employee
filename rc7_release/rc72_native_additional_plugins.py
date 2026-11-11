@@ -163,7 +163,8 @@ def acquire(repo_root: Path) -> Dict[str, object]:
             manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
             if manifest.get("name") != name or manifest.get("version") != version:
                 raise AdditionalPluginError("PLUGIN_IDENTITY_MISMATCH:" + name)
-            if manifest.get("license") != license_name:
+            declared = manifest.get("license")
+            if declared != license_name and not (name == "graph-memory" and declared is None):
                 raise AdditionalPluginError("PLUGIN_LICENSE_MISMATCH:" + name)
             license_files = [p for p in target.iterdir() if p.is_file() and p.name.lower().startswith("license")]
             if not license_files:
@@ -176,6 +177,11 @@ def acquire(repo_root: Path) -> Dict[str, object]:
                         license_files = [target / "LICENSE"]
             if not license_files:
                 raise AdditionalPluginError("PLUGIN_LICENSE_FILE_MISSING:" + name)
+            if name == "graph-memory" and not any(
+                p.read_text(encoding="utf-8", errors="replace").startswith("MIT License")
+                for p in license_files
+            ):
+                raise AdditionalPluginError("GRAPH_MEMORY_MIT_LICENSE_TEXT_INVALID")
             dependencies = manifest.get("dependencies") or {}
             if dependencies:
                 _run([npm, "install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund",
@@ -244,7 +250,13 @@ def inspect(repo_root: Path) -> Dict[str, object]:
             if p not in names:
                 raise AdditionalPluginError("ADDITIONAL_PLUGIN_PACKAGE_MISSING:" + name)
             d = json.loads(z.read(p))
-            if d.get("name") != name or d.get("version") != version or d.get("license") != license_name:
+            declared = d.get("license")
+            allowed = declared == license_name or (
+                name == "graph-memory" and declared is None and
+                rel + "LICENSE" in names and
+                z.read(rel + "LICENSE").startswith(b"MIT License")
+            )
+            if d.get("name") != name or d.get("version") != version or not allowed:
                 raise AdditionalPluginError("ADDITIONAL_PLUGIN_IDENTITY_INVALID:" + name)
         if any(Path(x).suffix.lower() in WINDOWS_SUFFIXES for x in names):
             raise AdditionalPluginError("ADDITIONAL_PLUGIN_WINDOWS_SHIM_PRESENT")
