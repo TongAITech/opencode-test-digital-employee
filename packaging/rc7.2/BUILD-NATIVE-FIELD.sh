@@ -34,7 +34,7 @@ unpack_zip() { mkdir -p "$2"; unzip -q "$1" -d "$2"; }
 # Linux native shared libraries are qualified in Rocky Linux 9, matching glibc 2.34.
 if [[ "$PLATFORM" == "linux" ]]; then
   if command -v dnf >/dev/null 2>&1; then
-    dnf install -y curl ca-certificates tar xz unzip gzip git findutils which file \
+    dnf install -y curl-minimal ca-certificates tar xz unzip gzip git findutils which file \
       alsa-lib atk at-spi2-atk cups-libs libXcomposite libXdamage libXext libXfixes \
       libXrandr libXtst libXcursor libXrender libXScrnSaver libxkbcommon libxcb \
       libX11 libX11-xcb libdrm mesa-libgbm gtk3 nss nspr pango cairo libxshmfence \

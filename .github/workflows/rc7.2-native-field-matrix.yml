@@ -78,7 +78,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP:/out" \
             rockylinux:9 bash -lc '
-              dnf install -y curl ca-certificates tar xz unzip gzip git findutils which file perl
+              dnf install -y curl-minimal ca-certificates tar xz unzip gzip git findutils which file perl
               cd /src
               bash packaging/rc7.2/BUILD-NATIVE-FIELD.sh
             '
