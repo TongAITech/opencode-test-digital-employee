@@ -1,0 +1,60 @@
+name: DSH Workbench Mission Scope preservation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'dsh_scope_codec/**'
+      - 'tools/dsh_workbench/mission_scope_binding_codec.py'
+      - 'rc7_runtime/models.py'
+      - 'rc7_runtime/mission_scope_preservation.py'
+      - 'rc7_runtime/truth_overlay.py'
+      - 'rc7_runtime/unadmitted_scope_guard.py'
+      - 'rc7_release/package.py'
+      - 'tests/test_rc7_mission_scope_preservation.py'
+      - '.github/workflows/dsh-wb-mission-scope-preservation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preservation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test runner
+        run: python -m pip install pytest==8.3.5
+      - name: Verify exact source and runtime
+        run: |
+          git rev-parse HEAD
+          python --version
+      - name: Mission Scope preservation and affected legacy regression
+        run: >-
+          python -m pytest -q -p no:cacheprovider
+          tests/test_rc7_mission_scope_preservation.py
+          tests/test_dsh_workbench_mission_scope_binding_codec.py
+          tests/test_rc7_unadmitted_scope_hold.py
+          tests/test_rc7_closed_loop_control.py tests/test_rc7_closed_loop_core.py
+          tests/test_rc7_control_plane.py
+          tests/test_rc7_multi_case_defect_control_plane_bridge.py
+          tests/test_rc7_bank_mission_entrypoint.py
+          tests/test_rc7_1_bank_mission_start.py tests/test_rc7_1_bank_mission_autopilot.py
+          tests/test_rc7_bank_mission_turnkey_cli.py
+          tests/test_rc72_mission_node_dispatch.py tests/test_rc72_scheduler_integration.py
+          tests/test_rc7_session_continuity.py tests/test_rc72_critical_path_no_delay.py
+          tests/test_rc72_n2_revision_closed_loop.py
+          tests/test_rc72_q2b_clean_runtime_contract.py
+          tests/test_rc72_windows_clean_unpack_contract.py
+          tests/test_rc7_windows_clean_qualification_contract.py
+          tests/test_rc7_dsh_bridge_qualification.py tests/test_rc7_code_qualification.py
+          tests/test_rc7_execution_qualification_strict.py tests/test_rc7_script_qualification_import.py
