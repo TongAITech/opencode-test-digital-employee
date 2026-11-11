@@ -1,7 +1,6 @@
-"""POSIX physical-file lock probe. This fixture has no production entry point."""
+"""Physical-file lock probe. This fixture has no production entry point."""
 
 import errno
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -16,6 +15,20 @@ def reply(value):
     print(value, flush=True)
 
 
+def lock(ledger):
+    if os.name == "nt":
+        import msvcrt
+
+        # Lock a byte outside the fixture payload so a reader can inspect the
+        # ledger while a cooperating writer holds the ownership lock.
+        ledger.seek(1 << 30)
+        msvcrt.locking(ledger.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(ledger.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def run(path, expected_identity, epoch):
     # Open without creating a missing or replacement ledger.
     with path.open("r+b", buffering=0) as ledger:
@@ -23,7 +36,7 @@ def run(path, expected_identity, epoch):
             reply("FILE_IDENTITY_CHANGED")
             return
         try:
-            fcntl.flock(ledger.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock(ledger)
         except OSError as error:
             if error.errno not in (errno.EACCES, errno.EAGAIN):
                 raise
