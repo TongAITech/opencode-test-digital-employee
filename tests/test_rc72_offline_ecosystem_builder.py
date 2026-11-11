@@ -65,3 +65,31 @@ def test_deterministic_zip_is_byte_identical(tmp_path: Path) -> None:
     builder._write_deterministic_zip(root, first)
     builder._write_deterministic_zip(root, second)
     assert first.read_bytes() == second.read_bytes()
+
+
+
+def test_source_build_prepares_mnemon_and_modlens_only(tmp_path: Path, monkeypatch) -> None:
+    commands = []
+    monkeypatch.setattr(builder.shutil, "which", lambda name: "/usr/bin/pnpm" if name == "pnpm" else None)
+    monkeypatch.setattr(
+        builder,
+        "_run",
+        lambda command, cwd=None, timeout=900: commands.append((command, cwd, timeout)) or "",
+    )
+    builder._prepare_source_build({"id": "dsh-mnemon"}, tmp_path)
+    builder._prepare_source_build({"id": "modlens"}, tmp_path)
+    builder._prepare_source_build({"id": "dsh-skills-manager"}, tmp_path)
+    assert [row[0][1:] for row in commands] == [
+        ["install", "--frozen-lockfile"],
+        ["run", "build"],
+        ["install", "--frozen-lockfile"],
+        ["run", "build"],
+    ]
+    assert all(row[1] == tmp_path for row in commands)
+    assert all(row[2] == 1800 for row in commands)
+
+
+def test_source_build_fails_closed_when_pinned_pnpm_is_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(builder.shutil, "which", lambda _name: None)
+    with pytest.raises(builder.BundleBuildError, match="PINNED_PNPM_10_13_1_REQUIRED_FOR_SOURCE_BUILD"):
+        builder._prepare_source_build({"id": "dsh-mnemon"}, tmp_path)

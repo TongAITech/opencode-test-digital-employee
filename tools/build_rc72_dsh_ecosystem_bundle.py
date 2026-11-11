@@ -269,6 +269,17 @@ def _scan_licenses(package_root):
     return rows
 
 
+def _prepare_source_build(spec, source):
+    """Build packages whose published runtime entry points are generated from source."""
+    if spec["id"] not in ("dsh-mnemon", "modlens"):
+        return
+    pnpm = shutil.which("pnpm")
+    if not pnpm:
+        raise BundleBuildError("PINNED_PNPM_10_13_1_REQUIRED_FOR_SOURCE_BUILD")
+    _run([pnpm, "install", "--frozen-lockfile"], cwd=source, timeout=1800)
+    _run([pnpm, "run", "build"], cwd=source, timeout=1800)
+
+
 def _pack_plugin(npm, spec, target, work):
     source = Path(work) / ("source-" + spec["id"])
     source.mkdir(parents=True, exist_ok=True)
@@ -278,6 +289,7 @@ def _pack_plugin(npm, spec, target, work):
     _run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=source, timeout=120)
     if spec["id"] == "dsh-archify":
         _run(["node", "scripts/stage-skill.mjs"], cwd=source, timeout=120)
+    _prepare_source_build(spec, source)
     pack_dir = Path(work) / ("pack-" + spec["id"])
     pack_dir.mkdir(parents=True, exist_ok=True)
     output = _run([

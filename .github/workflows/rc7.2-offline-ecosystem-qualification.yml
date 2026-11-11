@@ -73,11 +73,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.19.0'
+      - name: Install pinned pnpm for source package builds
+        run: npm install --global pnpm@10.13.1
       - name: Verify build toolchain
         run: |
           python --version
           node --version
           npm --version
+          pnpm --version
           git --version
       - name: Build platform-specific offline extension bundle
         run: python tools/build_rc72_dsh_ecosystem_bundle.py --platform ${{ matrix.platform }} --output-dir dist/offline-ecosystem
