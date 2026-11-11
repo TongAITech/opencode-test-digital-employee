@@ -20,7 +20,7 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin")
 EXCLUDED_SUFFIXES = {".exe", ".dll", ".cmd", ".bat", ".ps1", ".msi", ".pdb"}
-SEAL_FILES = {"NATIVE_FIELD_PACKAGE.json", "CHECKSUMS.sha256"}
+SEAL_FILES = {"CHECKSUMS.sha256"}
 GENERATED_DIRS = {"runtime-state", "state", "__pycache__", "qualification-evidence"}
 
 
@@ -75,22 +75,51 @@ def _copy_runtime(src: Path, dst: Path) -> None:
         raise NativeFieldError("NATIVE_RUNTIME_TARGET_EXISTS:" + str(dst))
     shutil.copytree(str(src), str(dst), symlinks=False)
 
-def _prune_windows_only_runtime_shims(runtime_root: Path) -> List[str]:
-    """Remove foreign Windows launchers from the native acquired tool runtime only.
+def _prune_foreign_native_runtime_payloads(runtime_root: Path, system: str, arch: str) -> List[str]:
+    """Remove incompatible binaries from third-party *tool runtime* downloads.
 
-    Product source, plugin archives, LICENSE files and authorized payloads are not
-    altered. The strict package-wide Windows contamination gate remains active.
+    Native pnpm/Corepack tarballs can include optional Windows PE .node modules
+    and Node launch shims, even on a Linux/macOS host. Do not modify product
+    code, plugin source, licenses or restricted authorization-gated payloads.
     """
     root = Path(runtime_root)
-    if not root.is_dir():
-        raise NativeFieldError("NATIVE_RUNTIME_ROOT_REQUIRED")
+    if not root.is_dir() or system not in {"linux", "darwin"} or arch not in {"x86_64", "arm64"}:
+        raise NativeFieldError("NATIVE_RUNTIME_PLATFORM_INVALID")
     removed: List[str] = []
+    expected_elf = 62 if arch == "x86_64" else 183
+    expected_macho = 0x01000007 if arch == "x86_64" else 0x0100000C
+
     for path in sorted(root.rglob("*")):
-        if (path.is_file() or path.is_symlink()) and path.suffix.lower() in EXCLUDED_SUFFIXES:
+        if not (path.is_file() or path.is_symlink()):
+            continue
+        suffix = path.suffix.lower()
+        remove = suffix in EXCLUDED_SUFFIXES
+        if not remove and not path.is_symlink():
+            with path.open("rb") as stream:
+                head = stream.read(64)
+            if head[:2] == b"MZ":
+                remove = True
+            elif suffix in {".node", ".so", ".dylib"}:
+                if head.startswith(b"\x7fELF"):
+                    machine = int.from_bytes(head[18:20], "little") if len(head) >= 20 else -1
+                    remove = system != "linux" or head[4] != 2 or machine != expected_elf
+                elif head[:4] in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}:
+                    endian = "little" if head[:4] == b"\xcf\xfa\xed\xfe" else "big"
+                    cpu = int.from_bytes(head[4:8], endian)
+                    remove = system != "darwin" or cpu != expected_macho
+                elif head[:4] in {b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}:
+                    if system != "darwin":
+                        remove = True
+                    else:
+                        probe = subprocess.run(["lipo", "-archs", str(path)], text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False)
+                        remove = probe.returncode != 0 or ("x86_64" if arch == "x86_64" else "arm64") not in probe.stdout.split()
+                elif suffix == ".node":
+                    raise NativeFieldError("NATIVE_EXTENSION_FORMAT_UNRECOGNIZED:" + str(path))
+        if remove:
             removed.append(path.relative_to(root).as_posix())
             path.unlink()
     return removed
-
 
 def _copy_packaging(repo: Path, root: Path) -> None:
     # Only POSIX launchers, runtime source, and the native README are copied.
@@ -244,7 +273,7 @@ def stage_package(
     _copy_runtime(Path(allure_root).resolve(), runtime / "allure")
     _copy_runtime(Path(zap_root).resolve(), runtime / "zap")
     # Native Node/Corepack distributions can include Windows .cmd/.ps1 shims.
-    pruned_foreign_runtime_shims = _prune_windows_only_runtime_shims(runtime)
+    pruned_foreign_runtime_shims = _prune_foreign_native_runtime_payloads(runtime, identity["platform"], identity["architecture"])
 
     def copy_executable(source: Path, target: Path) -> None:
         source = Path(source).resolve()
@@ -361,7 +390,7 @@ def stage_package(
         },
         "browser_skill": {"cli": "0.4.1", "extension": "0.4.1"},
         "tool_versions": json.loads(os.environ.get("PFC_RC72_TOOL_VERSIONS_JSON", "{}")),
-        "windows_only_runtime_shims_removed": pruned_foreign_runtime_shims,
+        "foreign_runtime_payloads_removed": pruned_foreign_runtime_shims,
         "dsh_plugins": {
             "core_payload": "rc7_release/vendor/dsh-plugins-payload.zip",
             "optional_payload": "rc7_release/vendor/dsh-optional-plugins-payload.zip",

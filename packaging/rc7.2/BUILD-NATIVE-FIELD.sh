@@ -262,7 +262,7 @@ PY
 "$RG_BIN" --version > "$TOOLS/rg-version.txt"
 if "$TOOLS/$CG_ASSET" --version > "$TOOLS/codegraph-version.txt" 2>&1; then :; else "$TOOLS/$CG_ASSET" --help > "$TOOLS/codegraph-version.txt" 2>&1; fi
 "$TOOLS/$CG_ASSET" --help > "$TOOLS/codegraph-help.txt"
-"$ZAP_BIN" -version > "$TOOLS/zap-version.txt" 2>&1 || true
+"$ZAP_BIN" -version > "$TOOLS/zap-version.txt" 2>&1
 "$BSK_BIN" --version > "$TOOLS/bsk-version.txt"
 "$NODEBIN" --version > "$TOOLS/node-version.txt"
 "$PYBIN" --version > "$TOOLS/python-version.txt"
@@ -306,7 +306,7 @@ const {chromium}=require(process.argv[1]);
   "-Dmaven.repo.local=$PACKAGE/workspace-template/runtime/maven-repository" \
   -f "$SEED/pom.xml" test
 "$PACKAGE/workspace-template/runtime/allure/bin/allure" --version >/dev/null
-"$PACKAGE/workspace-template/runtime/zap/$(basename "$(dirname "$ZAP_BIN")")/zap.sh" -version >/dev/null 2>&1 || true
+"$PACKAGE/workspace-template/runtime/zap/$(basename "$(dirname "$ZAP_BIN")")/zap.sh" -version >/dev/null 2>&1
 
 # Archive is sealed into a private candidate directory, never uploaded until the
 # clean-unpack and runtime smoke gates pass. BUILD failure cannot leak an Artifact.

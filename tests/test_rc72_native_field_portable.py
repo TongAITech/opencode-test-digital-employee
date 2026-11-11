@@ -141,7 +141,7 @@ def test_target_identity_is_explicit_and_never_windows():
 
 
 def test_native_runtime_prunes_only_windows_shims_preserving_posix_tools(tmp_path):
-    from rc7_release.rc72_native_field_portable import _prune_windows_only_runtime_shims
+    from rc7_release.rc72_native_field_portable import _prune_foreign_native_runtime_payloads
     runtime = tmp_path / "runtime"
     for name, body in (
         ("node/lib/node_modules/corepack/shims/corepack.cmd", "@echo off"),
@@ -153,7 +153,7 @@ def test_native_runtime_prunes_only_windows_shims_preserving_posix_tools(tmp_pat
         path = runtime / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body)
-    removed = _prune_windows_only_runtime_shims(runtime)
+    removed = _prune_foreign_native_runtime_payloads(runtime, "linux", "x86_64")
     assert removed == [
         "node/lib/node_modules/corepack/shims/corepack.cmd",
         "node/lib/node_modules/corepack/shims/corepack.ps1",
@@ -161,4 +161,44 @@ def test_native_runtime_prunes_only_windows_shims_preserving_posix_tools(tmp_pat
     assert (runtime / "node/bin/node").read_text() == "native-node"
     assert (runtime / "node/lib/node_modules/corepack/shims/corepack").is_file()
     assert (runtime / "node/lib/node_modules/npm/bin/npm-cli.js").is_file()
-    assert _prune_windows_only_runtime_shims(runtime) == []
+    assert _prune_foreign_native_runtime_payloads(runtime, "linux", "x86_64") == []
+
+
+
+def test_native_runtime_prunes_pnpm_foreign_pe_and_mismatched_node_extensions(tmp_path):
+    from rc7_release.rc72_native_field_portable import _prune_foreign_native_runtime_payloads
+    native = tmp_path / "native"
+    native.mkdir()
+    def elf(machine):
+        head = bytearray(64)
+        head[:4] = b"\x7fELF"
+        head[4] = 2
+        head[18:20] = machine.to_bytes(2, "little")
+        return bytes(head)
+    (native / "reflink.win32-arm64-msvc.node").write_bytes(b"MZ\x90\x00PE")
+    (native / "reflink.linux-arm64.node").write_bytes(elf(183))
+    (native / "reflink.linux-x64.node").write_bytes(elf(62))
+    removed = _prune_foreign_native_runtime_payloads(native, "linux", "x86_64")
+    assert removed == ["reflink.linux-arm64.node", "reflink.win32-arm64-msvc.node"]
+    assert (native / "reflink.linux-x64.node").is_file()
+
+
+def test_native_runtime_prunes_linux_elf_on_macos_preserving_matching_macho(tmp_path):
+    from rc7_release.rc72_native_field_portable import _prune_foreign_native_runtime_payloads
+    native = tmp_path / "native"
+    native.mkdir()
+    (native / "addon-linux.node").write_bytes(b"\x7fELF" + b"\x02" + b"\0" * 59)
+    (native / "addon-macos-arm64.node").write_bytes(b"\xcf\xfa\xed\xfe" + (0x0100000C).to_bytes(4, "little") + b"\0" * 56)
+    removed = _prune_foreign_native_runtime_payloads(native, "darwin", "arm64")
+    assert removed == ["addon-linux.node"]
+    assert (native / "addon-macos-arm64.node").is_file()
+
+
+def test_native_manifest_is_included_in_seal_and_detects_tampering(tmp_path):
+    root = _sealed_fixture(tmp_path)
+    manifest = root / "NATIVE_FIELD_PACKAGE.json"
+    obj = json.loads(manifest.read_text())
+    obj["build_id"] = "tampered-without-a-new-seal"
+    manifest.write_text(json.dumps(obj))
+    with pytest.raises(NativeFieldError, match="NATIVE_CHECKSUM_COVERAGE_MISMATCH"):
+        verify_package(root)
