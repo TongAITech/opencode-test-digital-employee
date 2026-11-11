@@ -1,0 +1,193 @@
+name: RC7.2 Native Linux x86_64 Field-Validation Transport (No bank DSH)
+
+on:
+  push:
+    branches:
+      - work/rc7.2-linux-field-transport-20261111
+    paths:
+      - 'rc7_release/rc72_linux_field_portable.py'
+      - 'packaging/rc7.2/LINUX-FIELD-AITEST.sh'
+      - 'packaging/rc7.2/LINUX-FIELD-README.md'
+      - 'tests/test_rc72_linux_field_portable.py'
+      - '.github/workflows/rc7.2-linux-field-portable.yml'
+  pull_request:
+    paths:
+      - 'rc7_release/rc72_linux_field_portable.py'
+      - 'packaging/rc7.2/LINUX-FIELD-AITEST.sh'
+      - 'tests/test_rc72_linux_field_portable.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-linux-field-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-contract:
+    name: linux-contract-py${{ matrix.python }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned qualification dependencies
+        run: python -m pip install -r rc7_release/requirements-qualification.txt
+      - name: Native Linux transport, host-trust and license-negative contract
+        run: |
+          python -m compileall -q rc7_release/rc72_linux_field_portable.py tests/test_rc72_linux_field_portable.py
+          python -m pytest -q tests/test_rc72_linux_field_portable.py --junitxml=rc72-linux-contract.xml
+          bash -n packaging/rc7.2/LINUX-FIELD-AITEST.sh
+          bash -n packaging/rc7.2/Q3-FIELD-HANDOFF.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: RC72-LINUX-CONTRACT-${{ matrix.python }}-${{ github.sha }}
+          path: rc72-linux-contract.xml
+          retention-days: 14
+
+  linux-native-package:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/work/rc7.2-linux-field-transport-20261111'
+    needs: linux-contract
+    name: linux-native-package-and-independent-clean-extraction
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/rc72-managed-python
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.9.0'
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Prepare real Linux Python 3.11, Node 24.9, plugins, BrowserSkill 0.4.1 and Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install 3.11
+          PYBIN="$(uv python find 3.11 --managed-python)"
+          PYROOT="$(dirname "$(dirname "$(readlink -f "$PYBIN")")")"
+          uv pip install --python "$PYBIN" "pip==25.2" \
+            "pytest==8.3.5" "requests==2.34.2" "openpyxl==3.1.5" \
+            "python-docx==1.2.0" "python-pptx==1.0.2" \
+            "pypdf==7.0.1" "pillow==12.0.0"
+          "$PYBIN" -B -c "import requests,pytest,openpyxl,docx,pptx,pypdf,PIL,ssl,sqlite3;print('NATIVE_LINUX_PACKAGE_PYTHON_PASS')"
+          NODEBIN="$(readlink -f "$(command -v node)")"
+          NODEROOT="$(dirname "$(dirname "$NODEBIN")")"
+          node --version | grep -x 'v24.9.0'
+
+          python -m rc7_release.plugin_payload acquire --repo-root .
+          mkdir -p "$RUNNER_TEMP/rc72-linux-input/bsk" \
+            "$RUNNER_TEMP/rc72-linux-input/extension" \
+            "$RUNNER_TEMP/rc72-linux-input/node-execution" \
+            "$RUNNER_TEMP/rc72-linux-input/pw-browsers"
+          BSK_URL="https://github.com/Tencent/BrowserSkill/releases/download/cli-v0.4.1/bsk-v0.4.1-x86_64-unknown-linux-musl.tar.gz"
+          EXT_URL="https://github.com/Tencent/BrowserSkill/releases/download/ext-v0.4.1/browser-skill-extension-v0.4.1-chrome.zip"
+          curl -fL --retry 3 --retry-delay 2 "$BSK_URL" -o "$RUNNER_TEMP/rc72-linux-input/bsk.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 "$EXT_URL" -o "$RUNNER_TEMP/rc72-linux-input/extension.zip"
+          tar -xzf "$RUNNER_TEMP/rc72-linux-input/bsk.tar.gz" -C "$RUNNER_TEMP/rc72-linux-input/bsk"
+          unzip -q "$RUNNER_TEMP/rc72-linux-input/extension.zip" -d "$RUNNER_TEMP/rc72-linux-input/extension"
+          BSK_BIN="$(find "$RUNNER_TEMP/rc72-linux-input/bsk" -type f -name bsk -print -quit)"
+          [[ -n "$BSK_BIN" ]] || { echo "NATIVE_LINUX_BSK_NOT_FOUND" >&2; exit 3; }
+          chmod +x "$BSK_BIN"
+          "$BSK_BIN" --version | grep -F '0.4.1'
+          EXT_MANIFEST="$(find "$RUNNER_TEMP/rc72-linux-input/extension" -type f -name manifest.json -print -quit)"
+          [[ -n "$EXT_MANIFEST" ]] || { echo "NATIVE_LINUX_BSK_EXTENSION_NOT_FOUND" >&2; exit 3; }
+          EXT_ROOT="$(dirname "$EXT_MANIFEST")"
+
+          NODE_EXEC="$RUNNER_TEMP/rc72-linux-input/node-execution"
+          npm install --prefix "$NODE_EXEC" --save-exact --omit=dev --ignore-scripts --no-audit --no-fund "playwright@1.65.0"
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/rc72-linux-input/pw-browsers" \
+            node "$NODE_EXEC/node_modules/playwright/cli.js" install chromium
+
+          {
+            echo "RC72_LINUX_PY_ROOT=$PYROOT"
+            echo "RC72_LINUX_NODE_ROOT=$NODEROOT"
+            echo "RC72_LINUX_BSK_BIN=$BSK_BIN"
+            echo "RC72_LINUX_EXT_ROOT=$EXT_ROOT"
+            echo "RC72_LINUX_NODE_EXEC=$NODE_EXEC"
+            echo "RC72_LINUX_BROWSER_ROOT=$RUNNER_TEMP/rc72-linux-input/pw-browsers"
+          } >> "$GITHUB_ENV"
+          printf '{"status":"PASS","source_commit":"%s","target":"ubuntu-22.04-x86_64","native_python":true,"native_node":true,"browserskill_041":true,"linux_chromium":true,"field_verified":false,"bank_final":false}\n' "$GITHUB_SHA" > "$RUNNER_TEMP/linux-input-acquisition.json"
+
+      - name: Stage, source-seal and produce one native Linux tar.gz
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rc72-linux-stage" "$RUNNER_TEMP/rc72-linux-dist"
+          python -m rc7_release.rc72_linux_field_portable stage \
+            --repo-root . --output "$RUNNER_TEMP/rc72-linux-stage" --source-commit "$GITHUB_SHA" \
+            --python-root "$RC72_LINUX_PY_ROOT" \
+            --node-root "$RC72_LINUX_NODE_ROOT" \
+            --bsk-cli "$RC72_LINUX_BSK_BIN" \
+            --browser-root "$RC72_LINUX_BROWSER_ROOT" \
+            --extension-root "$RC72_LINUX_EXT_ROOT" \
+            --node-execution-root "$RC72_LINUX_NODE_EXEC" | tee "$RUNNER_TEMP/linux-stage-evidence.json"
+          PACKAGE="$RUNNER_TEMP/rc72-linux-stage/PFC-AITest-DSH-RC7.2-UBUNTU22-X64-FIELD"
+          ARCHIVE="$RUNNER_TEMP/rc72-linux-dist/RC72-LINUX-FIELD-UBUNTU22-X64-${GITHUB_SHA:0:12}.tar.gz"
+          python -m rc7_release.rc72_linux_field_portable archive \
+            --package-root "$PACKAGE" --output "$ARCHIVE" | tee "$RUNNER_TEMP/linux-archive-evidence.json"
+          echo "RC72_LINUX_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Fresh extraction, exact SHA256 identity and offline-native smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/rc72-linux-dist"
+          sha256sum -c "$(basename "$RC72_LINUX_ARCHIVE").sha256"
+          mkdir -p "$RUNNER_TEMP/rc72-linux-clean"
+          tar -xzf "$RC72_LINUX_ARCHIVE" -C "$RUNNER_TEMP/rc72-linux-clean"
+          ROOT="$RUNNER_TEMP/rc72-linux-clean/PFC-AITest-DSH-RC7.2-UBUNTU22-X64-FIELD"
+          PY="$ROOT/workspace-template/runtime/python/bin/python3"
+          NODE="$ROOT/workspace-template/runtime/node/bin/node"
+          BSK="$ROOT/workspace-template/runtime/browser/browserskill/bsk"
+          cd "$ROOT"
+          "$PY" -B -m rc7_release.rc72_linux_field_portable verify \
+            --package-root "$ROOT" --expected-source-commit "$GITHUB_SHA" | tee "$RUNNER_TEMP/linux-clean-identity.json"
+          "$PY" -B -c "import sys,ssl,sqlite3,pytest,requests,openpyxl,docx,pptx,pypdf,PIL,rc7_runtime,rc7_release;assert sys.executable.startswith('$ROOT/');print('LINUX_PACKAGE_LOCAL_PYTHON_AND_MODULE_IMPORT_PASS')"
+          "$NODE" --version | grep -x 'v24.9.0'
+          "$BSK" --version | grep -F '0.4.1'
+          PFC_RC72_LINUX_PROBE_ONLY=1 bash packaging/rc7.2/LINUX-FIELD-AITEST.sh | tee "$RUNNER_TEMP/linux-launch-probe.txt"
+          ( cd "$ROOT/workspace-template/runtime/node-execution" && \
+            PLAYWRIGHT_BROWSERS_PATH="$ROOT/workspace-template/runtime/browser/pw-browsers" \
+            "$NODE" -e 'const {chromium}=require("playwright"); (async()=>{const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});const page=await browser.newPage();await page.goto("data:text/html,<title>RC72 Linux Offline</title>");if((await page.title())!=="RC72 Linux Offline")throw Error("NO_BROWSER_OFFLINE_PROOF");await browser.close();console.log("LINUX_PLAYWRIGHT_CHROMIUM_OFFLINE_PASS")})().catch(x=>{console.error(x);process.exit(1)})' ) | tee "$RUNNER_TEMP/linux-browser-smoke.txt"
+          "$PY" -B -m rc7_release.rc72_target_linux_reality probe \
+            --source-commit "$GITHUB_SHA" --runner-kind GITHUB_HOSTED_GENERIC \
+            --runner-identity "github-hosted-ubuntu22-x86_64" \
+            --output "$RUNNER_TEMP/linux-q3-generic-hold.json" --require-hold
+          # Explicitly verify what this package cannot assert:
+          "$PY" -B -c 'import json; m=json.load(open("LINUX_FIELD_PACKAGE.json")); assert m["field_verified"] is False and m["bank_final"] is False; assert m["dsh_main_payload"]["bundled"] is False; assert m["restricted_graph_component"]["gitnexus_bundled"] is False;print("LINUX_FIELD_HOLD_BOUNDARIES_PASS")'
+      - name: Upload Linux native field artifact, checksum and clean-qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC72-LINUX-FIELD-UBUNTU22-X64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/rc72-linux-dist/RC72-LINUX-FIELD-UBUNTU22-X64-*.tar.gz
+            ${{ runner.temp }}/rc72-linux-dist/RC72-LINUX-FIELD-UBUNTU22-X64-*.tar.gz.sha256
+            ${{ runner.temp }}/linux-input-acquisition.json
+            ${{ runner.temp }}/linux-stage-evidence.json
+            ${{ runner.temp }}/linux-archive-evidence.json
+            ${{ runner.temp }}/linux-clean-identity.json
+            ${{ runner.temp }}/linux-launch-probe.txt
+            ${{ runner.temp }}/linux-browser-smoke.txt
+            ${{ runner.temp }}/linux-q3-generic-hold.json
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30
