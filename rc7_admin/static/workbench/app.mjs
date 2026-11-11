@@ -25,4 +25,4 @@ document.addEventListener('workbench-scope-changed',refreshReadiness);refreshRea
 
 mountRequirements(document.getElementById('requirement-relations'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
-mountProjectMetadata($('project-metadata'),{getProject:()=>scopePanel.context.project_id,getView:()=>state,refreshDirectory:directory.refreshMetadata,clearUnauthorized:directory.clearUnauthorized});
+mountProjectMetadata($('project-metadata'),{getProject:()=>scopePanel.context.project_id,getView:()=>state,refreshDirectory:directory.refreshMetadata,revalidateScope:scopePanel.revalidate,clearUnauthorized:directory.clearUnauthorized});

@@ -87,7 +87,7 @@ const knownRejections = new Map([
 ]);
 
 export function mountProjectMetadata(root, {
-  getProject, getView, refreshDirectory, clearUnauthorized,
+  getProject, getView, refreshDirectory, revalidateScope, clearUnauthorized,
   fetcher = fetch, csrf = () => document.querySelector('meta[name="dsh-csrf-token"]')?.content,
 }) {
   root.innerHTML = `<h3 data-title></h3><p data-current></p>
@@ -175,7 +175,7 @@ export function mountProjectMetadata(root, {
     return '/api/workbench/v1/projects/' + encodeURIComponent(target) + '/metadata';
   }
 
-  async function readCurrent({refresh = false} = {}) {
+  async function readCurrent({refresh = false, recheckAccess = false} = {}) {
     if (!project || busy) return;
     const target = project;
     const epoch = ++generation;
@@ -191,6 +191,17 @@ export function mountProjectMetadata(root, {
       const after = before ? await readSubject().catch(() => null) : null;
       if (epoch !== generation) return;
       if (!validMetadata(current, target) || before !== after) throw new Error('INVALID_METADATA');
+      if (recheckAccess) {
+        const verified = await revalidateScope(target, current.access_scope_revision);
+        if (epoch !== generation) return;
+        if (verified === null) {
+          notice = '';
+          return;
+        }
+        if (!verified) throw new Error('SCOPE_ACCESS_UNVERIFIED');
+        await refreshDirectory(current.access_scope_revision);
+        if (epoch !== generation) return;
+      }
       metadata = current;
       subject = after;
       name.value = current.name;
@@ -199,7 +210,14 @@ export function mountProjectMetadata(root, {
     } catch (error) {
       if (epoch !== generation) return;
       notice = error.status === 403 ? 'denied' : 'failure';
-      if (error.status === 403) clearUnauthorized(target);
+      if (error.status === 403 || recheckAccess) {
+        const result = notice;
+        clearUnauthorized(target);
+        if (!project) {
+          notice = result;
+          render();
+        }
+      }
     } finally {
       if (epoch === generation) {
         busy = false;
@@ -254,6 +272,11 @@ export function mountProjectMetadata(root, {
       if (epoch !== generation) return;
       const rejection = knownRejections.get(error.status + ':' + error.code);
       if (!recovering && rejection) pending.delete(intent.project);
+      if (error.status === 403 && error.code === 'FORBIDDEN') {
+        busy = false;
+        await readCurrent({recheckAccess: true});
+        return;
+      }
       notice = rejection || (pending.has(intent.project) ? '' : 'failure');
       if (pending.has(intent.project) || rejection === 'denied' || rejection === 'conflict' || rejection === 'readOnly') {
         metadata = null;

@@ -238,6 +238,84 @@ class ProjectMetadataBrowser(unittest.TestCase):
             panel.locator('[data-check]').click()
             expect(panel.locator('[data-current]')).to_have_text('receipt after subject change')
             self.assertEqual(patches[-1], delayed_intent)
+            before_history = data.scalar('SELECT count(*) FROM wb.project_metadata_history')
+
+            # A Host-proof failure leaves the separately authorized read scope intact.
+            previous_scope_reads = len(scope_requests)
+            page.evaluate("document.querySelector('meta[name=dsh-csrf-token]').content='wrong'")
+            with page.expect_response(lambda response: response.request.method == 'PATCH') as rejected:
+                rename('rename without current Host proof')
+            self.assertEqual(rejected.value.json()['error']['code'], 'MUTATION_AUTH_REQUIRED')
+            wait_status('permissions or identity')
+            self.assertEqual(page.locator('#business-scope').get_attribute('data-scope-status'), 'READY')
+            self.assertEqual(len(scope_requests), previous_scope_reads)
+            page.evaluate("document.querySelector('meta[name=dsh-csrf-token]').content='fixture'")
+            load()
+
+            # Write-only revocation proves a new ACL epoch before restoring legal filters.
+            db.owner.execute("UPDATE wb.project_acl SET can_write=false WHERE project_id='P1' AND principal='alice'")
+            with page.expect_response(lambda response: response.request.method == 'PATCH') as rejected:
+                rename('rename after write-only revocation')
+            self.assertEqual(rejected.value.json()['error']['code'], 'FORBIDDEN')
+            wait_status('read-only')
+            expect(panel.locator('form')).to_be_hidden()
+            expect(page.locator('[data-project-select]')).to_have_value('P1')
+            expect(page.locator('[data-date-select]')).to_have_value('B1')
+            expect(page.locator('[data-scope=requirement]')).to_have_value('R1')
+            self.assertEqual(page.locator('#business-scope').get_attribute('data-scope-status'), 'READY')
+            self.assertEqual(len(scope_requests), previous_scope_reads + 1)
+            self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), before_history)
+
+            # Restore writing, then revoke all access while the authorized form is open.
+            db.owner.execute("UPDATE wb.project_acl SET can_write=true WHERE project_id='P1' AND principal='alice'")
+            load()
+            db.owner.execute("DELETE FROM wb.project_acl WHERE project_id='P1' AND principal='alice'")
+            with page.expect_response(lambda response: response.request.method == 'PATCH') as rejected:
+                rename('rename after full revocation')
+            self.assertEqual(rejected.value.json()['error']['code'], 'FORBIDDEN')
+            expect(page.locator('#business-scope')).not_to_have_attribute('data-scope-status', 'READY')
+            expect(page.locator('[data-project-select]')).to_have_value('')
+            expect(page.locator('[data-date-select]')).to_have_value('')
+            expect(page.locator('[name=batch_id]')).to_have_value('')
+            self.assertEqual(page.locator('[data-project-select] option[value=P1]').count(), 0)
+            expect(panel.locator('[data-current]')).to_have_text('')
+            self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), before_history)
+
+            def reload_authorized_scope():
+                page.locator('[data-directory-load]').click()
+                page.wait_for_selector('#project-directory[data-directory-status=READY]')
+                page.locator('[data-project-select]').select_option('P1')
+                page.locator('[data-date-select]').select_option('B1')
+                page.wait_for_selector('#business-scope[data-scope-status=READY]')
+
+            db.owner.execute("INSERT INTO wb.project_acl VALUES('P1','alice',true)")
+            reload_authorized_scope()
+            load()
+            lose_response.set()
+            rename('unknown across revoked access')
+            wait_status('outcome is unknown')
+            revoked_intent = patches[-1]
+            committed_history = data.scalar('SELECT count(*) FROM wb.project_metadata_history')
+            db.owner.execute("DELETE FROM wb.project_acl WHERE project_id='P1' AND principal='alice'")
+            panel.locator('[data-check]').click()
+            expect(page.locator('[name=project_id]')).to_have_value('')
+            expect(panel.locator('[data-current]')).to_have_text('')
+            self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), committed_history)
+
+            # Reauthorization and actor changes leave the original request intact.
+            db.owner.execute("INSERT INTO wb.project_acl VALUES('P1','alice',true)")
+            actor[0] = 'bob'
+            reload_authorized_scope()
+            count = len(patches)
+            panel.locator('[data-check]').click()
+            wait_status('permissions or identity')
+            self.assertEqual(len(patches), count)
+            actor[0] = 'alice'
+            panel.locator('[data-check]').click()
+            expect(panel.locator('[data-current]')).to_have_text('unknown across revoked access')
+            self.assertEqual(patches[-1], revoked_intent)
+            self.assertEqual(data.scalar('SELECT count(*) FROM wb.project_metadata_history'), committed_history)
+
             actor[0] = 'reader'
             load()
             expect(panel.locator('form')).to_be_hidden()
@@ -252,6 +330,7 @@ class ProjectMetadataBrowser(unittest.TestCase):
                     held.append((route, route.fetch()))
                 else:
                     route.continue_()
+            db.owner.execute("DELETE FROM wb.project_acl WHERE project_id='P1' AND principal='alice'")
             page.route('**/projects/P1/metadata', hold)
             panel.locator('[data-load]').click()
             for _ in range(100):
@@ -259,6 +338,7 @@ class ProjectMetadataBrowser(unittest.TestCase):
                     break
                 page.wait_for_timeout(20)
             self.assertTrue(held)
+            self.assertEqual(held[0][1].status, 403)
             actor[0] = 'bob'
             page.locator('[name=project_id]').fill('P2')
             load()
