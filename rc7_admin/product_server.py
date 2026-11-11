@@ -9,7 +9,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from .server import AdminApplication, AdminProjectionError
 from .requirement_hierarchy import RequirementHierarchyView
@@ -61,7 +61,7 @@ def _handler(application: ProductAdminApplication, workbench_handler=None, *, wo
                 return
             # The source archive can start before a business/Host adapter is
             # installed. Keep these routes closed using only the admin package.
-            path = urlparse(self.path).path
+            path = urlsplit(self.path).path
             writable_route = ('/batches/' in path or
                               re.fullmatch(r'/api/workbench/v1/projects/[^/]+/metadata', path) is not None)
             if method == 'GET' or (method in ('POST', 'PATCH', 'DELETE') and writable_route):

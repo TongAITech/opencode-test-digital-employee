@@ -73,6 +73,7 @@ class ProductSourceArchiveTest(unittest.TestCase):
                     metadata = '/api/workbench/v1/projects/P1/metadata'
                     error(workbench, 'GET', metadata, 503, 'HOST_IDENTITY_UNAVAILABLE')
                     error(workbench, 'PATCH', metadata, 503, 'HOST_IDENTITY_UNAVAILABLE')
+                    error(workbench, 'PATCH', metadata + ';extra', 405, 'METHOD_NOT_ALLOWED')
                     error(workbench, 'POST', '/api/workbench/v1/projects/P1/batches/B1/assets',
                           503, 'HOST_IDENTITY_UNAVAILABLE')
                     error(workbench, 'POST', '/api/workbench/v1/write-context', 405,
