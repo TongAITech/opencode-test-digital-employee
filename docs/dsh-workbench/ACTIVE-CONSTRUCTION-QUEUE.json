@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "71a50aeeb92ba74468f05d00cb6d33af8a143ef7",
+    "last_tested_code_sha": "52518b86d62d2785466cb8bd0361679b739e7f9d",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -101,8 +101,8 @@
       "owner": "B",
       "worktree": "b-project-metadata-pg",
       "branch": "work/dsh-wb-b-project-metadata-pg",
-      "state": "FIXED_SOURCE_F_EXACT_PG_REVIEW_RUNNING",
-      "next_action": "B304/0 skip PG17.6 ICU; exact optional and fullB CI successful; F recheck closes old785 only after report.",
+      "state": "INTEGRATED_F253_EXACT_OPTIONAL_COMPONENT",
+      "next_action": "Keep F246 old red. Production009 explicit read-only profile is independent; no admission.",
       "pr": 244,
       "source_sha": "3b74d5e00edb6c2c0304074bdc2699481309c52c"
     },
@@ -112,8 +112,8 @@
       "pr": 239,
       "worktree": "a-project-metadata-http",
       "source_sha": "26ef3c7b4173f9dd0a2b5240edd1039fb5a428ae",
-      "state": "FOUR_REAL_PG_HTTP_TESTS_WITH_CORRECTED_B_F_PENDING",
-      "next_action": "After exact B acceptance, F independent HTTP and native recovery; keep default no adapter."
+      "state": "INTEGRATED_F254_EXACT_HTTP_COMPONENT",
+      "next_action": "Default adapter unconfigured; UI P1 separate. Real Host and production profile outstanding."
     },
     {
       "ticket": "A_FANOUT_GUARD_REGRESSION",
@@ -129,10 +129,10 @@
       "owner": "C",
       "worktree": "c-project-metadata-ui",
       "branch": "work/dsh-wb-c-project-metadata-ui",
-      "state": "RECOMPOSING_REAL_APPROVED_DEPENDENCY_CANDIDATE",
-      "next_action": "Compose A26ef+B3b74 on isolated branch, actual browser regression, freeze and F after dependency acceptance.",
+      "state": "F252_REJECTED_REVOKED_SCOPE_FIX_IN_PROGRESS",
+      "next_action": "Retain actual 403 plus stale READY; freeze fully tested correction then F exact.",
       "pr": 250,
-      "source_sha": "5fc1db0ed8c9988bc58d0524ffde3af3e3f40244"
+      "source_sha": "a99b09c589e52b5f40d2ac1919f598c1545f9117"
     },
     {
       "ticket": "E_TYPED_MISSION_PRESERVATION_DESIGN",
@@ -141,6 +141,12 @@
       "source_sha": "5be49d089cdf8e320c29276418e3069fe9c0e796",
       "state": "B251_D248_F249_DESIGN_ACCEPTED_E_CODE_RUNNING",
       "next_action": "Implement typed representation/isolation and negative append guard only; archive pure shared leaf, exact legacy regression and F."
+    },
+    {
+      "ticket": "B_EXPLICIT_009_SCOPE_PROFILE",
+      "owner": "B",
+      "state": "ISOLATED_READ_ONLY_IMPLEMENTATION",
+      "next_action": "Fixed explicit 009 source profile, keep v2 default and drift rejection, no admission or runtime learning."
     }
   ],
   "accepted_integrated_components": [
@@ -207,6 +213,23 @@
         228
       ],
       "qualification_limit": "READONLY_RELATIONS_AND_NARROW_SCREEN_ONLY"
+    },
+    {
+      "pr": 244,
+      "source": "3b74d5e0",
+      "f_report_pr": 253,
+      "report": "29599b3a",
+      "keep_failures": [
+        246
+      ],
+      "qualification_limit": "OPTIONAL_009_PG_COMPONENT"
+    },
+    {
+      "pr": 239,
+      "source": "26ef3c7b",
+      "f_report_pr": 254,
+      "report": "5abbb07e",
+      "qualification_limit": "SAME_ORIGIN_HTTP_COMPONENT; default unconfigured"
     }
   ],
   "exact_verification": [
@@ -283,6 +306,16 @@
         "skipped": 4,
         "seconds": 3224.52
       }
+    },
+    {
+      "sha": "52518b86d62d2785466cb8bd0361679b739e7f9d",
+      "python_workbench_real_pg": {
+        "executed": 702,
+        "passed": 702,
+        "skipped": 0,
+        "seconds": 152.781
+      },
+      "pg_version": "17.6 + ICU"
     }
   ],
   "rules": [
