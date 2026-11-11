@@ -51,7 +51,7 @@ def _public_facts(facts):
     return value
 
 
-def _catalog(connection):
+def _catalog(connection, *, tables=TABLES, support_functions=_SUPPORT_FUNCTIONS, all_policies=False):
     """Fixed catalog SELECTs; caller owns a read-only transaction/search_path."""
     facts = {}
     facts['session'] = _rows(connection, '''SELECT current_user::text AS current_role,session_user::text AS session_role,
@@ -78,7 +78,7 @@ def _catalog(connection):
         pg_catalog.pg_has_role(current_user,c.relowner,'MEMBER') AS owner_member,
         pg_catalog.row_security_active(c.oid) AS rls_active
         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='wb' AND c.relname=ANY(%s) ORDER BY c.relname''', (list(TABLES),))
+        WHERE n.nspname='wb' AND c.relname=ANY(%s) ORDER BY c.relname''', (list(tables),))
     facts['tables'] = relations
     ids = [row['oid'] for row in relations]
     facts['columns'] = _rows(connection, '''SELECT a.attrelid AS table_oid,a.attnum,a.attname,
@@ -95,7 +95,7 @@ def _catalog(connection):
         ARRAY(SELECT d.refobjid::pg_catalog.regprocedure::text FROM pg_catalog.pg_depend d
             WHERE d.classid='pg_catalog.pg_policy'::pg_catalog.regclass AND d.objid=p.oid
             AND d.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass ORDER BY d.refobjid::pg_catalog.regprocedure::text) AS function_dependencies
-        FROM pg_catalog.pg_policy p WHERE p.polrelid=ANY(%s) AND p.polcmd IN('r','*') ORDER BY p.polrelid,p.polname''',(ids,)) if ids else []
+        FROM pg_catalog.pg_policy p WHERE p.polrelid=ANY(%s) AND (%s OR p.polcmd IN('r','*')) ORDER BY p.polrelid,p.polname''',(ids,all_policies)) if ids else []
     facts['triggers'] = _rows(connection, '''SELECT t.tgrelid AS table_oid,t.tgname,t.tgenabled::text,t.tgtype,
         pg_catalog.pg_get_triggerdef(t.oid,true) AS definition
         FROM pg_catalog.pg_trigger t WHERE t.tgrelid=ANY(%s) AND NOT t.tgisinternal
@@ -148,7 +148,7 @@ def _catalog(connection):
         JOIN pg_catalog.pg_language l ON l.oid=p.prolang
         WHERE n.nspname='wb' AND p.proname=ANY(%s) ORDER BY p.proname,p.oid'''
     facts['allowed_functions'] = _rows(connection,function_query,(['allowed'],))
-    facts['support_functions'] = _rows(connection,function_query,(list(_SUPPORT_FUNCTIONS),))
+    facts['support_functions'] = _rows(connection,function_query,(list(support_functions),))
     return facts
 
 
@@ -176,6 +176,16 @@ def _definition(facts):
 class ReadOnlyScopeSourcePolicyQualification:
     """One PG17 source-visibility profile observation, not an authorization token."""
 
+    _profile_id = PROFILE_ID
+    _profile_content_hash = PROFILE_CONTENT_HASH
+    _profile_filename = 'scope_source_profile_pg17.json'
+
+    def _observe(self):
+        return _catalog(self.db)
+
+    def _validate_extension(self, facts, reject):
+        pass
+
     def __init__(self, connection, *, statement_timeout_ms=5000):
         if not connection.autocommit:
             raise ValueError('AUTOCOMMIT_CONNECTION_REQUIRED_FOR_SCOPED_TRANSACTIONS')
@@ -183,8 +193,8 @@ class ReadOnlyScopeSourcePolicyQualification:
             raise ValueError('INVALID_SCOPE_POLICY_QUALIFICATION_TIMEOUT')
         self.db,self.timeout=connection,statement_timeout_ms
         # Fixed packaged artifact: callers cannot supply a relaxed profile.
-        self._profile=json.loads(Path(__file__).with_name('scope_source_profile_pg17.json').read_text(encoding='utf-8'))
-        if not isinstance(self._profile,dict) or self._profile.get('profile_id')!=PROFILE_ID or _hash(self._profile)!=PROFILE_CONTENT_HASH:
+        self._profile=json.loads(Path(__file__).with_name(self._profile_filename).read_text(encoding='utf-8'))
+        if not isinstance(self._profile,dict) or self._profile.get('profile_id')!=self._profile_id or _hash(self._profile)!=self._profile_content_hash:
             raise ValueError('SCOPE_SOURCE_PROFILE_ARTIFACT_INVALID')
 
     def probe(self):
@@ -197,7 +207,7 @@ class ReadOnlyScopeSourcePolicyQualification:
                 self.db.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
                 self.db.execute("SELECT set_config('statement_timeout',%s,true)",(str(self.timeout),))
                 self.db.execute("SELECT set_config('search_path','pg_catalog',true)")
-                facts=_catalog(self.db)
+                facts=self._observe()
         except Exception as error:
             state=getattr(error,'sqlstate',None)
             if state=='57014':return self._failure('CATALOG_READ_TIMEOUT')
@@ -264,11 +274,12 @@ class ReadOnlyScopeSourcePolicyQualification:
             if function['owner_member']:reject('ALLOWED_FUNCTION_OWNER_CAPABILITY','wb.allowed')
             if schema is not None and function['proowner']!=schema['nspowner']:reject('ALLOWED_FUNCTION_OWNER_DRIFT','wb.allowed')
             if not function['can_execute'] or function['public_execute']:reject('ALLOWED_FUNCTION_EXECUTE_GRANT_DRIFT','wb.allowed')
+        self._validate_extension(facts,reject)
         # Timestamp does not create an artificial new config fingerprint each call.
         public_facts=_public_facts(facts)
         fingerprint=json.loads(json.dumps(public_facts));fingerprint['session'].pop('as_of',None)
         return {
-            'profile_id':PROFILE_ID,'profile_hash':_hash(self._profile),'as_of':session['as_of'],
+            'profile_id':self._profile_id,'profile_hash':_hash(self._profile),'as_of':session['as_of'],
             'as_of_source':'DATABASE_TRANSACTION_TIMESTAMP','observation_complete':True,
             'status':'MATCHED_AS_OF' if not reasons else 'UNQUALIFIED','admission_authorized':False,
             'facts_hash':_hash(fingerprint),'reasons':reasons,'facts':public_facts,
@@ -277,7 +288,7 @@ class ReadOnlyScopeSourcePolicyQualification:
 
     def _failure(self, code):
         return {
-            'profile_id':PROFILE_ID,'profile_hash':_hash(self._profile),
+            'profile_id':self._profile_id,'profile_hash':_hash(self._profile),
             'as_of':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'as_of_source':'CLIENT_FAILURE_OBSERVATION','observation_complete':False,
             'status':'UNQUALIFIED','admission_authorized':False,
