@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: rc72-field-validation-package-${{ github.sha }}
-  cancel-in-progress: false
+  group: rc72-field-validation-package-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   source-contract:
