@@ -194,7 +194,7 @@ def test_explicit_activation_uses_local_link_and_writes_profile_receipt(tmp_path
     assert proof_data["protected_web_profile_unchanged"] is True
     assert proof_data["link_spec"].startswith("link:")
     health = installer.health(rc72_home)
-    assert health["status"] == "PASS"
+    assert health["status"] == "PROFILE_CONFIG_AND_BOOT_PASS_RUNTIME_EFFECT_HOLD"
     assert health["installed_plugins"] == 1
     assert len(health["staged_plugins"]) == 3
     lines = log.read_text(encoding="utf-8").splitlines()

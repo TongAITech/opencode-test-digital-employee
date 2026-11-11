@@ -531,7 +531,7 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
         dsh = _resolve_dsh(dsh_bin)
         _run([dsh, "--profile", profile, "--dump-config"], env=os.environ.copy())
     return {
-        "status": "PASS" if active else "STAGED",
+        "status": "PROFILE_CONFIG_AND_BOOT_PASS_RUNTIME_EFFECT_HOLD" if active else "STAGED",
         "profile": profile,
         "installed_plugins": len(active),
         "staged_plugins": [row["package"] for row in staged],
