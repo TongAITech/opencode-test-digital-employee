@@ -36,10 +36,10 @@ def test_mnemon_bank_policy_keeps_only_local_native_provider(tmp_path: Path) -> 
         "            providers:\n"
         "              - use: dsh-mnemon-provider-mnemon-native\n"
         "                instanceId: mnemon-native\n"
-        "          - use: dsh-mnemon-provider-openviking\n"
-        "            instanceId: openviking\n"
-        "          - use: dsh-mnemon-provider-honcho\n"
-        "            instanceId: honcho\n"
+        "              - use: dsh-mnemon-provider-openviking\n"
+        "                instanceId: openviking\n"
+        "              - use: dsh-mnemon-provider-honcho\n"
+        "                instanceId: honcho\n"
         "        # Skills keep DSH's own files and their evolution data\n",
         encoding="utf-8",
     )
