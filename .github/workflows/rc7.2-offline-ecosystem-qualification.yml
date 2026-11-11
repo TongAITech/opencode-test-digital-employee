@@ -1,0 +1,108 @@
+name: RC7.2 Offline DSH Ecosystem Qualification and Package Build
+
+on:
+  pull_request:
+    branches: [work/rc7.2]
+    paths:
+      - 'offline-ecosystem/**'
+      - 'tools/build_rc72_dsh_ecosystem_bundle.py'
+      - 'tests/test_rc72_offline_ecosystem_*.py'
+      - 'rc7_release/dsh_plugins.py'
+      - 'packaging/rc7.2/AITEST.sh'
+      - '.github/workflows/rc7.2-offline-ecosystem-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-offline-ecosystem-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: offline-ecosystem-tests-${{ matrix.os }}-py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - name: Install pinned qualification tooling
+        run: python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+      - name: Compile installer and builder
+        run: python -m compileall -q offline-ecosystem/install.py tools/build_rc72_dsh_ecosystem_bundle.py tests/test_rc72_offline_ecosystem_installer.py tests/test_rc72_offline_ecosystem_builder.py
+      - name: Test installer, rollback, isolation and builder contracts
+        run: python -m pytest -q tests/test_rc72_offline_ecosystem_installer.py tests/test_rc72_offline_ecosystem_builder.py
+
+  build:
+    name: offline-ecosystem-bundle-${{ matrix.platform }}
+    needs: tests
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: win32-x64
+            bundle: RC72-DSH-ECOSYSTEM-WINDOWS-X64
+          - os: ubuntu-22.04
+            platform: linux-x64
+            bundle: RC72-DSH-ECOSYSTEM-LINUX-X64
+    env:
+      RC72_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - name: Verify build toolchain
+        run: |
+          python --version
+          node --version
+          npm --version
+          git --version
+      - name: Build platform-specific offline extension bundle
+        run: python tools/build_rc72_dsh_ecosystem_bundle.py --platform ${{ matrix.platform }} --output-dir dist/offline-ecosystem
+      - name: Verify archive checksum
+        if: runner.os == 'Linux'
+        run: sha256sum -c dist/offline-ecosystem/${{ matrix.bundle }}.zip.sha256
+      - name: Verify archive checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $line = Get-Content "dist/offline-ecosystem/${{ matrix.bundle }}.zip.sha256"
+          $expected = ($line -split '\\s+')[0]
+          $actual = (Get-FileHash "dist/offline-ecosystem/${{ matrix.bundle }}.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "SHA256 mismatch" }
+      - name: Extract and verify bundle contents
+        shell: bash
+        run: |
+          mkdir -p dist/verify
+          python -c "import zipfile; zipfile.ZipFile(r'dist/offline-ecosystem/${{ matrix.bundle }}.zip').extractall('dist/verify')"
+          python "dist/verify/${{ matrix.bundle }}/install.py" verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bundle }}-${{ github.sha }}
+          path: |
+            dist/offline-ecosystem/${{ matrix.bundle }}.zip
+            dist/offline-ecosystem/${{ matrix.bundle }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
