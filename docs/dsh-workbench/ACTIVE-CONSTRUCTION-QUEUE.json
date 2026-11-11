@@ -19,7 +19,9 @@
     ],
     "do_not_reset_force_push_or_write_rc72": true,
     "last_joint_regression_failure_sha": "44222081f9267602aa635fda53db7b46f457f4be",
-    "full_rc72_ci_run": 43067301875
+    "full_rc72_ci_run": 43067301875,
+    "latest_joint_candidate_sha": "c397d016b60146dd640cc2b87fb4513d8ef54b54",
+    "latest_joint_full_rc72_ci_run": 43069965805
   },
   "active_work": [
     {
@@ -249,24 +251,55 @@
       "ticket": "A_CREATE_WIRE",
       "owner": "A",
       "pr": 288,
-      "source_sha": "0d01905b3c38eae3e7360949da9f73ab7129380f",
-      "state": "CROSS_GROUP_REVIEW",
-      "next_action": "Resolve cross-language exact whitespace/i64, durable receipt identity and raw line bytes. E289 report."
+      "source_sha": "b0711004",
+      "state": "PURE_REQUEST_AND_SELECTION_DECIDED",
+      "next_action": "E request/selection codec under independent verification. Receipt/event schema still in design.",
+      "review_prs": [
+        289,
+        292,
+        293
+      ]
     },
     {
       "ticket": "A_PINNED_BATCH_HISTORY",
       "owner": "A",
       "pr": 290,
       "source_sha": "34a63b23c5530bf7a09840a18b0024989a83d7d7",
-      "state": "F_RECHECK_RUNNING"
+      "state": "INTEGRATED_F294_EXACT",
+      "report_pr": 294
     },
     {
       "ticket": "A_EVIDENCE_FIXTURE_REGRESSION",
       "owner": "A",
       "pr": 291,
       "source_sha": "a5ae9bf271e8dd83b0cd2cdca389c8dcd5e91dcc",
-      "state": "F_RECHECK_RUNNING",
-      "next_action": "Retain 44222081 joint 720 run with two fixture errors. Exact candidate 2 real PG cases pass locally."
+      "state": "INTEGRATED_F295_EXACT",
+      "next_action": "Old 44222081 and detached 388b21b4 local joint red retained. Exact c397d016 CI component success; full local PG and inherited CI in progress.",
+      "report_pr": 295
+    },
+    {
+      "ticket": "B_PG_VERSIONED_GATE",
+      "owner": "B",
+      "pr": 296,
+      "source_sha": "cb3106313becdc82eec9b38b64bd7c0ecce78df5",
+      "state": "F_REPORT_PENDING",
+      "next_action": "Isolated actual PG proof only. Production closure requires physical writer and all source mutations."
+    },
+    {
+      "ticket": "A_R1_RAW_RECORD",
+      "owner": "A",
+      "pr": 297,
+      "source_sha": "ddb59d3d8686b47e96b45a042b0d0e824275fbe3",
+      "state": "F_REPORT_PENDING",
+      "next_action": "Exact raw line bytes for future receipt verification."
+    },
+    {
+      "ticket": "E_CREATE_CODEC",
+      "owner": "E",
+      "pr": 298,
+      "source_sha": "acc1d80a2f6456c957e7fefb4a70d7a4a27f113d",
+      "state": "EXACT_CI_PASSED_F_PENDING",
+      "next_action": "Request and selection only. No PG or R1 route."
     }
   ],
   "accepted_integrated_components": [

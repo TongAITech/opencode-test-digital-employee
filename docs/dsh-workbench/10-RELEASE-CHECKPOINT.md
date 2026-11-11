@@ -349,3 +349,5 @@ F 已在 PR #84 对 A `4349ee6` 复核 28/28 CI、48/48 W0 tests；接受 FG15 �
 集成精确 b05f7f3e 联合回归通过 714 项 Workbench、11 项真实 Chromium、124 项 JavaScript，精确 E01/E02 CI 43066252344 成功。真实 DSH、现场 Windows 和发布门禁待验。
 
 精确 44222081 的 RC7/RC7.2 CI 43067301875 四个平台 job 已通过，完整源码 job 运行中。联合 Workbench 720 项执行有两处夹具错误，#291 候选真实 PostgreSQL 两例已修复。旧通过结论不转签。
+
+精确 c397d016 的 PostgreSQL/HTTP 组件 CI 43069965675 已通过，本地真实 Chromium 11 项和 JavaScript 124 项通过。完整 Workbench 与精确继承回归 43069965805 仍待最终状态。
