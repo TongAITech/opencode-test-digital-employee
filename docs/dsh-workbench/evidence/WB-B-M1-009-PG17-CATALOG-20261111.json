@@ -1,0 +1,160 @@
+{
+  "kind": "B_LOCAL_DISPOSABLE_PG_CATALOG_REVIEW_INPUT_NOT_A_PROFILE",
+  "postgres_version": "17.6",
+  "migration_manifest_sha256": "2cab98addba23768cb852a4ead9c4a5ed7670c417ce39b1d9a7889b95f1b43bb",
+  "applied_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9
+  ],
+  "tables": [
+    {
+      "name": "project",
+      "rls": true,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_metadata_history",
+      "rls": true,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_metadata_outbox",
+      "rls": true,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_metadata_result",
+      "rls": true,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_name_binding",
+      "rls": true,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_namespace",
+      "rls": false,
+      "force_rls": false,
+      "executor_owner": false
+    },
+    {
+      "name": "project_namespace_population",
+      "rls": false,
+      "force_rls": false,
+      "executor_owner": false
+    }
+  ],
+  "functions": [
+    {
+      "name": "get_project_metadata",
+      "definer": true,
+      "config": [
+        "search_path=pg_catalog, wb"
+      ],
+      "owner": "METADATA_EXECUTOR",
+      "runtime_execute": true,
+      "public_execute": false
+    },
+    {
+      "name": "metadata_change_proof",
+      "definer": true,
+      "config": [
+        "search_path=pg_catalog, wb"
+      ],
+      "owner": "MIGRATION_ADMIN",
+      "runtime_execute": false,
+      "public_execute": false
+    },
+    {
+      "name": "metadata_integrity",
+      "definer": true,
+      "config": [
+        "search_path=pg_catalog, wb"
+      ],
+      "owner": "MIGRATION_ADMIN",
+      "runtime_execute": false,
+      "public_execute": false
+    },
+    {
+      "name": "metadata_name_valid",
+      "definer": false,
+      "config": [
+        "search_path=pg_catalog"
+      ],
+      "owner": "MIGRATION_ADMIN",
+      "runtime_execute": false,
+      "public_execute": false
+    },
+    {
+      "name": "metadata_project_insert",
+      "definer": true,
+      "config": [
+        "search_path=pg_catalog, wb"
+      ],
+      "owner": "MIGRATION_ADMIN",
+      "runtime_execute": false,
+      "public_execute": false
+    },
+    {
+      "name": "metadata_quote_utf8",
+      "definer": false,
+      "config": [
+        "search_path=pg_catalog"
+      ],
+      "owner": "MIGRATION_ADMIN",
+      "runtime_execute": false,
+      "public_execute": false
+    },
+    {
+      "name": "rename_project_metadata",
+      "definer": true,
+      "config": [
+        "search_path=pg_catalog, wb"
+      ],
+      "owner": "METADATA_EXECUTOR",
+      "runtime_execute": true,
+      "public_execute": false
+    }
+  ],
+  "runtime": {
+    "name_update": false,
+    "namespace_select": false,
+    "can_set_executor": false
+  },
+  "source_profile": {
+    "009_installed": {
+      "profile_id": "dsh.scope-source.project-only.pg17.001-007.v2",
+      "status": "UNQUALIFIED",
+      "reasons": [
+        {
+          "code": "SOURCE_SCHEMA_OR_SELECT_POLICY_DRIFT",
+          "subject": "wb.project"
+        },
+        {
+          "code": "SOURCE_RI_TRIGGER_EXECUTION_PROFILE_DRIFT",
+          "subject": "scope-touching foreign keys"
+        }
+      ],
+      "admission_authorized": false
+    },
+    "009_empty_down": {
+      "profile_id": "dsh.scope-source.project-only.pg17.001-007.v2",
+      "status": "MATCHED_AS_OF",
+      "reasons": [],
+      "admission_authorized": false
+    }
+  },
+  "empty_down_executor_schema_usage": false
+}
