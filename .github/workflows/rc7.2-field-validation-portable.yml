@@ -161,6 +161,15 @@ jobs:
           $pkg = Join-Path $clean 'PFC-AITest-DSH-Turnkey-RC7.2-BANK-WIN10'
           $py = Join-Path $pkg 'workspace-template/runtime/python/python.exe'
           $env:RC72_PIP_MIRROR_COMPONENT = '1'
+          if (!(Test-Path -LiteralPath $env:RC72_FIELD_ZIP)) { throw 'Field-validation ZIP missing before pip mirror qualification' }
+          if (!(Test-Path -LiteralPath $pkg)) { throw 'Cleanly extracted field-validation package missing before pip mirror qualification' }
+          # The ZIP and clean extraction are now the immutable test inputs. Remove the
+          # original staging tree so the test proves it does not depend on build residue.
+          if (Test-Path -LiteralPath $env:RC72_FIELD_PACKAGE_ROOT) {
+            Remove-Item -LiteralPath $env:RC72_FIELD_PACKAGE_ROOT -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $env:RC72_FIELD_PACKAGE_ROOT) { throw 'Original package staging tree was not removed' }
+          $env:RC72_PIP_MIRROR_COMPONENT = '1'
           $env:RC72_PIP_MIRROR_PACKAGE_ROOT = $pkg
           $env:RC72_PIP_MIRROR_PACKAGE_ARCHIVE = $env:RC72_FIELD_ZIP
           $env:RC72_PIP_MIRROR_ORIGINAL_STAGE = $env:RC72_FIELD_PACKAGE_ROOT

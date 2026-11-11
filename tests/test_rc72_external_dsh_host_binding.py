@@ -111,6 +111,19 @@ def test_rc72_field_and_final_transport_builds_use_node_24_for_dsh_cli_engine():
 
 
 
+def test_field_workflow_removes_original_stage_before_copied_python_mirror_qualification():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/rc7.2-field-validation-portable.yml").read_text(encoding="utf-8")
+    start = workflow.index("      - name: Verify Windows bank PC pip mirror component")
+    end = workflow.index("      - name: Upload field-validation package", start)
+    block = workflow[start:end]
+    cleanup = block.index("Remove-Item -LiteralPath $env:RC72_FIELD_PACKAGE_ROOT -Recurse -Force")
+    qualification = block.index("tests/test_rc72_bank_pc_pip_mirror_windows.py")
+    assert "Test-Path -LiteralPath $pkg" in block
+    assert cleanup < qualification
+    assert "Original package staging tree was not removed" in block
+
+
 def test_windows_offline_qualification_queries_the_firewall_rule_created_by_workflow():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/rc7.2-field-validation-portable.yml").read_text(encoding="utf-8")
