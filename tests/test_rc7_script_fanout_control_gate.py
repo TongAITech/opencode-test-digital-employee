@@ -2,9 +2,10 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
+from rc6_runtime.truth import TruthRuntime
 import rc7_runtime.closed_loop_control as closed_loop_module
 from rc7_runtime.closed_loop_control import ClosedLoopControlError, ClosedLoopControlPlane
-from rc7_runtime.models import Evaluation, EvaluationResult, Task, TaskStatus
+from rc7_runtime.models import Evaluation, EvaluationResult, Mission, Task, TaskStatus
 
 
 def _script_task(*, task_type="PRODUCE"):
@@ -91,13 +92,20 @@ def test_repair_task_does_not_claim_top_level_fanout_completion(monkeypatch):
     control._require_script_fanout_pass_ready(task, _evaluation())
 
 
-def test_accept_evaluation_invokes_script_fanout_gate_before_persisting_pass():
-    control = _control()
+def test_accept_evaluation_invokes_script_fanout_gate_before_persisting_pass(tmp_path):
+    event_path = tmp_path / 'fanout-gate-r1.jsonl'
+    truth = TruthRuntime(event_path)
+    control = ClosedLoopControlPlane.bootstrap(truth, Mission(
+        mission_id='MISSION-FANOUT-GATE', release_id='REL-FANOUT-GATE',
+        goal='prove the script gate precedes PASS persistence',
+    ))
     task = _script_task()
-    control.scheduler = SimpleNamespace(task=lambda task_id: task)
+    control.register_task(task)
+    before = event_path.read_bytes()
 
     def block(self, passed_task, passed_evaluation):
-        assert passed_task is task
+        assert passed_task.task_id == task.task_id
+        assert passed_task.state == TaskStatus.OUTPUT_PRODUCED
         assert passed_evaluation.result == EvaluationResult.PASS
         raise ClosedLoopControlError("SCRIPT_FANOUT_SENTINEL")
 
@@ -105,3 +113,6 @@ def test_accept_evaluation_invokes_script_fanout_gate_before_persisting_pass():
 
     with pytest.raises(ClosedLoopControlError, match="SCRIPT_FANOUT_SENTINEL"):
         control.accept_evaluation(task.task_id, evaluation=_evaluation())
+    assert event_path.read_bytes() == before
+    assert truth.query('rc7_evaluation', evaluation_id='EVAL-SCRIPT-FANOUT-GATE') == []
+    assert control.scheduler.task(task.task_id).state == TaskStatus.OUTPUT_PRODUCED

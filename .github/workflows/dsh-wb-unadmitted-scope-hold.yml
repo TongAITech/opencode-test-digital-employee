@@ -9,6 +9,7 @@ on:
       - 'rc7_runtime/rc72_mission_node_dispatch.py'
       - 'rc7_release/package.py'
       - 'tests/test_rc7_unadmitted_scope_hold.py'
+      - 'tests/test_rc7_script_fanout_control_gate.py'
       - '.github/workflows/dsh-wb-unadmitted-scope-hold.yml'
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_rc7_unadmitted_scope_hold.py
+          tests/test_rc7_script_fanout_control_gate.py
           tests/test_rc7_closed_loop_control.py tests/test_rc7_closed_loop_core.py
           tests/test_rc7_control_plane.py
           tests/test_rc7_multi_case_defect_control_plane_bridge.py
