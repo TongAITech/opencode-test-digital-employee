@@ -1,12 +1,14 @@
-"""Use subprocesses and disposable native R1 files to probe POSIX locking."""
+"""Use subprocesses and disposable native R1 files to probe physical-file locking."""
 
 import json
 import os
 from pathlib import Path
+from queue import Empty, Queue
 import select
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from threading import Thread
 import unittest
 
 from rc6_runtime.truth import TruthRuntime
@@ -17,8 +19,7 @@ from rc7_runtime.truth_overlay import append_entity
 OWNER = Path(__file__).parent / "fixtures" / "workbench_physical_ledger" / "owner.py"
 
 
-@unittest.skipUnless(os.name == "posix", "physical-file flock proof requires POSIX; Windows is unqualified")
-class PhysicalLedgerWriterTest(unittest.TestCase):
+class PhysicalLedgerWriterFixture(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -67,7 +68,7 @@ class PhysicalLedgerWriterTest(unittest.TestCase):
         child.stdin.flush()
         return self.read_reply(child)
 
-    def test_physical_lock_covers_hard_links_and_releases_after_owner_death(self):
+    def check_hard_links_and_owner_recovery(self):
         alias = self.root / "alias.jsonl"
         os.link(self.path, alias)
         current = self.owner(self.path, 1)
@@ -84,6 +85,12 @@ class PhysicalLedgerWriterTest(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), self.row.read_bytes())
         cold = TruthRuntime(self.path)
         self.assertEqual(len(cold.query("rc7_mission", mission_id="M1")), 1)
+
+
+@unittest.skipUnless(os.name == "posix", "physical-file flock proof requires POSIX")
+class PhysicalLedgerWriterTest(PhysicalLedgerWriterFixture):
+    def test_physical_lock_covers_hard_links_and_releases_after_owner_death(self):
+        self.check_hard_links_and_owner_recovery()
 
     def test_replaced_path_does_not_rebind_the_expected_inode(self):
         current = self.owner(self.path, 1)
@@ -109,3 +116,19 @@ append_entity(TruthRuntime(sys.argv[1]), Mission("DIRECT", "release", "fixture")
         cold = TruthRuntime(self.path)
         self.assertEqual(len(cold.query("rc7_mission", mission_id="DIRECT")), 1)
         self.assertEqual(self.candidate(self.path, 2), ["LOCK_BUSY"])
+
+@unittest.skipUnless(os.name == "nt", "Windows byte-range lock proof requires Windows")
+class WindowsPhysicalLedgerWriterTest(PhysicalLedgerWriterFixture):
+    def read_reply(self, child):
+        # Windows select() cannot wait on a subprocess pipe.
+        replies = Queue()
+        Thread(target=lambda: replies.put(child.stdout.readline()), daemon=True).start()
+        try:
+            response = replies.get(timeout=10).strip()
+        except Empty:
+            self.fail("Windows physical writer fixture did not reply")
+        self.assertTrue(response, "Windows physical writer fixture exited without replying")
+        return response
+
+    def test_windows_hard_links_and_owner_recovery(self):
+        self.check_hard_links_and_owner_recovery()
