@@ -9,3 +9,7 @@
 - 实库结果为 PostgreSQL 17.6、UTF8、8 KiB 上 10 项通过，零跳过。可用 `python -m unittest discover -s tests -p 'test_dsh_workbench_b_scope_008_prepare_postgres.py'` 复验，需用 `WB_PG_TEST_DSN` 指向具备创建临时库与角色权限的测试实例。
 
 最终 append 保持 HOLD。E #272 已验证 PG 会话中止后并发撤权可提交。本候选仅覆盖 PG 事务，正式 allocator、目录准入 profile、源行锁端口、组合迁移 graph、实际 Host 与跨存储排序另审。
+
+## DateStyle 修正
+
+[F #280](https://github.com/TongAITech/opencode-test-digital-employee/pull/280) 在旧候选 `93289a93` 发现 P2。German DMY 会将同一 DATE 渲染为 `12.11.2026`，旧 fixture 与规范 ISO 字符串比较时报 `SCOPE_008_SNAPSHOT_CONFLICT`。本组用新增测试在旧实现独立复现一次真实失败。修正后用 PostgreSQL 的 DATE 等值比较和 Python DATE 参数。German DMY 首次提交、SQL MDY 冷连接重查及不同 K 共用快照均通过。真实 PostgreSQL 17.6 组件结果更新为 11 项通过，零跳过。

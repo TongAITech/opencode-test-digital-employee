@@ -1,5 +1,6 @@
 """Explicit test-only 008 candidate on a disposable genuine PostgreSQL database."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -45,6 +46,7 @@ def prepare_fixture(connection, key, snapshot, reservation, context="original", 
                                 filters=snapshot["filters"], mapping_policy=POLICY))
     selection_digest = sha256(b"dsh.mission-prepare-selection.v1\n" + selection).hexdigest()
     canonical = canonical_scope_bytes(snapshot)
+    release_date = date.fromisoformat(snapshot["release_date"])
     digest = scope_digest(snapshot)
     mapping, release, runtime_batch, mission, binding, operation = reservation
     # This digest has only a test domain. It cannot identify a formal creation request.
@@ -70,16 +72,17 @@ def prepare_fixture(connection, key, snapshot, reservation, context="original", 
                 release_date,date_revision,relation_revision,access_scope_revision,edge_count)
                VALUES (%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (project_id,batch_id,scope_digest) DO NOTHING""",
-            (project, batch, digest, canonical, digest, snapshot["release_date"], snapshot["date_revision"],
+            (project, batch, digest, canonical, digest, release_date, snapshot["date_revision"],
              snapshot["relation_revision"], snapshot["access_scope_revision"], len(snapshot["edges"])),
         )
         stored = connection.execute(
-            """SELECT snapshot_ref,canonical_bytes,release_date::text,date_revision,relation_revision,
+            """SELECT snapshot_ref,canonical_bytes,release_date = %s::date,date_revision,relation_revision,
                       access_scope_revision,edge_count FROM wb.scope_snapshot
-               WHERE (project_id,batch_id,scope_digest)=(%s,%s,%s)""", (project,batch,digest)
+               WHERE (project_id,batch_id,scope_digest)=(%s,%s,%s)""",
+            (release_date, project, batch, digest),
         ).fetchone()
-        if stored != (digest,canonical,snapshot["release_date"],snapshot["date_revision"],snapshot["relation_revision"],
-                      snapshot["access_scope_revision"],len(snapshot["edges"])):
+        if stored != (digest, canonical, True, snapshot["date_revision"], snapshot["relation_revision"],
+                      snapshot["access_scope_revision"], len(snapshot["edges"])):
             raise ValueError("SCOPE_008_SNAPSHOT_CONFLICT")
         connection.execute(
             """INSERT INTO wb.mission_create_intent
@@ -167,6 +170,22 @@ class Scope008Prepare(unittest.TestCase):
         self.assertEqual(self.db.owner.execute(
             "SELECT batch_id,runtime_release_id,runtime_release_batch_id FROM wb.mission_create_intent"
         ).fetchone(), ("B1", "rel-1", "runtime-batch-1"))
+
+    def test_prepare_with_german_date_style_and_cold_replay(self):
+        with self.connect_prepare() as connection:
+            connection.execute("SET DateStyle TO 'German, DMY'")
+            display_date = connection.execute("SELECT DATE '2026-11-12'::text").fetchone()[0]
+            self.assertEqual(display_date, "12.11.2026")
+            self.assertEqual(prepare_fixture(connection, self.key, self.snapshot, self.reservation),
+                             "runtime-batch-1")
+        with self.connect_prepare() as connection:
+            connection.execute("SET DateStyle TO 'SQL, MDY'")
+            self.assertEqual(prepare_fixture(connection, self.key, self.snapshot, self.refs("unused")),
+                             "runtime-batch-1")
+            other_key = (*self.key[:3], "K2")
+            self.assertEqual(prepare_fixture(connection, other_key, self.snapshot, self.refs("2")),
+                             "runtime-batch-2")
+        self.assertEqual(self.counts(), (1, 2, 2, 0))
 
     def test_prepare_refuses_an_existing_transaction(self):
         with self.connect_prepare() as connection:
