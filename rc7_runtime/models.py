@@ -191,6 +191,55 @@ def require_unbound_mission(value: Mission, error=ContractError) -> None:
         raise error(MISSION_SCOPE_HOLD)
 
 
+_SCALAR_FIELDS = {
+    "mission_id": str,
+    "release_id": str,
+    "goal": str,
+    "state": MissionStatus,
+    "sufficiency_state": str,
+    "revision": int,
+    "created_at": int,
+    "updated_at": int,
+}
+_REFERENCE_FIELDS = ("artifact_refs", "open_gap_ids", "active_task_ids", "residual_risk_ids")
+_DECLARED_FIELDS = frozenset(_SCALAR_FIELDS) | frozenset(_REFERENCE_FIELDS) | {"latest_evaluation_id"}
+_COPY_FIELDS = _DECLARED_FIELDS | {"_scope_state"}
+
+
+def _copy_mission_fields(mission):
+    source = dict.copy(_mission_instance_dict(mission))
+    if (not _plain_string_dict(source) or any(name not in _COPY_FIELDS for name in source) or
+            not _DECLARED_FIELDS.issubset(source)):
+        raise ContractError(MISSION_SCOPE_HOLD)
+
+    copied = {}
+    for name, expected in _SCALAR_FIELDS.items():
+        value = source[name]
+        if type(value) is not expected:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied[name] = value
+    evaluation_id = source["latest_evaluation_id"]
+    if evaluation_id is not None and type(evaluation_id) is not str:
+        raise ContractError(MISSION_SCOPE_HOLD)
+    copied["latest_evaluation_id"] = evaluation_id
+
+    for name in _REFERENCE_FIELDS:
+        refs = source[name]
+        if type(refs) is not list:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        detached = list.copy(refs)
+        if any(type(ref) is not str for ref in detached):
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied[name] = detached
+
+    if "_scope_state" in source:
+        scope = source["_scope_state"]
+        if scope is not _SCOPE_ABSENT and type(scope) is not ScopeIdentity:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied["_scope_state"] = scope
+    return copied
+
+
 @dataclass
 class Task:
     task_id: str
@@ -357,6 +406,13 @@ def to_payload(value: Any) -> Dict[str, Any]:
     mission = is_mission_object(value)
     if mission:
         require_unbound_mission(value)
+    if type(value) is Mission:
+        data = _copy_mission_fields(value)
+        if data.pop("_scope_state", _SCOPE_ABSENT) is not _SCOPE_ABSENT:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        data["state"] = data["state"].value
+        return data
+
     data = asdict(value)
     if mission:
         data.pop("_scope_state")

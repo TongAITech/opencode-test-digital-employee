@@ -5,8 +5,9 @@ from dsh_scope_codec.mission_binding import (
 )
 
 from .models import (
-    ContractError, Mission, MissionStatus, MISSION_SCOPE_HOLD, _SCOPE_ABSENT,
-    _mission_instance_dict, _mission_scope_state, _plain_string_dict, require_unbound_mission,
+    ContractError, Mission, MISSION_SCOPE_HOLD, _SCOPE_ABSENT,
+    _copy_mission_fields, _mission_instance_dict, _mission_scope_state, _plain_string_dict,
+    require_unbound_mission,
 )
 
 
@@ -40,59 +41,10 @@ def serialize_mission_scope(mission):
     return fragment
 
 
-_SCALAR_FIELDS = {
-    "mission_id": str,
-    "release_id": str,
-    "goal": str,
-    "state": MissionStatus,
-    "sufficiency_state": str,
-    "revision": int,
-    "created_at": int,
-    "updated_at": int,
-}
-_REFERENCE_FIELDS = ("artifact_refs", "open_gap_ids", "active_task_ids", "residual_risk_ids")
-_DECLARED_FIELDS = frozenset(_SCALAR_FIELDS) | frozenset(_REFERENCE_FIELDS) | {"latest_evaluation_id"}
-_COPY_FIELDS = _DECLARED_FIELDS | {"_scope_state"}
-
-
-def _copy_declared_fields(mission):
-    source = dict.copy(_mission_instance_dict(mission))
-    if (any(name not in _COPY_FIELDS for name in source) or
-            not _DECLARED_FIELDS.issubset(source)):
-        raise ContractError(MISSION_SCOPE_HOLD)
-
-    copied = {}
-    for name, expected in _SCALAR_FIELDS.items():
-        value = source[name]
-        if type(value) is not expected:
-            raise ContractError(MISSION_SCOPE_HOLD)
-        copied[name] = value
-    evaluation_id = source["latest_evaluation_id"]
-    if evaluation_id is not None and type(evaluation_id) is not str:
-        raise ContractError(MISSION_SCOPE_HOLD)
-    copied["latest_evaluation_id"] = evaluation_id
-
-    for name in _REFERENCE_FIELDS:
-        refs = source[name]
-        if type(refs) is not list:
-            raise ContractError(MISSION_SCOPE_HOLD)
-        detached = list.copy(refs)
-        if any(type(ref) is not str for ref in detached):
-            raise ContractError(MISSION_SCOPE_HOLD)
-        copied[name] = detached
-
-    if "_scope_state" in source:
-        scope = source["_scope_state"]
-        if scope is not _SCOPE_ABSENT and type(scope) is not ScopeIdentity:
-            raise ContractError(MISSION_SCOPE_HOLD)
-        copied["_scope_state"] = scope
-    return copied
-
-
 def clone_mission(mission):
     """Copy declared Mission data while preserving the immutable Scope value."""
     _require_exact_mission(mission)
-    copied = _copy_declared_fields(mission)
+    copied = _copy_mission_fields(mission)
     result = object.__new__(Mission)
     dict.update(_mission_instance_dict(result), copied)
     serialize_mission_scope(result)

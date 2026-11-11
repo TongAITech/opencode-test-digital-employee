@@ -183,6 +183,67 @@ def test_direct_append_uses_canonical_global_target_before_acceptance(tmp_path, 
     assert snapshot(cold) == before
 
 
+def test_direct_append_uses_one_detached_mission_snapshot(tmp_path, monkeypatch):
+    truth = TruthRuntime(tmp_path / 'r1')
+    incoming = mission()
+    incoming.mission_id = ' M1 '
+    incoming.artifact_refs = ['original-ref']
+    query = truth.query
+    calls = []
+
+    def read(kind, **filters):
+        calls.append((kind, filters))
+        incoming.mission_id = 'M2'
+        incoming.state = MissionStatus.CONVERGED
+        incoming.artifact_refs.append('late-ref')
+        return query(kind, **filters)
+
+    monkeypatch.setattr(truth, 'query', read)
+    monkeypatch.setattr(models, 'asdict', tripwire)
+    receipt = truth_overlay.append_entity(truth, incoming, release_id='RT1')
+    assert calls == [('rc7_mission', {'mission_id': 'M1'})]
+    assert receipt.entity_id == 'M1'
+    cold = TruthRuntime(truth.store.path)
+    assert cold.query('rc7_mission', mission_id='M2') == []
+    row = cold.query('rc7_mission', mission_id='M1')[0]
+    assert row['artifact_refs'] == ['original-ref']
+    assert row['state'] == 'REGISTERED'
+
+
+@pytest.mark.parametrize('field_name,value', [
+    ('mission_id', None), ('state', 'REGISTERED'), ('artifact_refs', [None]),
+    ('revision', True), ('latest_evaluation_id', []),
+])
+def test_malformed_declared_mission_fields_reject_before_query(tmp_path, monkeypatch, field_name, value):
+    truth = TruthRuntime(tmp_path / 'r1')
+    incoming = mission()
+    setattr(incoming, field_name, value)
+    before = snapshot(truth)
+    monkeypatch.setattr(truth, 'query', tripwire)
+    monkeypatch.setattr(truth, 'append_atomic', tripwire)
+    with pytest.raises(ValueError, match=HOLD):
+        to_payload(incoming)
+    with pytest.raises(ValueError, match=HOLD):
+        truth_overlay.append_entity(truth, incoming, release_id='RT1')
+    assert snapshot(truth) == before
+
+
+def test_direct_mission_serializer_never_copies_custom_identifier(tmp_path, monkeypatch):
+    class CustomIdentifier(str):
+        __deepcopy__ = tripwire
+
+    truth = TruthRuntime(tmp_path / 'r1')
+    incoming = mission()
+    incoming.mission_id = CustomIdentifier('M1')
+    before = snapshot(truth)
+    monkeypatch.setattr(truth, 'query', tripwire)
+    with pytest.raises(ValueError, match=HOLD):
+        to_payload(incoming)
+    with pytest.raises(ValueError, match=HOLD):
+        truth_overlay.append_entity(truth, incoming, release_id='RT1')
+    assert snapshot(truth) == before
+
+
 def test_legacy_derived_serializer_and_exact_writer_dispatch(tmp_path):
     @dataclass
     class Derived(Mission):
