@@ -5,6 +5,8 @@ on:
     paths:
       - 'tools/dsh_workbench/mission_scope_binding_codec.py'
       - 'tools/dsh_workbench/mission_create_codec.py'
+      - 'tools/dsh_workbench/formal_mission_event.py'
+      - 'tests/test_dsh_workbench_formal_mission_event.py'
       - 'tests/test_dsh_workbench_mission_create_codec.py'
       - 'tests/test_dsh_workbench_mission_scope_binding_codec.py'
       - 'tools/dsh_workbench/runtime_batch_mapping.py'
@@ -42,3 +44,4 @@ jobs:
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_mapping.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_history.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_r1_snapshot_events.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_event.py -v
