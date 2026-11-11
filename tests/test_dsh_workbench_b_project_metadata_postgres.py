@@ -1,6 +1,7 @@
 """Optional 009 genuine PG tests, never default-profile or Host acceptance."""
 import copy
 import json
+import os
 import pathlib
 import threading
 import tempfile
@@ -112,6 +113,148 @@ class MetadataPG(unittest.TestCase):
         self.assertEqual(self.scalar('SELECT state FROM wb.project_namespace'),'GOVERNANCE_HOLD')
         self.error('GOVERNANCE_HOLD',lambda:self.store.rename('alice',self.request()))
 
+    def admin_connection(self):
+        connection=infra.psycopg.connect(**dict(infra.conninfo_to_dict(infra.DSN),dbname=self.db.name),autocommit=True)
+        connection.execute("SET lock_timeout='3s'")
+        connection.execute("SET statement_timeout='6s'")
+        return connection
+
+    def activate_original_two_members(self, connection):
+        connection.execute("INSERT INTO wb.project_namespace VALUES('race','NAMING_ACTIVE','project-name/utf8-exact-v1','admin:original-two','1',%s,1,true)",('a'*64,))
+        connection.execute("INSERT INTO wb.project_name_binding SELECT project_id,'race','PROJECT',convert_to(name,'UTF8'),1,'admin:original-two' FROM wb.project WHERE project_id IN ('P1','P2')")
+        connection.execute("INSERT INTO wb.project_namespace_population VALUES('race','P1','MEMBER','admin:original-two',NULL),('race','P2','MEMBER','admin:original-two',NULL)")
+        connection.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+    def blocked_or_finished(self, connection, future):
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline:
+            if self.db.admin.execute('SELECT cardinality(pg_blocking_pids(%s))',(connection.info.backend_pid,)).fetchone()[0]:return True
+            if future.done():return False
+            time.sleep(.01)
+        self.fail('neither PostgreSQL blocking nor operation completion observed')
+
+    def test_governance_activation_then_project_insert_serializes_and_stops(self):
+        with self.admin_connection() as activation,self.admin_connection() as provision:
+            activation.execute('BEGIN');self.activate_original_two_members(activation)
+            provision.execute('BEGIN')
+            def insert():
+                provision.execute("INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+                provision.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(insert)
+                blocked=self.blocked_or_finished(provision,future)
+                activation.execute('COMMIT');future.result(3);provision.execute('COMMIT')
+        self.assertEqual(self.scalar("SELECT state FROM wb.project_namespace WHERE namespace_ref='race'"),'GOVERNANCE_HOLD')
+        self.assertTrue(blocked)
+        self.error('GOVERNANCE_HOLD',lambda:self.store.rename('alice',self.request('first')))
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_metadata_result'),0)
+
+    def test_governance_project_insert_then_activation_rejects_incomplete_snapshot(self):
+        with self.admin_connection() as provision,self.admin_connection() as activation:
+            provision.execute('BEGIN')
+            provision.execute("INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+            provision.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            def activate():
+                with activation.transaction():self.activate_original_two_members(activation)
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(activate)
+                blocked=self.blocked_or_finished(activation,future)
+                provision.execute('COMMIT')
+                with self.assertRaises(infra.psycopg.Error) as caught:future.result(3)
+            self.assertEqual(caught.exception.diag.message_primary,'GOVERNANCE_POPULATION_INCOMPLETE')
+        self.assertTrue(blocked)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_namespace'),0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_name_binding'),0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project'),3)
+
+    def test_governance_repeatable_read_stale_writer_aborts_after_wait(self):
+        with self.admin_connection() as provision,self.admin_connection() as stale:
+            stale.execute('BEGIN ISOLATION LEVEL REPEATABLE READ')
+            self.assertEqual(stale.execute('SELECT count(*) FROM wb.project').fetchone()[0],2)
+            provision.execute('BEGIN')
+            provision.execute("INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+            provision.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(self.activate_original_two_members,stale)
+                blocked=self.blocked_or_finished(stale,future)
+                provision.execute('COMMIT')
+                try:
+                    with self.assertRaises(infra.psycopg.Error) as caught:future.result(3)
+                finally:stale.execute('ROLLBACK')
+            self.assertEqual(caught.exception.sqlstate,'40001')
+        self.assertTrue(blocked)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_namespace'),0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project'),3)
+
+    def test_governance_provision_rollback_releases_fence_and_allows_activation(self):
+        with self.admin_connection() as provision,self.admin_connection() as activation:
+            provision.execute('BEGIN')
+            provision.execute("INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+            def activate():
+                with activation.transaction():self.activate_original_two_members(activation)
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(activate)
+                self.wait_blocked(activation);provision.execute('ROLLBACK');future.result(3)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project'),2)
+        self.assertEqual(self.scalar('SELECT state FROM wb.project_namespace'),'NAMING_ACTIVE')
+        self.assertEqual(self.store.rename('alice',self.request())['outcome'],'APPLIED')
+
+    def test_governance_activation_rollback_releases_waiting_provision(self):
+        with self.admin_connection() as activation,self.admin_connection() as provision:
+            activation.execute('BEGIN');self.activate_original_two_members(activation)
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(provision.execute,"INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+                self.wait_blocked(provision);activation.execute('ROLLBACK');future.result(3)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_namespace'),0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_name_binding'),0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project'),3)
+
+    def test_governance_active_rename_then_provision_holds_domain_after_commit(self):
+        self.govern();r=self.request()
+        with infra.psycopg.connect(**self.db.params,autocommit=True) as rename,self.admin_connection() as provision:
+            rename.execute('BEGIN');rename.execute("SELECT set_config('wb.principal','alice',true)")
+            receipt=rename.execute('SELECT wb.rename_project_metadata(%s,%s,%s,%s,%s,%s,%s)',('P1','r1',r.expected_metadata_revision,r.expected_access_scope_revision,r.name,r.reason.encode(),r.canonical_bytes)).fetchone()[0]
+            with ThreadPoolExecutor(1) as pool:
+                future=pool.submit(provision.execute,"INSERT INTO wb.project(project_id,name) VALUES('P3','third')")
+                self.wait_blocked(provision);rename.execute('COMMIT');future.result(3)
+        self.assertEqual(receipt,self.store.rename('alice',r))
+        self.assertEqual(self.scalar('SELECT state FROM wb.project_namespace'),'GOVERNANCE_HOLD')
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_metadata_history'),1)
+        self.error('GOVERNANCE_HOLD',lambda:self.store.rename('alice',self.request('new','r2','2')))
+
+    def test_governance_fence_not_taken_by_ordinary_rename_or_acl_write(self):
+        self.govern()
+        epoch=self.scalar('SELECT epoch FROM wb.project_metadata_governance_fence')
+        with self.admin_connection() as hold:
+            hold.execute('BEGIN');hold.execute('UPDATE wb.project_metadata_governance_fence SET epoch=epoch+1')
+            try:
+                self.assertEqual(self.store.rename('alice',self.request())['outcome'],'APPLIED')
+                self.db.owner.execute("UPDATE wb.project_acl SET can_write=false WHERE principal='bob' AND project_id='P2'")
+            finally:hold.execute('ROLLBACK')
+        self.assertEqual(self.scalar('SELECT epoch FROM wb.project_metadata_governance_fence'),epoch)
+        self.error('FORBIDDEN',lambda:self.store.rename('bob',self.request(project='P2')))
+        self.assertIs(self.store.get_metadata('bob','P2')['can_rename'],False)
+
+    def test_nondeterministic_icu_name_columns_and_argument_still_compare_bytes(self):
+        self.govern(); owner=self.db.owner
+        try:
+            owner.execute("CREATE COLLATION wb.m1_casefold (provider=icu,locale='und-u-ks-level2',deterministic=false)")
+        except infra.psycopg.errors.FeatureNotSupported:
+            if os.environ.get('WB_PG_REQUIRE_ICU') == '1':raise
+            self.skipTest('PostgreSQL server was built without ICU')
+        self.assertTrue(self.scalar("SELECT 'first' COLLATE wb.m1_casefold = 'FIRST'"))
+        self.assertNotEqual(self.scalar("SELECT convert_to('first','UTF8')"),self.scalar("SELECT convert_to('FIRST','UTF8')"))
+        owner.execute('ALTER TABLE wb.project ALTER COLUMN name TYPE text COLLATE wb.m1_casefold')
+        owner.execute('ALTER TABLE wb.project_metadata_history ALTER COLUMN old_name TYPE text COLLATE wb.m1_casefold, ALTER COLUMN new_name TYPE text COLLATE wb.m1_casefold')
+        self.assertEqual(self.store.rename('alice',self.request('FIRST'))['outcome'],'APPLIED')
+        r=self.request('first','r2','2')
+        with self.db.runtime.transaction():
+            self.db.runtime.execute("SELECT set_config('wb.principal','alice',true)")
+            receipt=self.db.runtime.execute('SELECT wb.rename_project_metadata(%s,%s,%s,%s,%s COLLATE wb.m1_casefold,%s,%s)',('P1','r2',r.expected_metadata_revision,r.expected_access_scope_revision,r.name,r.reason.encode(),r.canonical_bytes)).fetchone()[0]
+        self.assertEqual(receipt['outcome'],'APPLIED')
+        self.assertEqual(self.scalar('SELECT count(*) FROM wb.project_metadata_history'),2)
+        self.assertEqual(self.store.rename('alice',self.request('first','r3','3'))['outcome'],'NO_CHANGE')
+
     def test_reason_nul_controls_2048_and_audit_reversible(self):
         self.govern(); reason='\x00\n\r\t\b\f\\"'+''.join(chr(i) for i in range(32))+'😀'
         r=self.request(reason=reason);self.store.rename('alice',r)
@@ -124,6 +267,7 @@ class MetadataPG(unittest.TestCase):
         self.govern()
         with self.assertRaises(infra.psycopg.Error):self.db.runtime.execute("UPDATE wb.project SET name='bypass'")
         with self.assertRaises(infra.psycopg.Error):self.db.runtime.execute("UPDATE wb.project_name_binding SET name_key='x'")
+        with self.assertRaises(infra.psycopg.Error):self.db.runtime.execute('UPDATE wb.project_metadata_governance_fence SET epoch=1')
         r=self.request()
         with self.assertRaises(infra.psycopg.Error):
             with self.db.runtime.transaction():
@@ -146,6 +290,7 @@ class MetadataPG(unittest.TestCase):
         self.govern();r=self.request();receipt=self.store.rename('alice',r)
         self.db.owner.execute("UPDATE wb.project_namespace SET state='GOVERNANCE_HOLD',namespace_revision=namespace_revision+1")
         self.assertEqual(self.store.rename('alice',r),receipt)
+        self.assertIs(self.store.get_metadata('alice','P1')['can_rename'],False)
         self.error('GOVERNANCE_HOLD',lambda:self.store.rename('alice',self.request('other','r2','2')))
 
     def test_audit_and_outbox_faults_rollback_all_then_recover(self):
@@ -384,7 +529,10 @@ class MetadataPG(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'DEPENDENCY_NOT_APPLIED'):migrate_project_metadata(self.db.owner,self.executor)
 
     def test_reader_get_no_edit_and_database_byte_canonical_boundaries(self):
+        self.assertIs(self.store.get_metadata('alice','P1')['can_rename'],False)
         self.govern();self.assertEqual(self.store.get_metadata('reader','P1')['governance_state'],'GOVERNED_ROOT_ACTIVE')
+        self.assertIs(self.store.get_metadata('reader','P1')['can_rename'],False)
+        self.assertIs(self.store.get_metadata('alice','P1')['can_rename'],True)
         self.error('FORBIDDEN',lambda:self.store.rename('reader',self.request()))
         names=['😀'*128,'é','e\u0301','NBSP\u00a0']
         for index,name in enumerate(names):

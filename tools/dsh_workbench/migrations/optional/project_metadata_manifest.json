@@ -81,9 +81,9 @@
         7
       ],
       "up": "optional/009_project_metadata.up.sql",
-      "up_sha256": "1a8d7cb40dee1b6231ec1ed332840c8e891f4726faf241c2fb332b48b84f0eae",
+      "up_sha256": "aeb7e3b86ccd0e81c6668e86ac16ba331a8d36bac6c4a96effff85413664a22a",
       "down": "optional/009_project_metadata.down.sql",
-      "down_sha256": "25062b7554182ca9d12c634b6e1cab505ac474ed0bda4a72ce0b1ec3bdbd958e"
+      "down_sha256": "9375afd79c5d801ca28a78d08aa6b503c58f11464dfe11c8c07a33bf36834a7b"
     }
   ]
 }

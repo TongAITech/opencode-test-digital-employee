@@ -1,0 +1,75 @@
+{
+  "kind": "B_LOCAL_DISPOSABLE_PG_GOVERNANCE_FIX_REVIEW_INPUT_NOT_A_PROFILE",
+  "postgres_version": "17.6",
+  "server_encoding": "UTF8",
+  "migration_manifest_sha256": "ee96a0f590190766d891eb84b6fed22782b11dae8e43fa7b0de8c645f198cac5",
+  "applied_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9
+  ],
+  "fence_singleton_epoch": [
+    [
+      true,
+      1
+    ]
+  ],
+  "fence_trigger_definitions": [
+    {
+      "table": "wb.project",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OF project_id OR TRUNCATE ON wb.project FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance()"
+    },
+    {
+      "table": "wb.project_name_binding",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OF project_id, namespace_ref, kind, binding_revision, governance_ref OR TRUNCATE ON wb.project_name_binding FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance()"
+    },
+    {
+      "table": "wb.project_namespace",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON wb.project_namespace FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance()"
+    },
+    {
+      "table": "wb.project_namespace_population",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON wb.project_namespace_population FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance()"
+    }
+  ],
+  "runtime": {
+    "fence_update": false,
+    "name_update": false,
+    "namespace_select": false,
+    "can_set_executor": false
+  },
+  "source_profile": {
+    "009_installed": {
+      "profile_id": "dsh.scope-source.project-only.pg17.001-007.v2",
+      "status": "UNQUALIFIED",
+      "reasons": [
+        {
+          "code": "SOURCE_SCHEMA_OR_SELECT_POLICY_DRIFT",
+          "subject": "wb.project"
+        },
+        {
+          "code": "SOURCE_RI_TRIGGER_EXECUTION_PROFILE_DRIFT",
+          "subject": "scope-touching foreign keys"
+        }
+      ],
+      "admission_authorized": false
+    },
+    "009_empty_down": {
+      "profile_id": "dsh.scope-source.project-only.pg17.001-007.v2",
+      "status": "MATCHED_AS_OF",
+      "reasons": [],
+      "admission_authorized": false
+    }
+  },
+  "empty_down_executor_schema_usage": false,
+  "empty_down_fence_absent": true
+}
