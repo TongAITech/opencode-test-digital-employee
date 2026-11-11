@@ -7,7 +7,7 @@
     "repo": "TongAITech/opencode-test-digital-employee",
     "branch": "work/dsh-wb-w0",
     "pr": 84,
-    "last_tested_code_sha": "16ae40e8a86b5193da0a1f97b3b5f7a5f76204cc",
+    "last_tested_code_sha": "a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f",
     "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
     "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
     "refresh_remote_heads_pr_checks_and_worktrees": true,
@@ -83,14 +83,41 @@
       "owner": "B",
       "worktree": "b-project-metadata-codec",
       "branch": "work/dsh-wb-b-project-metadata-codec",
-      "state": "CODE_IN_PROGRESS",
-      "next_action": "Pure request/name codec then F exact source; no DB authority/NO_CHANGE claim. Actual PG implementation follows separately reviewed migration/permissions."
+      "state": "INTEGRATED_F238_EXACT",
+      "next_action": "SQL/store/runner actualPG qualification separate; pure syntax accepted.",
+      "pr": 236,
+      "source_sha": "63ea53b13e931576955670dd96f2d5a334cd0242"
     },
     {
       "ticket": "D_MISSION_BINDING_WRITER_INVENTORY",
       "owner": "D",
       "state": "SOURCE_INVESTIGATION",
       "next_action": "Actual official model/reader/writer/session entry closure, not local guard as global fence."
+    },
+    {
+      "ticket": "B_PROJECT_METADATA_POSTGRES",
+      "owner": "B",
+      "worktree": "b-project-metadata-pg",
+      "branch": "work/dsh-wb-b-project-metadata-pg",
+      "state": "ACTUAL_PG_IMPLEMENTATION_TESTS_RUNNING",
+      "next_action": "Freeze SQL/store/runner after real concurrency/permission/rollback tests; precise review before HTTP activation."
+    },
+    {
+      "ticket": "A_PROJECT_METADATA_HTTP",
+      "owner": "A",
+      "pr": 239,
+      "worktree": "a-project-metadata-http",
+      "source_sha": "32c3a4a7",
+      "state": "DRAFT_REAL_STORE_DEPENDENCY_PENDING",
+      "next_action": "Compose approved real009 store then test actual business API and recovery; default explicit adapter unready."
+    },
+    {
+      "ticket": "A_FANOUT_GUARD_REGRESSION",
+      "owner": "A",
+      "worktree": "a-fanout-guard-regression",
+      "source_sha": "ec6d35c163926d74ce7d1439fb8de98ae159d89e",
+      "state": "F_EXACT_REVIEW_PENDING",
+      "next_action": "Real default scheduler fanout order and no-write assertions; focused3.8/3.11 then consolidated full regression."
     }
   ],
   "accepted_integrated_components": [
@@ -206,7 +233,19 @@
       "node": 124,
       "real_pg_browser": 10,
       "abcd_v4_run": 42893372170,
-      "abcd_v4_status": "IN_PROGRESS_NOT_PASS"
+      "abcd_v4_status": "FAILURE",
+      "native_jobs_passed": 4,
+      "complete_source": {
+        "passed": 3110,
+        "failed": 1,
+        "skipped": 4,
+        "seconds": 3294.25
+      }
+    },
+    {
+      "sha": "a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f",
+      "pure_metadata_tests": 28,
+      "seconds": 0.015
     }
   ],
   "rules": [

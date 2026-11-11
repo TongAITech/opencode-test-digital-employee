@@ -7,3 +7,5 @@
 已启动精确16ae的完整RC7/RC7.2+真实Chromium及Ubuntu/Windows×Python3.8/3.11五job集中源码资格：run[42893372170](https://github.com/TongAITech/opencode-test-digital-employee/actions/runs/42893372170)，本记录生成时IN_PROGRESS，尚不写PASS。
 
 Scope保护仅受审本地入口的负向HOLD，不是正式生产绑定或所有writer围栏；raw/scheduler/跨进程写者仍未封闭。需求页只从已接受同一Scope关系投影，不代表需求正文、测试义务覆盖、正式执行、完整C04/C05通过。真实Host/银行Windows离线/实际Teams资源恢复仍FIELD_NEEDS_BANK_TRANSFER。
+
+后续完成结果：run42893372170结论FAILURE。四个原生jobSUCCESS，全源码job实际3110 passed、1 failed、4 skipped、3294.25秒。失败是test_accept_evaluation_invokes_script_fanout_gate_before_persisting_pass使用未知SimpleNamespace调度器被guard拒绝。A修复候选ec6d35c1及独立F审查另记，旧16ae结果维持FAILURE。
