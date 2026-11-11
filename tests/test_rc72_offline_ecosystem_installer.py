@@ -63,50 +63,50 @@ def _make_bundle(root: Path) -> Path:
 def _fake_dsh(tmp_path: Path, log: Path, version: str = "0.2.2-rc.1") -> Path:
     script = tmp_path / "fake_dsh.py"
     script.write_text(
-        "import json, os, sys, time\\n"
-        "from pathlib import Path\\n"
-        "args=sys.argv[1:]\\n"
-        "profile=args[args.index('--profile')+1] if '--profile' in args else 'web'\\n"
-        "home=Path(os.environ['DSH_HOME'])\\n"
-        "profile_root=home/'profiles'/profile\\n"
-        "if args == ['--version']:\\n print('DSH " + version + "'); raise SystemExit(0)\\n"
-        "if '--from-default-profile' in args:\\n"
-        " profile_root.mkdir(parents=True, exist_ok=True)\\n"
-        " data={'name':'dsh-profile-'+profile,'private':True,'dependencies':{'@deepseek-ai/dsh-base':'0.2.2-rc.1'},'dsh':{'profile':{'bundles':['@deepseek-ai/dsh-base']}}}\\n"
-        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\\n"
-        " print('initialized'); raise SystemExit(0)\\n"
-        "if args and args[0]=='plugin' and 'add' in args:\\n"
-        " assert os.environ.get('npm_config_offline') == 'true'\\n"
-        " assert os.environ.get('PNPM_CONFIG_OFFLINE') == 'true'\\n"
-        " assert os.environ.get('MNEMON_CLI_PATH') and os.path.isfile(os.environ['MNEMON_CLI_PATH'])\\n"
-        " spec=args[-1]; assert spec.startswith('link:')\\n"
-        " package_root=Path(spec[5:]); package=json.loads((package_root/'package.json').read_text(encoding='utf-8'))\\n"
-        " data=json.loads((profile_root/'package.json').read_text(encoding='utf-8'))\\n"
-        " data.setdefault('dependencies',{})[package['name']]=spec\\n"
-        " bundles=data.setdefault('dsh',{}).setdefault('profile',{}).setdefault('bundles',[])\\n"
-        " if package['name'] not in bundles: bundles.append(package['name'])\\n"
-        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\\n"
-        " open(os.environ['FAKE_DSH_LOG'],'a').write(json.dumps(args)+'\\\\n')\\n"
-        " print('linked'); raise SystemExit(0)\\n"
-        "if args and args[0]=='plugin' and 'remove' in args:\\n"
-        " package=args[-1]; data=json.loads((profile_root/'package.json').read_text(encoding='utf-8'))\\n"
-        " data.get('dependencies',{}).pop(package,None)\\n"
-        " bundles=data.get('dsh',{}).get('profile',{}).get('bundles',[])\\n"
-        " if package in bundles: bundles.remove(package)\\n"
-        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\\n"
-        " open(os.environ['FAKE_DSH_LOG'],'a').write(json.dumps(args)+'\\\\n')\\n"
-        " print('unlinked'); raise SystemExit(0)\\n"
-        "if '--dump-config' in args:\\n print('composed-profile-config'); raise SystemExit(0)\\n"
-        "if '--no-open' in args:\\n time.sleep(8); raise SystemExit(0)\\n"
-        "print('unknown command', args); raise SystemExit(9)\\n",
+        "import json, os, sys, time\n"
+        "from pathlib import Path\n"
+        "args=sys.argv[1:]\n"
+        "profile=args[args.index('--profile')+1] if '--profile' in args else 'web'\n"
+        "home=Path(os.environ['DSH_HOME'])\n"
+        "profile_root=home/'profiles'/profile\n"
+        "if args == ['--version']:\n print('DSH " + version + "'); raise SystemExit(0)\n"
+        "if '--from-default-profile' in args:\n"
+        " profile_root.mkdir(parents=True, exist_ok=True)\n"
+        " data={'name':'dsh-profile-'+profile,'private':True,'dependencies':{'@deepseek-ai/dsh-base':'0.2.2-rc.1'},'dsh':{'profile':{'bundles':['@deepseek-ai/dsh-base']}}}\n"
+        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\n"
+        " print('initialized'); raise SystemExit(0)\n"
+        "if args and args[0]=='plugin' and 'add' in args:\n"
+        " assert os.environ.get('npm_config_offline') == 'true'\n"
+        " assert os.environ.get('PNPM_CONFIG_OFFLINE') == 'true'\n"
+        " assert os.environ.get('MNEMON_CLI_PATH') and os.path.isfile(os.environ['MNEMON_CLI_PATH'])\n"
+        " spec=args[-1]; assert spec.startswith('link:')\n"
+        " package_root=Path(spec[5:]); package=json.loads((package_root/'package.json').read_text(encoding='utf-8'))\n"
+        " data=json.loads((profile_root/'package.json').read_text(encoding='utf-8'))\n"
+        " data.setdefault('dependencies',{})[package['name']]=spec\n"
+        " bundles=data.setdefault('dsh',{}).setdefault('profile',{}).setdefault('bundles',[])\n"
+        " if package['name'] not in bundles: bundles.append(package['name'])\n"
+        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\n"
+        " open(os.environ['FAKE_DSH_LOG'],'a').write(json.dumps(args)+'\\\n')\n"
+        " print('linked'); raise SystemExit(0)\n"
+        "if args and args[0]=='plugin' and 'remove' in args:\n"
+        " package=args[-1]; data=json.loads((profile_root/'package.json').read_text(encoding='utf-8'))\n"
+        " data.get('dependencies',{}).pop(package,None)\n"
+        " bundles=data.get('dsh',{}).get('profile',{}).get('bundles',[])\n"
+        " if package in bundles: bundles.remove(package)\n"
+        " (profile_root/'package.json').write_text(json.dumps(data), encoding='utf-8')\n"
+        " open(os.environ['FAKE_DSH_LOG'],'a').write(json.dumps(args)+'\\\n')\n"
+        " print('unlinked'); raise SystemExit(0)\n"
+        "if '--dump-config' in args:\n print('composed-profile-config'); raise SystemExit(0)\n"
+        "if '--no-open' in args:\n time.sleep(8); raise SystemExit(0)\n"
+        "print('unknown command', args); raise SystemExit(9)\n",
         encoding="utf-8",
     )
     if os.name == "nt":
         command = tmp_path / "fake_dsh.cmd"
-        command.write_text('@echo off\\r\\npython "%~dp0fake_dsh.py" %*\\r\\n', encoding="utf-8")
+        command.write_text('@echo off\r\npython "%~dp0fake_dsh.py" %*\r\n', encoding="utf-8")
     else:
         command = tmp_path / "fake_dsh"
-        command.write_text('#!/bin/sh\\nexec "%s" "%s" "$@"\\n' % (sys.executable, script), encoding="utf-8")
+        command.write_text('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, script), encoding="utf-8")
         command.chmod(command.stat().st_mode | stat.S_IXUSR)
     return command
 
@@ -115,7 +115,7 @@ def _fake_rc72_home(root: Path) -> Path:
     (root / "packaging/rc7.2").mkdir(parents=True)
     (root / "workspace-template/runtime").mkdir(parents=True)
     (root / "SOURCE_COMMIT").write_text("a" * 40, encoding="utf-8")
-    (root / "packaging/rc7.2/AITEST.sh").write_text("#!/bin/sh\\n", encoding="utf-8")
+    (root / "packaging/rc7.2/AITEST.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return root
 
 
