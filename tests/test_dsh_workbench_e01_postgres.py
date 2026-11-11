@@ -2,14 +2,13 @@
 import hashlib
 import tempfile
 from pathlib import Path
-from dataclasses import asdict
 import threading
 import unittest
 from unittest.mock import patch
 from rc7_admin.projection import AdminProjection
 import test_dsh_workbench_b_scope_postgres as prior
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.models import Mission
+from rc7_runtime.models import Mission, to_payload
 from tools.dsh_workbench.business_http import create_scope_server,HostIdentity
 from tools.dsh_workbench.e01_service import E01Service
 
@@ -19,7 +18,7 @@ class E01(prior.Scope):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         self.root=Path(temp.name);self.r1=self.root/'r1.jsonl'
         runtime=TruthRuntime(self.r1)
-        payload=asdict(Mission(mission_id='M1',release_id='B1',goal='synthetic component fixture'))
+        payload=to_payload(Mission(mission_id='M1',release_id='B1',goal='synthetic component fixture'))
         if bound:payload.update(project_id='P1',batch_id='B1')
         runtime.append_atomic('RC7_MISSION_UPSERTED',payload)
         self.before=self.r1.read_bytes()
