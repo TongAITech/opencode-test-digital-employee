@@ -39,7 +39,7 @@ CREATE TABLE wb.project_metadata_result(
  UNIQUE(project_id,actor,request_id,audit_id,outcome,applied_revision));
 CREATE TABLE wb.project_metadata_history(
  project_id text NOT NULL REFERENCES wb.project, revision bigint NOT NULL CHECK(revision>1),
- old_revision bigint NOT NULL CHECK(revision=old_revision+1), old_name text NOT NULL,new_name text NOT NULL CHECK(old_name<>new_name),
+ old_revision bigint NOT NULL CHECK(revision=old_revision+1), old_name text NOT NULL,new_name text NOT NULL CHECK(convert_to(old_name,'UTF8')<>convert_to(new_name,'UTF8')),
  actor text NOT NULL, request_id text NOT NULL, audit_id bigint NOT NULL,
  outcome text NOT NULL DEFAULT 'APPLIED' CHECK(outcome='APPLIED'), reason_utf8 bytea NOT NULL,
  PRIMARY KEY(project_id,revision),
@@ -75,9 +75,37 @@ BEGIN
  RETURN convert_from(r||decode('22','hex'),'UTF8');
 END $$;
 CREATE FUNCTION wb.metadata_name_valid(n text) RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
- SELECT n=btrim(n,' ') AND char_length(n) BETWEEN 1 AND 128 AND octet_length(convert_to(n,'UTF8'))<=512
+ SELECT convert_to(n,'UTF8')=convert_to(btrim(n,' '),'UTF8') AND char_length(n) BETWEEN 1 AND 128 AND octet_length(convert_to(n,'UTF8'))<=512
  AND NOT EXISTS(SELECT 1 FROM generate_series(1,char_length(n)) i WHERE ascii(substr(n,i,1))<32 OR ascii(substr(n,i,1))=127)
 $$;
+
+-- Every administrative denominator mutation begins by writing one common row
+-- version before taking namespace row locks, then before its own row writes.
+-- This is not just a mutex: RR/SERIALIZABLE writers with old snapshots must
+-- fail 40001 on the fence UPDATE, rather than validate an obsolete population.
+CREATE TABLE wb.project_metadata_governance_fence(
+ singleton boolean PRIMARY KEY CHECK(singleton), epoch bigint NOT NULL CHECK(epoch>0));
+INSERT INTO wb.project_metadata_governance_fence VALUES(true,1);
+CREATE FUNCTION wb.metadata_governance_advance() RETURNS trigger LANGUAGE plpgsql
+SECURITY DEFINER SET search_path=pg_catalog,wb AS $$
+BEGIN
+ IF TG_OP='TRUNCATE' THEN RAISE EXCEPTION 'GOVERNANCE_TRUNCATE_FORBIDDEN' USING ERRCODE='42501'; END IF;
+ UPDATE wb.project_metadata_governance_fence SET epoch=epoch+1 WHERE singleton;
+ IF NOT FOUND THEN RAISE EXCEPTION 'GOVERNANCE_FENCE_MISSING' USING ERRCODE='23514'; END IF;
+ -- Take the same namespace-before-project/binding order as ordinary rename.
+ -- Administration is rare and global; ordinary rename and ACL writes do not
+ -- participate in this global version change.
+ PERFORM 1 FROM wb.project_namespace ORDER BY convert_to(namespace_ref,'UTF8') FOR UPDATE;
+ RETURN NULL;
+END $$;
+CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OF project_id OR TRUNCATE ON wb.project
+ FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance();
+CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON wb.project_namespace
+ FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance();
+CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON wb.project_namespace_population
+ FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance();
+CREATE TRIGGER metadata_governance_advance BEFORE INSERT OR DELETE OR UPDATE OF project_id,namespace_ref,kind,binding_revision,governance_ref OR TRUNCATE ON wb.project_name_binding
+ FOR EACH STATEMENT EXECUTE FUNCTION wb.metadata_governance_advance();
 
 -- Commit-time administrative source checks. Full population means all projects,
 -- including explicitly excluded legacy rows, not merely visible members.
@@ -106,10 +134,10 @@ CREATE TRIGGER metadata_new_project AFTER INSERT ON wb.project FOR EACH ROW EXEC
 -- Mandatory rename receipt/key/history proof, even for direct executor DML.
 CREATE FUNCTION wb.metadata_change_proof() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,wb AS $$
 BEGIN
- IF NEW.name IS DISTINCT FROM OLD.name OR NEW.metadata_revision IS DISTINCT FROM OLD.metadata_revision THEN
-  IF NEW.project_id<>OLD.project_id OR NEW.metadata_revision<>OLD.metadata_revision+1 OR NEW.name=OLD.name
+ IF convert_to(NEW.name,'UTF8') IS DISTINCT FROM convert_to(OLD.name,'UTF8') OR NEW.metadata_revision IS DISTINCT FROM OLD.metadata_revision THEN
+  IF NEW.project_id<>OLD.project_id OR NEW.metadata_revision<>OLD.metadata_revision+1 OR convert_to(NEW.name,'UTF8')=convert_to(OLD.name,'UTF8')
    OR NOT EXISTS(SELECT 1 FROM wb.project_metadata_history h JOIN wb.project_metadata_outbox o ON o.project_id=h.project_id AND o.metadata_revision=h.revision
-      WHERE h.project_id=NEW.project_id AND h.revision=NEW.metadata_revision AND h.old_revision=OLD.metadata_revision AND h.old_name=OLD.name AND h.new_name=NEW.name) THEN
+      WHERE h.project_id=NEW.project_id AND h.revision=NEW.metadata_revision AND h.old_revision=OLD.metadata_revision AND convert_to(h.old_name,'UTF8')=convert_to(OLD.name,'UTF8') AND convert_to(h.new_name,'UTF8')=convert_to(NEW.name,'UTF8')) THEN
    RAISE EXCEPTION 'METADATA_CHANGE_PROOF_REQUIRED' USING ERRCODE='23514'; END IF;
  END IF;
  RETURN NULL;
@@ -132,8 +160,8 @@ DECLARE actor_id text=current_setting('wb.principal',true); ns text; locked_ns t
  old_name text; mr bigint; ar bigint; hash text; original jsonb; ai bigint; result jsonb; outcome_now text; expected bytea; inserted text;
 BEGIN
  IF actor_id IS NULL OR actor_id='' OR NOT wb.allowed(p,true) THEN RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE='P0001'; END IF;
- IF rid IS NULL OR char_length(rid) NOT BETWEEN 1 AND 128 OR translate(rid,'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-','')<>'' OR em IS NULL OR ea IS NULL
- OR em !~ '^[1-9][0-9]{0,18}$' OR ea !~ '^[1-9][0-9]{0,18}$' OR em ~ '[^0-9]' OR ea ~ '[^0-9]' THEN RAISE EXCEPTION 'INVALID_METADATA_REQUEST' USING ERRCODE='P0001'; END IF;
+ IF rid IS NULL OR char_length(rid) NOT BETWEEN 1 AND 128 OR octet_length(translate(rid,'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-',''))<>0 OR em IS NULL OR ea IS NULL
+ OR em COLLATE "C" !~ '^[1-9][0-9]{0,18}$' OR ea COLLATE "C" !~ '^[1-9][0-9]{0,18}$' OR em COLLATE "C" ~ '[^0-9]' OR ea COLLATE "C" ~ '[^0-9]' THEN RAISE EXCEPTION 'INVALID_METADATA_REQUEST' USING ERRCODE='P0001'; END IF;
  IF em::numeric>9223372036854775807 OR ea::numeric>9223372036854775807 OR n IS NULL OR NOT wb.metadata_name_valid(n)
  OR reason IS NULL OR octet_length(reason)>2048 OR canonical IS NULL THEN RAISE EXCEPTION 'INVALID_METADATA_REQUEST' USING ERRCODE='P0001'; END IF;
  expected=convert_to('{"action":"project.metadata.update/v1","changes":{"name":'||wb.metadata_quote_utf8(convert_to(n,'UTF8'))||'},"expected_access_scope_revision":'||to_json(ea)::text||',"expected_metadata_revision":'||to_json(em)::text||',"name_policy":"project-name/utf8-exact-v1","project_id":'||to_json(p)::text||',"reason":'||wb.metadata_quote_utf8(reason)||',"request_id":'||to_json(rid)::text||',"schema":"dsh-workbench/project-metadata-request/v1"}','UTF8');
@@ -168,7 +196,7 @@ BEGIN
  END IF;
  IF state_now<>'NAMING_ACTIVE' OR NOT enabled THEN RAISE EXCEPTION 'GOVERNANCE_HOLD' USING ERRCODE='P0001'; END IF;
  IF mr<>em::bigint OR ar<>ea::bigint THEN RAISE EXCEPTION 'REVISION_CONFLICT' USING ERRCODE='P0001'; END IF;
- outcome_now=CASE WHEN old_name=n THEN 'NO_CHANGE' ELSE 'APPLIED' END;
+ outcome_now=CASE WHEN convert_to(old_name,'UTF8')=convert_to(n,'UTF8') THEN 'NO_CHANGE' ELSE 'APPLIED' END;
  IF outcome_now='APPLIED' AND mr=9223372036854775807 THEN RAISE EXCEPTION 'REVISION_EXHAUSTED' USING ERRCODE='P0001'; END IF;
  INSERT INTO wb.audit(project_id,actor,request_id,action,object_id,detail)
  VALUES(p,actor_id,rid,'project.metadata.update/v1',p,jsonb_build_object('outcome',outcome_now,'old_name',old_name,'new_name',n,'old_revision',mr::text,'reason_utf8_hex',encode(reason,'hex'))) RETURNING audit_id INTO ai;
@@ -185,7 +213,7 @@ BEGIN
 EXCEPTION WHEN unique_violation THEN RAISE EXCEPTION 'NAME_UNAVAILABLE' USING ERRCODE='P0001';
 END $$;
 REVOKE ALL ON FUNCTION wb.rename_project_metadata(text,text,text,text,text,bytea,bytea) FROM PUBLIC;
-REVOKE ALL ON FUNCTION wb.metadata_quote_utf8(bytea),wb.metadata_name_valid(text),wb.metadata_integrity(),wb.metadata_project_insert(),wb.metadata_change_proof() FROM PUBLIC;
+REVOKE ALL ON FUNCTION wb.metadata_quote_utf8(bytea),wb.metadata_name_valid(text),wb.metadata_integrity(),wb.metadata_project_insert(),wb.metadata_change_proof(),wb.metadata_governance_advance() FROM PUBLIC;
 GRANT USAGE ON SCHEMA wb TO __M1_EXECUTOR__;
 GRANT EXECUTE ON FUNCTION wb.allowed(text,boolean),wb.metadata_quote_utf8(bytea),wb.metadata_name_valid(text) TO __M1_EXECUTOR__;
 GRANT SELECT ON wb.project,wb.project_name_binding,wb.project_namespace,wb.request_log,wb.project_metadata_result,wb.audit TO __M1_EXECUTOR__;
@@ -208,6 +236,7 @@ BEGIN
  IF NOT wb.allowed(p,false) THEN RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE='P0001'; END IF;
  SELECT jsonb_build_object('schema','project-metadata/v1','project_id',p,'name',q.name,
  'metadata_revision',q.metadata_revision::text,'access_scope_revision',q.access_scope_revision::text,
+ 'can_rename',COALESCE(b.project_id IS NOT NULL AND n.state='NAMING_ACTIVE' AND n.allow_rename AND wb.allowed(p,true),false),
  'governance_state',CASE WHEN b.project_id IS NULL THEN 'METADATA_NOT_GOVERNED' WHEN n.state='NAMING_ACTIVE' AND n.allow_rename THEN 'GOVERNED_ROOT_ACTIVE' ELSE 'GOVERNANCE_HOLD' END)
  INTO result FROM wb.project q LEFT JOIN wb.project_name_binding b USING(project_id) LEFT JOIN wb.project_namespace n USING(namespace_ref) WHERE q.project_id=p;
  RETURN result;
