@@ -197,14 +197,14 @@ def _apply_bank_policy(spec, package_root):
     if spec["id"] == "dsh-mnemon":
         patch = package_root / "cordis.patch.yml"
         text = patch.read_text(encoding="utf-8")
-        start = text.find("            providers:\\n")
+        start = text.find("            providers:\n")
         end = text.find("        # Skills keep DSH's own files", start)
         if start < 0 or end < 0:
             raise BundleBuildError("MNEMON_PROVIDER_POLICY_ANCHOR_MISSING")
         native_only = (
-            "            providers:\\n"
-            "              - use: dsh-mnemon-provider-mnemon-native\\n"
-            "                instanceId: mnemon-native\\n"
+            "            providers:\n"
+            "              - use: dsh-mnemon-provider-mnemon-native\n"
+            "                instanceId: mnemon-native\n"
         )
         text = text[:start] + native_only + text[end:]
         patch.write_text(text, encoding="utf-8")
