@@ -129,10 +129,10 @@
       "owner": "C",
       "worktree": "c-project-metadata-ui",
       "branch": "work/dsh-wb-c-project-metadata-ui",
-      "state": "F252_REJECTED_REVOKED_SCOPE_FIX_IN_PROGRESS",
-      "next_action": "Retain actual 403 plus stale READY; freeze fully tested correction then F exact.",
+      "state": "FIXED_SOURCE_F_EXACT_UI_RECHECK",
+      "next_action": "F actual old regression and new scope/ACL/native HTTP tests completed; await independent signed report before merge.",
       "pr": 250,
-      "source_sha": "a99b09c589e52b5f40d2ac1919f598c1545f9117"
+      "source_sha": "a6ddfa7d58e3f09823a5d235ccc2b645251ee2a2"
     },
     {
       "ticket": "E_TYPED_MISSION_PRESERVATION_DESIGN",
@@ -140,13 +140,17 @@
       "pr": 245,
       "source_sha": "5be49d089cdf8e320c29276418e3069fe9c0e796",
       "state": "B251_D248_F249_DESIGN_ACCEPTED_E_CODE_RUNNING",
-      "next_action": "Implement typed representation/isolation and negative append guard only; archive pure shared leaf, exact legacy regression and F."
+      "next_action": "Implement typed representation/isolation and negative append guard only; archive pure shared leaf, exact legacy regression and F.",
+      "worktree": "e-mission-stage1",
+      "branch": "work/dsh-wb-e-mission-stage1"
     },
     {
       "ticket": "B_EXPLICIT_009_SCOPE_PROFILE",
       "owner": "B",
       "state": "ISOLATED_READ_ONLY_IMPLEMENTATION",
-      "next_action": "Fixed explicit 009 source profile, keep v2 default and drift rejection, no admission or runtime learning."
+      "next_action": "Fixed explicit 009 source profile, keep v2 default and drift rejection, no admission or runtime learning.",
+      "worktree": "b-scope-profile-009",
+      "branch": "work/dsh-wb-b-scope-profile-009"
     }
   ],
   "accepted_integrated_components": [
@@ -316,6 +320,14 @@
         "seconds": 152.781
       },
       "pg_version": "17.6 + ICU"
+    },
+    {
+      "sha": "12989ad4ac204b096864d03e63ddffa9b3db416f",
+      "windows_pip_mirror_run": 42970382981,
+      "windows_pip_mirror_passed": 74,
+      "windows_one_sst_run": 42970384073,
+      "windows_one_sst_passed": 6,
+      "scope": "Windows engineering runner; bank field and final delivery remain pending"
     }
   ],
   "rules": [

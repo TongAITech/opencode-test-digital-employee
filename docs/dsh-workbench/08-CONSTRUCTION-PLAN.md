@@ -26,6 +26,7 @@
 - C需求精确关联只读UI新79ff9823经F232独立接受并合入，旧F228窄屏P2保留并在新源关闭。联合16ae Node124、真实PG浏览器10通过；完整RC7/RC7.2五job run42893372170已FAILURE：四native通过，全源码3110过/1失败/4跳过，见WB-A-INTEGRATION-16AE40E8-20261111.md。D235/E233/F234/C237接受M1有界候选。纯codec经F238独立接受并合入；真实009/store候选施工中。D242闭包调查已合入。E245第一阶段设计被D247实证拒绝：通用append_entity可丢动态Scope后写入。修订5be49d08由D248/F249/B251限域接受，已集成设计并启动E隔离代码。正式创建、008、运行批次映射与Host另验。
 - 当前回归阻断为旧fanout测试的SimpleNamespace scheduler触发新guard拒绝。A独立候选ec6d35c1以真实默认调度组合复测正常门禁，106/106通过，F243独立接受精确ec6d35c1，真实3.8/3.11同源各174通过，已合入。完整16ae红灯保留。B009候选PR244源785790de经F246实库独立复现治理并发P1后拒绝，失败报告已保留。B修复3b74d5e由F253真实PG304/304零跳过限定接受，A HTTP26ef3c7b由F254独立6项接受，两组件已合入，默认未配置503。C PR250旧a99经F252实证完整撤权仍残留READY Scope而拒绝，修复后待新精确复验。B继续显式009只读来源profile，不放宽v2或admission。
 - 调度纠正：本轮重新启动F/B/D并实际完成测试，工具均正常；旧子任务usage报错不能被当成当前持续不可用或存在独立F额度的证明。今后按本次真实调用结果调度，不以旧errored状态停止全部施工。
+- 精确12989ad4真实Windows工程验证：用户pip镜像74/74、One-SST CMD 6/6，覆盖71a Linux原四个Windows相关跳过的实际执行。完整71a原skip记录保持，见WB-A-WINDOWS-ENGINEERING-12989AD4-20261111.md。
 - 现场统一FIELD_NEEDS_BANK_TRANSFER（用户确认行外无法访问）；真实DSH/SSO、Windows离线、实际并发/资源恢复、F01–F04与LICENSE_RELEASE_APPROVED未通过。RELEASE=NOT_APPROVED；#84保持Draft，不生成最终交付ZIP。
 
 ## 六组施工责任
