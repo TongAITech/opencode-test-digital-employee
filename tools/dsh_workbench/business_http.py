@@ -18,7 +18,7 @@ class HostIdentity:
     mutation_authorized: bool = False
 
 
-def scope_handler(connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
+def scope_handler(connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None,metadata_store_factory=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass
 
@@ -55,12 +55,23 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     except ValueError:raise BusinessError(400,'INVALID_PAGE_SIZE')
                     project=unquote(directory[1]) if directory[1] else None
                     if project is not None and (not project or '/' in project):raise BusinessError(400,'INVALID_DIRECTORY_QUERY')
-                    with connection_factory() as connection:value=DirectoryStore(connection,cursor_key).directory(identity.principal,project,size,q.get('page_cursor',[None])[0])
+                    directory_store = DirectoryStore
+                    if project is None and metadata_store_factory is not None:
+                        from .project_metadata_directory import MetadataDirectoryStore
+                        directory_store = MetadataDirectoryStore
+                    with connection_factory() as connection:
+                        value = directory_store(connection, cursor_key).directory(
+                            identity.principal, project, size, q.get('page_cursor', [None])[0])
                     self.respond(200,value)
                     return
                 if url.path=='/api/workbench/v1/write-context':
                     if url.query:raise BusinessError(400,'INVALID_WRITE_CONTEXT_REQUEST')
                     self.respond(200,{'schema':SCHEMA,'write_context':subject_write_context(cursor_key,identity.principal)})
+                    return
+                if re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/metadata',url.path):
+                    from .project_metadata_http import metadata_request
+                    status,value=metadata_request(self,identity,connection_factory,cursor_key,metadata_store_factory)
+                    self.respond(status,value)
                     return
                 if '/batches/' in url.path:
                     from .business_asset_http import asset_request
@@ -108,7 +119,8 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                 self.respond(503,{'error':{'code':'SCOPE_SOURCE_UNAVAILABLE'}})
 
         def asset_mutation(self):
-            if '/batches/' not in urlsplit(self.path).path:
+            metadata=bool(re.fullmatch(r'/api/workbench/v1/projects/([^/]+)/metadata',urlsplit(self.path).path))
+            if not metadata and '/batches/' not in urlsplit(self.path).path:
                 self.respond(405,{'error':{'code':'METHOD_NOT_ALLOWED'}})
                 return
             try:
@@ -116,11 +128,15 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                 identity=host_identity_provider(self)
                 if not isinstance(identity,HostIdentity) or not isinstance(identity.principal,str) or not identity.principal.strip():raise BusinessError(403,'FORBIDDEN')
                 if len(self.path)>16384:raise BusinessError(400,'INVALID_ASSET_REQUEST')
-                from .business_asset_http import asset_request
-                status,value=asset_request(self,identity,connection_factory,cursor_key)
+                if metadata:
+                    from .project_metadata_http import metadata_request
+                    status,value=metadata_request(self,identity,connection_factory,cursor_key,metadata_store_factory)
+                else:
+                    from .business_asset_http import asset_request
+                    status,value=asset_request(self,identity,connection_factory,cursor_key)
                 self.respond(status,value)
             except BusinessError as error:self.respond(error.status,{'error':{'code':error.code}})
-            except Exception:self.respond(503,{'error':{'code':'ASSET_SOURCE_UNAVAILABLE'}})
+            except Exception:self.respond(503,{'error':{'code':'METADATA_SOURCE_UNAVAILABLE' if metadata else 'ASSET_SOURCE_UNAVAILABLE'}})
         do_POST=asset_mutation
         do_PATCH=asset_mutation
         do_DELETE=asset_mutation
@@ -128,5 +144,5 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
     return Handler
 
 
-def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None):
-    return ThreadingHTTPServer(address,scope_handler(connection_factory,cursor_key,host_identity_provider,quality_service_factory))
+def create_scope_server(address,connection_factory,cursor_key,host_identity_provider=None,quality_service_factory=None,metadata_store_factory=None):
+    return ThreadingHTTPServer(address,scope_handler(connection_factory,cursor_key,host_identity_provider,quality_service_factory,metadata_store_factory))
