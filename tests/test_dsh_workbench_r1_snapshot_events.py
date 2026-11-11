@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -5,7 +6,9 @@ import unittest
 from rc6_runtime.truth import TruthRuntime
 from rc7_runtime.rc72_domain import ReleaseBatch
 from rc7_runtime.rc72_repository import CanonicalRC72Repository
-from tools.dsh_workbench.r1_snapshot_events import R1SnapshotDecodeError, iter_r1_snapshot_events
+from tools.dsh_workbench.r1_snapshot_events import (
+    R1SnapshotDecodeError, iter_r1_snapshot_events, iter_r1_snapshot_records,
+)
 
 
 class SnapshotEventsTest(unittest.TestCase):
@@ -47,3 +50,14 @@ class SnapshotEventsTest(unittest.TestCase):
                     next(iter_r1_snapshot_events(snapshot))
         with self.assertRaisesRegex(R1SnapshotDecodeError, "BYTES_REQUIRED$"):
             list(iter_r1_snapshot_events(bytearray(b"{}\n")))
+
+    def test_original_record_bytes_and_line_number_survive_decoding(self):
+        first = rb'{"name": "\u0061"}' + b"\n"
+        second = b'{"name":"a"}\r\n'
+        source = b"\n" + first + second
+        records = list(iter_r1_snapshot_records(source))
+        self.assertEqual([record.line_number for record in records], [2, 3])
+        self.assertEqual([record.raw_line for record in records], [first, second])
+        self.assertEqual([record.event for record in records], [{"name": "a"}, {"name": "a"}])
+        self.assertNotEqual(hashlib.sha256(records[0].raw_line[:-1]).digest(),
+                            hashlib.sha256(records[1].raw_line[:-1]).digest())
