@@ -1,0 +1,153 @@
+{
+  "schema": "dsh-workbench/a01-locale-scope/v1",
+  "decision": "KEEP_ZH_EN_W1_REQUIRED",
+  "decision_owner": "WB-A01_A",
+  "decision_state": "A_SCOPE_RECORDED_F_DESIGN_REVIEW_PENDING",
+  "w0_current": "ZH_CN_PROTOTYPE_ONLY",
+  "w1_required_locales": [
+    "zh-CN",
+    "en-US"
+  ],
+  "default_locale": "zh-CN",
+  "w1_ui_qa_state": "NOT_RUN",
+  "license_release_state": "BLOCKED_LICENSE",
+  "original_feature_count": 50,
+  "original_implementation_state": "NOT_RUN",
+  "required_entrypoints": [
+    "P05-03",
+    "X01-01"
+  ],
+  "requirements": [
+    {
+      "feature_id": "P05-03",
+      "scope": "QA_SKILL_LOCALIZED_DESCRIPTIONS",
+      "owner": "C_D",
+      "phase": "W1",
+      "test_state": "NOT_RUN",
+      "success_oracle": "Display selected locale description with source revision and capability/permission context",
+      "negative_oracle": "Missing en-US must display verified source text with visible fallback indicator, never invent translation or pretend install succeeds"
+    },
+    {
+      "feature_id": "X01-01",
+      "scope": "FULL_SIX_PAGE_TEN_SECTION_LANGUAGE_AND_THEME",
+      "owner": "C_D",
+      "phase": "W1",
+      "test_state": "NOT_RUN",
+      "success_oracle": "Localized six-page navigation, ten project-detail sections, controls, errors, settings; keep theme light/dark/system, sidebar and project radar width independently",
+      "negative_oracle": "Missing string or invalid locale must not change Scope, ACL, command, Evidence, R1, NodeGate or business date"
+    }
+  ],
+  "acceptance_cases": [
+    {
+      "id": "A01-L01",
+      "category": "NAVIGATION",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "zh-CN/en-US switch updates six-page navigation (5 main nav + sixth project-detail) and all 10 section names without deleting an entry"
+    },
+    {
+      "id": "A01-L02",
+      "category": "SKILL",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "P05-03 localized skill name and description are tied to installed catalog version/source_ref, not unrelated translation"
+    },
+    {
+      "id": "A01-L03",
+      "category": "FALLBACK",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "When en-US translation is unavailable show original verified text plus visible fallback flag, never empty or fabricated success"
+    },
+    {
+      "id": "A01-L04",
+      "category": "IDENTITY",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Changing locale cannot alter project_id/batch_id/release_date/requirement_id/system_version_id/sst_id or reconstruct relation edges"
+    },
+    {
+      "id": "A01-L05",
+      "category": "AUTHORIZATION",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "403/404/409/422/503 and UNKNOWN/STALE/HUMAN_GATE/BLOCKED remain unchanged as machine states when labels change"
+    },
+    {
+      "id": "A01-L06",
+      "category": "DATE",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "YYYY-MM-DD release date remains unchanged on locale change; BUSINESS_TZ unresolved goes to HOLD, never inferred or silently UTC-shifted"
+    },
+    {
+      "id": "A01-L07",
+      "category": "PREFERENCE",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Per-authorized-user preference persists across refresh but cannot leak to other users/projects or overwrite host session state"
+    },
+    {
+      "id": "A01-L08",
+      "category": "THEME",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Switch light/dark/system with en-US/zh-CN and collapse/restore sidebar and radar; invalid theme values are rejected without data damage"
+    },
+    {
+      "id": "A01-L09",
+      "category": "MISSING_KEY",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Unknown locale and missing translation key fail safely with visible fallback diagnostic, never mark QA_PASS or publish"
+    },
+    {
+      "id": "A01-L10",
+      "category": "REVIEW",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Approval, evidence and NodeGate localized labels do not modify R1 decision or forge a Human Gate decision"
+    },
+    {
+      "id": "A01-L11",
+      "category": "ACCESSIBILITY",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "Language switch keeps keyboard focus and screen-reader labels for all six pages and ten sections"
+    },
+    {
+      "id": "A01-L12",
+      "category": "SOURCE_RIGHTS",
+      "phase": "W1",
+      "state": "NOT_RUN",
+      "assertion": "No PolyForm Noncommercial upstream JS/CSS/template or unlicensed translated assets copied; originals require separate provenance and release gate"
+    }
+  ],
+  "explicit_holds": [
+    "WB-F00_DESIGN_ACCEPTED",
+    "WB-W0_DESIGN_FROZEN",
+    "WB-C01_IMPLEMENTATION_QA_PASS",
+    "WB-C02_IMPLEMENTATION_QA_PASS",
+    "LICENSE_RELEASE_APPROVED"
+  ],
+  "upstream_readonly_provenance": {
+    "repository": "naodeng/dsh-qa",
+    "pinned_sha": "fc5a054a48973d004580a3cc1de60da3f701150b",
+    "license": "PolyForm-Noncommercial-1.0.0",
+    "copied_source": false,
+    "evidence": [
+      {
+        "feature_id": "P05-03",
+        "i18n_anchor": "public/i18n.js#L700-L722",
+        "ui_anchor": "public/app.js#L2085-L2091",
+        "evidence_state": "ORIGINAL_ENTRYPOINT_OBSERVED_NOT_W1_QA"
+      },
+      {
+        "feature_id": "X01-01",
+        "i18n_anchor": "public/i18n.js#L700-L722",
+        "ui_anchor": "public/app.js#L2048-L2094",
+        "evidence_state": "ORIGINAL_ENTRYPOINT_OBSERVED_NOT_W1_QA"
+      }
+    ]
+  }
+}

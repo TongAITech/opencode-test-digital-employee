@@ -1,0 +1,81 @@
+name: Workbench C W0 original UI probe
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'tools/dsh_workbench/ui_w0_prototype/**'
+      - 'tests/test_dsh_workbench_ui_w0.mjs'
+      - 'tests/test_dsh_workbench_ui_source_fence.mjs'
+      - 'tests/test_dsh_workbench_c_feature_reconciliation.mjs'
+      - 'docs/dsh-workbench/WB-A01-ATOMIC-FEATURE-REGISTER.md'
+      - 'docs/dsh-workbench/WB-C-W0-50-FEATURE-DELTA.md'
+      - 'docs/dsh-workbench/WB-C-W0-ORIGINAL-UI-AUDIT.md'
+      - 'docs/dsh-workbench/WB-C-W0-TEST-EVIDENCE.md'
+      - '.github/workflows/dsh-wb-c-w0-ui.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: dsh-wb-c-w0-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+jobs:
+  c-b-premerge:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: B→C isolated Git merge (not five-group integration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reproduce F FG19 B then C merge without any remote writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'WB-C Local CI Probe'
+          git config user.email 'wb-c-probe@example.invalid'
+          git fetch --no-tags origin \
+            '+refs/heads/work/dsh-wb-w0:refs/remotes/origin/work/dsh-wb-w0' \
+            '+refs/heads/work/dsh-wb-domain:refs/remotes/origin/work/dsh-wb-domain' \
+            '+refs/heads/work/dsh-wb-ui-followup:refs/remotes/origin/work/dsh-wb-ui-followup'
+          git checkout -B wb-c-fg19-probe origin/work/dsh-wb-w0
+          git merge --no-edit --no-ff origin/work/dsh-wb-domain
+          git merge --no-edit --no-ff origin/work/dsh-wb-ui-followup
+          echo 'FG19_C_FOLLOWUP_MERGE_OK (not D/E/full A merge)'
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+  original-w0-probe:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Original W0 probe (not W1 QA)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax, fourteen Scope plus ten source-fence plus six feature reconciliation tests
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_ui_source_fence.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated browser test dependencies
+        run: |
+          python -m pip install 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Inspect navigation, ten sections, errors and capture actual screenshots
+        run: |
+          python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "$RUNNER_TEMP/dsh-wb-c-w0-screenshots"
+      - name: Publish actual screenshots, when produced
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-workbench-c-w0-screenshots
+          path: ${{ runner.temp }}/dsh-wb-c-w0-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14

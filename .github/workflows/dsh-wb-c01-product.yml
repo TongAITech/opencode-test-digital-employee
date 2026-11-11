@@ -1,0 +1,86 @@
+name: Workbench C01 product browser component
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'rc7_admin/static/workbench/**'
+      - 'rc7_admin/product_server.py'
+      - 'tests/browser/test_c01_product_browser.py'
+      - 'tests/browser/test_c02_real_scope_browser.py'
+      - 'tests/browser/test_same_origin_workbench.py'
+      - 'tests/browser/test_milestone_product_browser.py'
+      - 'tests/browser/test_draft_forms_product_browser.py'
+      - 'tests/browser/test_directory_product_browser.py'
+      - 'tests/test_dsh_workbench_directory_client.mjs'
+      - 'tests/test_dsh_workbench_runtime_client.mjs'
+      - 'tests/browser/test_runtime_product_browser.py'
+      - 'tests/browser/test_native_runtime_product_browser.py'
+      - 'tests/browser/test_requirement_relations_product_browser.py'
+      - 'tests/browser/test_project_metadata_product_browser.py'
+      - 'tests/test_dsh_workbench_requirement_relations.mjs'
+      - 'tests/test_dsh_workbench_calendar.mjs'
+      - 'tests/browser/test_calendar_product_browser.py'
+      - 'tests/test_dsh_workbench_draft_forms.mjs'
+      - 'tools/dsh_workbench/business_http.py'
+      - 'tests/test_dsh_workbench_c01.mjs'
+      - 'tests/test_dsh_workbench_c02_scope.mjs'
+      - '.github/workflows/dsh-wb-c01-product.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c01-product-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/test_dsh_workbench*.mjs
+      - run: python -m pip install 'playwright==1.56.0'
+      - run: python -m playwright install --with-deps chromium
+      - name: Real product browser negative and recovery tests (not business QA)
+        run: python -m unittest discover -s tests/browser -p test_c01_product_browser.py -v
+  c02-real-http-pg-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: c02-disposable-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=c02-disposable-ci-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'playwright==1.56.0' 'psycopg[binary]==3.2.13'
+      - run: python -m playwright install --with-deps chromium
+      - name: Real database Oracle and HTTP browser Scope with explicit test Host provider
+        run: |
+          python -m unittest discover -s tests/browser -p test_c02_real_scope_browser.py -v
+          python -m unittest discover -s tests/browser -p test_same_origin_workbench.py -v
+          python -m unittest discover -s tests/browser -p test_milestone_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_draft_forms_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_directory_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_runtime_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_native_runtime_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_requirement_relations_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_project_metadata_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_calendar_product_browser.py -v

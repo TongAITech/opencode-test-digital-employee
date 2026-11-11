@@ -1,0 +1,1 @@
+DROP TABLE wb.batch_requirement_version,wb.verified_requirement_version;

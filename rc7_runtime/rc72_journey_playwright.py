@@ -305,8 +305,29 @@ class JourneyPlaywrightAdapter:
                 if not locator.is_visible():
                     raise ContractError("JOURNEY_ASSERT_NOT_VISIBLE")
             elif kind == "text_equals":
-                if locator.inner_text(timeout=self.timeout_ms) != oracle.get("expected"):
+                expected = oracle.get("expected")
+                if not isinstance(expected, str):
                     raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH")
+                # HTTP response completion / networkidle does not imply that a
+                # SPA has committed its asynchronous DOM state. Use Playwright's
+                # retrying assertion with an exact, anchored text Oracle.
+                waiter = getattr(locator, "wait_for_text", None)
+                if callable(waiter):
+                    try:
+                        waiter(expected, timeout_ms=self.timeout_ms)
+                    except Exception as exc:
+                        raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH") from exc
+                else:
+                    try:
+                        from playwright.sync_api import expect
+                        expect(locator).to_have_text(
+                            re.compile(r"^" + re.escape(expected) + r"$"),
+                            timeout=self.timeout_ms, use_inner_text=True)
+                    except ImportError as exc:
+                        raise ContractError(
+                            "JOURNEY_PLAYWRIGHT_TEXT_ASSERTION_RUNTIME_MISSING") from exc
+                    except Exception as exc:
+                        raise ContractError("JOURNEY_ASSERT_TEXT_MISMATCH") from exc
             elif kind == "attribute_equals":
                 attribute = str(oracle.get("attribute") or "")
                 if not attribute or locator.get_attribute(attribute, timeout=self.timeout_ms) != oracle.get("expected"):

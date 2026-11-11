@@ -9,23 +9,31 @@ on:
       - 'tests/test_rc72_*.py'
       - 'tests/rc72_qa_c09_host.py'
       - '.github/workflows/rc7.2-abcd-v4-qualification.yml'
+  # Full QA only for an explicit non-draft integration candidate. Draft W0
+  # changes use the fast workbench contract gate; final QA is never omitted.
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2]
-    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'rc7_runtime/**'
+      - 'rc7_release/**'
+      - 'tests/test_rc72_*.py'
+      - 'tests/rc72_qa_c09_host.py'
+      - '.github/workflows/rc7.2-abcd-v4-qualification.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rc72-abcd-v4-${{ github.event.pull_request.number || github.ref }}
+  # PR head SHA is deliberately excluded: superseded PR qualifications
+  # cancel, while explicit workflow_dispatch evidence remains uncancelled.
+  group: rc72-abcd-v4-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   c01-c10-engineering:
-    # Full product qualification is an integration checkpoint, not a per-commit tax.
-    # Draft PRs run focused source/contract workflows; ready PRs run full ABCD + Chromium.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: abcd-v4-native-${{ matrix.os }}-python-${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -77,9 +85,7 @@ jobs:
           if-no-files-found: warn
 
   complete-rc7-with-real-chromium:
-    # Full product qualification is an integration checkpoint, not a per-commit tax.
-    # Draft PRs run focused source/contract workflows; ready PRs run full ABCD + Chromium.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: abcd-v4-ubuntu-3.11-complete-source-real-chromium
     runs-on: ubuntu-22.04
     timeout-minutes: 90

@@ -1,0 +1,44 @@
+name: DSH Workbench W0 Fast Contract Gates
+
+on:
+  # The PR is the single L0 source of truth: no duplicate push + PR run.
+  # Keep the required w0-contracts status on the protected target branch.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [work/rc7.2, work/dsh-wb-w0]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tools/dsh_workbench/**'
+      - 'tests/test_dsh_workbench*.py'
+      - 'tests/test_dsh_workbench*.mjs'
+      - '.github/workflows/dsh-wb-w0-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  w0-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Negative-first W0 contracts, FG15 gate DAG, license and page boundaries
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Negative-first C W0 Scope and 50-feature reconciliation (Node, no browser)
+        run: |
+          node --check tools/dsh_workbench/ui_w0_prototype/scope.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/source_fence.mjs
+          node --check tools/dsh_workbench/ui_w0_prototype/app.mjs
+          node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs tests/test_dsh_workbench_ui_source_fence.mjs
+      - name: Verify A01 zh-CN/en-US W1 scope with fail-closed status
+        run: python tools/dsh_workbench/a01_locale_scope.py
+      - name: Verify 3-tier CI admission topology (negative-first)
+        run: python tools/dsh_workbench/ci_admission.py
+      - name: Boundaries are not product acceptance
+        run: echo 'W0 CONTRACT TESTS ONLY; no DSH host, bank field, F review or commercial license approval'

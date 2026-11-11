@@ -1,0 +1,34 @@
+name: DSH Workbench E W0 Design Contract Counterexamples
+
+on:
+  push:
+    branches: [work/dsh-wb-runtime]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tools/dsh_workbench/e_contract_oracle.py'
+      - 'tests/test_dsh_workbench_e_*.py'
+      - 'tools/dsh_workbench/e_readonly_scope_prototype.py'
+      - 'tools/dsh_workbench/e_b06_page_consumer.py'
+      - '.github/workflows/dsh-wb-e-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  e-w0-contract-only:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: E Python 3.8 consumer protocol + negative R1 fixtures
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: E Python 3.11 consumer protocol + negative R1 fixtures
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py' -v
+      - name: No product acceptance or license implied
+        run: echo 'W0 DESIGN ONLY; E01 BLOCKED by B06; not HTTP/R1/SSE/Bank/F QA'

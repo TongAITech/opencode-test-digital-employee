@@ -4,18 +4,30 @@ on:
   push:
     branches: [work/rc7.2-a-c07-n9-captain-fence]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2-abcd-v4-qualification, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_captain_*.py'
+      - 'rc7_runtime/rc72_n9_professional_dsh.py'
+      - 'rc7_release/rc72_configured_mission.py'
+      - 'tests/test_rc72_c07_n9_professional_dsh_fence.py'
+      - 'tests/test_rc72_n9_captain_qualification.py'
+      - 'tests/test_rc72_n9_professional_dsh_*.py'
+      - 'tests/test_rc72_captain_*.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rc72-c07-n9-fence-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  # The latest relevant PR head supersedes old draft qualification runs.
+  # Explicit manual runs are retained as independent audit evidence.
+  group: rc72-c07-n9-fence-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   n9-captain-fenced-model:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: c07-n9-fence-${{ matrix.os }}-py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40

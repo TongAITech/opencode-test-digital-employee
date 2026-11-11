@@ -1,0 +1,27 @@
+name: DSH Workbench pure Scope codec
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/dsh_workbench/scope_snapshot_codec.py'
+      - 'tests/test_dsh_workbench_scope_snapshot_codec.py'
+      - '.github/workflows/dsh-wb-scope-codec.yml'
+permissions:
+  contents: read
+jobs:
+  pure-codec:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify actual Python runtime
+        run: python --version
+      - name: Run pure structural tests
+        run: python -m unittest discover -s tests -p test_dsh_workbench_scope_snapshot_codec.py -v

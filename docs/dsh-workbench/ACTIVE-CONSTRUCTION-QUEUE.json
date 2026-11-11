@@ -1,0 +1,592 @@
+{
+  "schema": "dsh-workbench/a-construction-queue/v1",
+  "snapshot_date": "2026-11-12",
+  "owner": "A_ONLY",
+  "purpose": "Resume from GitHub and continue ready work; this file is an index, not a qualification attestation.",
+  "restore_first": {
+    "repo": "TongAITech/opencode-test-digital-employee",
+    "branch": "work/dsh-wb-w0",
+    "pr": 84,
+    "last_tested_code_sha": "c397d016b60146dd640cc2b87fb4513d8ef54b54",
+    "ledger_before_this_update": "3057466a5dba3b6fcb477c2ebcdaffea7533ee16",
+    "rc72_observed_sha": "edaf9290594ecaf66c482470da64ae706ff8c7aa",
+    "refresh_remote_heads_pr_checks_and_worktrees": true,
+    "read": [
+      "08-CONSTRUCTION-PLAN.md",
+      "09-GAP-MATRIX.md",
+      "10-RELEASE-CHECKPOINT.md",
+      "ACTIVE-CONSTRUCTION-QUEUE.json"
+    ],
+    "do_not_reset_force_push_or_write_rc72": true,
+    "last_joint_regression_failure_sha": "44222081f9267602aa635fda53db7b46f457f4be",
+    "full_rc72_ci_run": 43067301875,
+    "latest_joint_candidate_sha": "c397d016b60146dd640cc2b87fb4513d8ef54b54",
+    "latest_joint_full_rc72_ci_run": 43069965805,
+    "last_targeted_sha": "c6c58b39aefc353a12df7ad43926f2cc0700cf09"
+  },
+  "active_work": [
+    {
+      "ticket": "C_GATES_READONLY",
+      "owner": "C",
+      "agent": "/root/c_directory_ui",
+      "worktree": "c-gates-ui",
+      "branch": "work/dsh-wb-c-gates-ui",
+      "pr": 215,
+      "source_sha": "074b2f17eb36b49222e48058c6fbd4fd9bd0693f",
+      "state": "INTEGRATED_F222_EXACT",
+      "next_action": "Preserve F221 native fetch failure; fixed default transport accepted only at new source."
+    },
+    {
+      "ticket": "B_SCOPE_POLICY_PROFILE",
+      "owner": "B",
+      "agent": "/root/b_binding_v2_review",
+      "worktree": "b-scope-policy-qualification",
+      "branch": "work/dsh-wb-b-scope-policy-qualification",
+      "pr": 216,
+      "source_sha": "f4985abf93d35b94fdcacd2193e65808e5d9816b",
+      "state": "INTEGRATED_F226_NARROW_COMPONENT",
+      "next_action": "As-of profile only; no admission/DDL-role fence; keep F220 failures."
+    },
+    {
+      "ticket": "E_SCOPE_LOSS_HOLD_GUARD",
+      "owner": "E",
+      "agent": "/root/e_scope_binding",
+      "worktree": "e-scope-hold-guard",
+      "pr": 223,
+      "source_sha": "1e3776bcc1a9ad11166cc2f504da0797cf306d0e",
+      "state": "INTEGRATED_F231_LOCAL_COMPONENT",
+      "historical_failure_prs": [
+        213,
+        214,
+        224,
+        227,
+        229
+      ],
+      "next_action": "Keep prior failures; full inherited formal runtime regression on 16ae running; not closed writer/admission."
+    },
+    {
+      "ticket": "PROJECT_METADATA_BOARD_INCREMENT",
+      "owner": "D",
+      "worktree": "d-project-board-contract",
+      "pr": 211,
+      "source_sha": "1e1a75ff6c49cfaf36a6f36f3bdde1e047cf77d2",
+      "state": "A_DECISION_D_E_F_DESIGN_REVIEW",
+      "next_action": "Governed root rename, exact byte name policy,009 explicit migration dependency001–007,Directory metadata revision; no SQL before incremental review.",
+      "b_pr": 230,
+      "b_source": "a21b82fe805926a22b5d90babec5670dd912c6aa"
+    },
+    {
+      "ticket": "C_REQUIREMENTS_RELATIONS",
+      "owner": "C",
+      "pr": 225,
+      "source_sha": "79ff9823fe8bdc67a1b4cbc0a69d710664ef1840",
+      "state": "INTEGRATED_F232_EXACT",
+      "next_action": "Long-ID375 P2 closed only at79ff; full C04/C05 not qualified."
+    },
+    {
+      "ticket": "B_PROJECT_METADATA_PROTOCOL_CODEC",
+      "owner": "B",
+      "worktree": "b-project-metadata-codec",
+      "branch": "work/dsh-wb-b-project-metadata-codec",
+      "state": "INTEGRATED_F238_EXACT",
+      "next_action": "SQL/store/runner actualPG qualification separate; pure syntax accepted.",
+      "pr": 236,
+      "source_sha": "63ea53b13e931576955670dd96f2d5a334cd0242"
+    },
+    {
+      "ticket": "D_MISSION_BINDING_WRITER_INVENTORY",
+      "owner": "D",
+      "state": "INVESTIGATION_INTEGRATED_E_DESIGN_READY",
+      "next_action": "E typed absence/null/serializer, formal release batch mapping, pre-effect closure design; no production admission.",
+      "pr": 242,
+      "source_sha": "19be4aacc53e7a21a334e40fced7b9b27d1e61fd"
+    },
+    {
+      "ticket": "B_PROJECT_METADATA_POSTGRES",
+      "owner": "B",
+      "worktree": "b-project-metadata-pg",
+      "branch": "work/dsh-wb-b-project-metadata-pg",
+      "state": "INTEGRATED_F253_EXACT_OPTIONAL_COMPONENT",
+      "next_action": "Keep F246 old red. Production009 explicit read-only profile is independent; no admission.",
+      "pr": 244,
+      "source_sha": "3b74d5e00edb6c2c0304074bdc2699481309c52c"
+    },
+    {
+      "ticket": "A_PROJECT_METADATA_HTTP",
+      "owner": "A",
+      "pr": 239,
+      "worktree": "a-project-metadata-http",
+      "source_sha": "26ef3c7b4173f9dd0a2b5240edd1039fb5a428ae",
+      "state": "INTEGRATED_F254_EXACT_HTTP_COMPONENT",
+      "next_action": "Default adapter unconfigured; UI P1 separate. Real Host and production profile outstanding."
+    },
+    {
+      "ticket": "A_FANOUT_GUARD_REGRESSION",
+      "owner": "A",
+      "worktree": "a-fanout-guard-regression",
+      "source_sha": "ec6d35c163926d74ce7d1439fb8de98ae159d89e",
+      "state": "INTEGRATED_F243_EXACT_TEST_REPAIR",
+      "next_action": "Complete exact71a run42957130347 succeeded; preserve old16ae red and actual Windows-related skips.",
+      "pr": 241
+    },
+    {
+      "ticket": "C_PROJECT_METADATA_UI",
+      "owner": "C",
+      "worktree": "c-project-metadata-ui",
+      "branch": "work/dsh-wb-c-project-metadata-ui",
+      "state": "INTEGRATED_F256_EXACT",
+      "next_action": "Keep F252 old red. Exact joint Node124+browser11 verified; governed root rename only.",
+      "pr": 250,
+      "source_sha": "a6ddfa7d58e3f09823a5d235ccc2b645251ee2a2"
+    },
+    {
+      "ticket": "E_TYPED_MISSION_PRESERVATION_DESIGN",
+      "owner": "E",
+      "pr": 245,
+      "source_sha": "5be49d089cdf8e320c29276418e3069fe9c0e796",
+      "state": "B251_D248_F249_DESIGN_ACCEPTED_E_CODE_RUNNING",
+      "next_action": "Implement typed representation/isolation and negative append guard only; archive pure shared leaf, exact legacy regression and F.",
+      "worktree": "e-mission-stage1",
+      "branch": "work/dsh-wb-e-mission-stage1"
+    },
+    {
+      "ticket": "B_EXPLICIT_009_SCOPE_PROFILE",
+      "owner": "B",
+      "state": "INTEGRATED_F260_EXACT_INTERNAL_ONLY",
+      "next_action": "No admission or DDL fence. Preserve known inherited base diagnostic raw definitions as P2 internal boundary.",
+      "worktree": "b-scope-profile-009",
+      "branch": "work/dsh-wb-b-scope-profile-009",
+      "pr": 255,
+      "source_sha": "7d7c3fcdc1449491ea3dea90aa1bd9be0c5591ca"
+    },
+    {
+      "ticket": "A_SOURCE_ARCHIVE_STARTUP",
+      "owner": "A",
+      "worktree": "a-product-source-archive",
+      "branch": "work/dsh-wb-a-product-source-archive",
+      "source_sha": "90bdfafc792fb3ed03bd5f6ca1f96f9140166bf2",
+      "state": "INTEGRATED_F261_EXACT",
+      "next_action": "Keep F258 older defect and old source missing tools failure; source layout only, field pending.",
+      "pr": 257
+    },
+    {
+      "ticket": "E_TYPED_MISSION_PRESERVATION_CODE",
+      "owner": "E",
+      "pr": 259,
+      "worktree": "e-mission-stage1",
+      "branch": "work/dsh-wb-e-mission-stage1",
+      "source_sha": "450d2932cd7261b733cc5832c5fddf8e0b5e5482",
+      "state": "INTEGRATED_F279_STAGE1_ONLY",
+      "next_action": "Full exact 44222081 CI underway; A joint fixture fix #291; production admission HOLD.",
+      "report_pr": 279
+    },
+    {
+      "ticket": "B_008_PHYSICAL_CONTRACT",
+      "owner": "B",
+      "state": "INTEGRATED_F283_TEST_FIXTURE_ONLY",
+      "next_action": "Keep F280 ISO DateStyle limitation. No migration activation or writer. Production wire and ordering pending.",
+      "pr": 265,
+      "source_sha": "4d058cf3363e129a45846fafd1f583850c07626a",
+      "implementation_pr": 278,
+      "implementation_sha": "e6eccf1d9a137ae4c9844efbad67f7e57ec155e4",
+      "report_pr": 283
+    },
+    {
+      "ticket": "D_RUNTIME_BATCH_AUTHORITY_CONTRACT",
+      "owner": "D",
+      "state": "MAPPING_CODEC_INTEGRATED_F277",
+      "next_action": "Full request wire and runtime reader remain separate.",
+      "pr": 263,
+      "source_sha": "4587b0c1050714553cc6a44fd0c58b919c17d5ac",
+      "implementation_pr": 273,
+      "implementation_sha": "7444f997109d9bdb7d1c571b8a63a7ab93c92fa3",
+      "report_pr": 277
+    },
+    {
+      "ticket": "A_E02_OBLIGATION_LINEAGE",
+      "owner": "A",
+      "pr": 269,
+      "worktree": "a-e02-obligation-lineage",
+      "branch": "work/dsh-wb-a-e02-obligation-lineage",
+      "source_sha": "49fb6cae99c38f1cbd777d01ed3a25596d287e03",
+      "state": "INTEGRATED_F271_EXACT",
+      "next_action": "Preserve old 200 red. Current flat fixture path only; formal mapping remains separate.",
+      "report_pr": 271
+    },
+    {
+      "ticket": "A_E01_EVIDENCE_ACL",
+      "owner": "A",
+      "pr": 274,
+      "source_sha": "05b6b9c90e9a2baa7fc8424dca25bf7480100690",
+      "state": "INTEGRATED_F276_EXACT",
+      "next_action": "Real PG/HTTP rechecks after evidence integrity. Preserve old 200 after committed revocation.",
+      "report_pr": 276
+    },
+    {
+      "ticket": "A_DURABLE_ADMISSION_ORDER",
+      "owner": "A",
+      "pr": 275,
+      "source_sha": "f4f6f557",
+      "state": "D285_REJECTS_UNVERSIONED_MARKER_AND_EXISTING_WRITER_LOCK",
+      "next_action": "Isolated versioned serialization validation may proceed. Production requires stale writer and revocation order proof.",
+      "report_pr": 285
+    },
+    {
+      "ticket": "A_RUNTIME_BATCH_HISTORY",
+      "owner": "A",
+      "pr": 281,
+      "source_sha": "5e44028bf569e8dccced26189f1cf56838365e52",
+      "report_pr": 286,
+      "state": "INTEGRATED_F286_DETACHED",
+      "next_action": "Old normalized identity failure F282 retained. Composed strict snapshot entrypoint PR290 awaits independent acceptance."
+    },
+    {
+      "ticket": "A_STRICT_R1_SNAPSHOT",
+      "owner": "A",
+      "pr": 284,
+      "source_sha": "1dfcb38297fdac294fbaa8834be588a4c048af1e",
+      "report_pr": 287,
+      "state": "INTEGRATED_F287_DETACHED"
+    },
+    {
+      "ticket": "A_CREATE_WIRE",
+      "owner": "A",
+      "pr": 288,
+      "source_sha": "b0711004",
+      "state": "PURE_REQUEST_AND_SELECTION_DECIDED",
+      "next_action": "E request/selection codec under independent verification. Receipt/event schema still in design.",
+      "review_prs": [
+        289,
+        292,
+        293
+      ]
+    },
+    {
+      "ticket": "A_PINNED_BATCH_HISTORY",
+      "owner": "A",
+      "pr": 290,
+      "source_sha": "34a63b23c5530bf7a09840a18b0024989a83d7d7",
+      "state": "INTEGRATED_F294_EXACT",
+      "report_pr": 294
+    },
+    {
+      "ticket": "A_EVIDENCE_FIXTURE_REGRESSION",
+      "owner": "A",
+      "pr": 291,
+      "source_sha": "a5ae9bf271e8dd83b0cd2cdca389c8dcd5e91dcc",
+      "state": "INTEGRATED_F295_EXACT",
+      "next_action": "Old 44222081 and detached 388b21b4 local joint red retained. Exact c397d016 CI component success; full local PG and inherited CI in progress.",
+      "report_pr": 295
+    },
+    {
+      "ticket": "B_PG_VERSIONED_GATE",
+      "owner": "B",
+      "pr": 296,
+      "source_sha": "cb3106313becdc82eec9b38b64bd7c0ecce78df5",
+      "state": "INTEGRATED_F299_TEST_FIXTURE_ONLY",
+      "next_action": "Isolated actual PG proof only. Production closure requires physical writer and all source mutations.",
+      "report_pr": 299
+    },
+    {
+      "ticket": "A_R1_RAW_RECORD",
+      "owner": "A",
+      "pr": 297,
+      "source_sha": "ddb59d3d8686b47e96b45a042b0d0e824275fbe3",
+      "state": "INTEGRATED_F300_DETACHED",
+      "next_action": "Exact raw line bytes for future receipt verification.",
+      "report_pr": 300
+    },
+    {
+      "ticket": "E_CREATE_CODEC",
+      "owner": "E",
+      "pr": 298,
+      "source_sha": "acc1d80a2f6456c957e7fefb4a70d7a4a27f113d",
+      "state": "INTEGRATED_F302_DETACHED",
+      "next_action": "Require canonical allocated R1 IDs at the event/allocator seam. No production port.",
+      "report_pr": 302
+    },
+    {
+      "ticket": "D_FORMAL_CREATION_SOURCE_EVENT",
+      "owner": "D",
+      "pr": 301,
+      "source_sha": "ce81483e9c56d8b52e671493f89daa0f7da6ca3e",
+      "state": "E303_DETACHED_VALIDATOR_ALLOWED",
+      "next_action": "Only detached event/receipt codec after precise schema; older runtime fail closed and deployment upgrade evidence required.",
+      "review_pr": 303
+    },
+    {
+      "ticket": "D_POSIX_PHYSICAL_WRITER_PROBE",
+      "owner": "D",
+      "pr": 304,
+      "source_sha": "3ee01c3289b88f69e7e97859675c237811f596ea",
+      "state": "INTEGRATED_F305_TEST_FIXTURE_ONLY",
+      "report_pr": 305,
+      "next_action": "Ubuntu and Darwin x86_64 tested. Mac ARM infrastructure and Windows unqualified. Advisory lock does not exclude direct writers."
+    },
+    {
+      "ticket": "E_FORMAL_EVENT_CODEC",
+      "owner": "E",
+      "pr": 306,
+      "source_sha": "867d365f1017f5af2be598a1d690dbb0818f4551",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "Detached event only. Exact CI 43071117778 succeeded."
+    },
+    {
+      "ticket": "A_FORMAL_RECEIPT_LOOKUP_CODEC",
+      "owner": "A",
+      "pr": 307,
+      "source_sha": "2f9a8141453c0106cf11ce54430edd17922723a6",
+      "state": "F_EXACT_RECHECK_RUNNING",
+      "next_action": "Stacked on #306. No production projection or authorization."
+    },
+    {
+      "ticket": "B_PG_R1_RECOVERY_PROBE",
+      "owner": "B",
+      "state": "ISOLATED_IMPLEMENTATION_RUNNING",
+      "next_action": "Actual PG + disposable writer process before/after durable append, no formal event or production adapter."
+    }
+  ],
+  "accepted_integrated_components": [
+    {
+      "pr": 180,
+      "source": "47950777",
+      "f_report_pr": 183,
+      "report": "904493cf"
+    },
+    {
+      "pr": 182,
+      "source": "1492a572",
+      "f_report_pr": 187,
+      "report": "3ac4d157"
+    },
+    {
+      "pr": 189,
+      "source": "f1b6b24e",
+      "f_report_pr": 193,
+      "report": "7bbaa5a6"
+    },
+    {
+      "pr": 195,
+      "source": "8618676e",
+      "f_report_pr": 201,
+      "report": "9e654047",
+      "keep_failures": [
+        197,
+        200
+      ]
+    },
+    {
+      "pr": 199,
+      "source": "026ddff9",
+      "f_report_pr": 202,
+      "report": "1e223b8b",
+      "qualification_limit": "APPROVED_PROJECT_ONLY_SCHEMA; unknown or drifted RLS not qualified; not admission"
+    },
+    {
+      "pr": 209,
+      "source": "968430ed",
+      "f_report_pr": 210,
+      "report": "2c280269",
+      "qualification_limit": "PURE_STRUCTURAL_ONLY; models/reader/writer not connected"
+    },
+    {
+      "pr": 223,
+      "source": "1e3776bc",
+      "f_report_pr": 231,
+      "report": "ff6ba4ee",
+      "keep_failures": [
+        224,
+        227,
+        229
+      ],
+      "qualification_limit": "LOCAL_NEGATIVE_GUARD_ONLY"
+    },
+    {
+      "pr": 225,
+      "source": "79ff9823",
+      "f_report_pr": 232,
+      "report": "7bba2e77",
+      "keep_failures": [
+        228
+      ],
+      "qualification_limit": "READONLY_RELATIONS_AND_NARROW_SCREEN_ONLY"
+    },
+    {
+      "pr": 244,
+      "source": "3b74d5e0",
+      "f_report_pr": 253,
+      "report": "29599b3a",
+      "keep_failures": [
+        246
+      ],
+      "qualification_limit": "OPTIONAL_009_PG_COMPONENT"
+    },
+    {
+      "pr": 239,
+      "source": "26ef3c7b",
+      "f_report_pr": 254,
+      "report": "5abbb07e",
+      "qualification_limit": "SAME_ORIGIN_HTTP_COMPONENT; default unconfigured"
+    },
+    {
+      "pr": 250,
+      "source": "a6ddfa7d",
+      "f_report_pr": 256,
+      "report": "a84dd987",
+      "keep_failures": [
+        252
+      ],
+      "qualification_limit": "GOVERNED_ROOT_RENAME_UI_ONLY"
+    },
+    {
+      "pr": 255,
+      "source": "7d7c3fcd",
+      "f_report_pr": 260,
+      "report": "2290b1bb",
+      "qualification_limit": "INTERNAL_CATALOG_OBSERVER; ADMISSION_FALSE"
+    },
+    {
+      "pr": 257,
+      "source": "90bdfafc",
+      "f_report_pr": 261,
+      "report": "e553e9c1",
+      "keep_failures": [
+        258
+      ],
+      "qualification_limit": "SOURCE_ARCHIVE_STARTUP_ONLY"
+    }
+  ],
+  "exact_verification": [
+    {
+      "sha": "02ae2d806f5ef61965d2d9fc5230ebb3d571c920",
+      "python_workbench_real_pg": {
+        "executed": 594,
+        "passed": 594,
+        "skipped": 0
+      },
+      "node": 117,
+      "real_pg_browser": 8
+    },
+    {
+      "sha": "73cdb971541e0fec951cbe48bb6c9988010f2262",
+      "integrated_pure_module_tests": 20
+    },
+    {
+      "sha": "f1b6b24e233bae2adb43d2ae60dc84cfb6523c53",
+      "abcd_v4_run": 42870053745,
+      "jobs_passed": 5,
+      "status": "SUCCESS",
+      "scope": "Complete inherited RC7/RC7.2 plus real Chromium and four Ubuntu/Windows Python3.8/3.11 jobs; source qualification only, not bank field/offline delivery."
+    },
+    {
+      "sha": "2b94d2361fbc92cb56ad06cc8046e4474b86ca12",
+      "node": 120,
+      "real_pg_browser": 9,
+      "pure_modules": 20
+    },
+    {
+      "sha": "b4eb06be3622b54ac0c96d692dcc0b6849bbdd83",
+      "real_pg_profile": 27,
+      "profile_artifact": 2
+    },
+    {
+      "sha": "e7edb8a99cc48d5a30975f6f3e0689631c8b7852",
+      "python_workbench_real_pg": {
+        "executed": 632,
+        "passed": 632,
+        "skipped": 0,
+        "seconds": 150.198
+      }
+    },
+    {
+      "sha": "16ae40e8a86b5193da0a1f97b3b5f7a5f76204cc",
+      "node": 124,
+      "real_pg_browser": 10,
+      "abcd_v4_run": 42893372170,
+      "abcd_v4_status": "FAILURE",
+      "native_jobs_passed": 4,
+      "complete_source": {
+        "passed": 3110,
+        "failed": 1,
+        "skipped": 4,
+        "seconds": 3294.25
+      }
+    },
+    {
+      "sha": "a52a7f7c071e3bfd8aa08e0a6dbb709b557d3d9f",
+      "pure_metadata_tests": 28,
+      "seconds": 0.015
+    },
+    {
+      "sha": "71a50aeeb92ba74468f05d00cb6d33af8a143ef7",
+      "fanout_scope_guard_tests": 106,
+      "seconds": 2.2,
+      "abcd_v4_run": 42957130347,
+      "abcd_v4_status": "SUCCESS",
+      "jobs_passed": 5,
+      "complete_source": {
+        "passed": 3111,
+        "failed": 0,
+        "skipped": 4,
+        "seconds": 3224.52
+      }
+    },
+    {
+      "sha": "52518b86d62d2785466cb8bd0361679b739e7f9d",
+      "python_workbench_real_pg": {
+        "executed": 702,
+        "passed": 702,
+        "skipped": 0,
+        "seconds": 152.781
+      },
+      "pg_version": "17.6 + ICU"
+    },
+    {
+      "sha": "12989ad4ac204b096864d03e63ddffa9b3db416f",
+      "windows_pip_mirror_run": 42970382981,
+      "windows_pip_mirror_passed": 74,
+      "windows_one_sst_run": 42970384073,
+      "windows_one_sst_passed": 6,
+      "scope": "Windows engineering runner; bank field and final delivery remain pending"
+    },
+    {
+      "sha": "5634ba5a6252db25631c615c9dbcfe32ddd12467",
+      "node": 124,
+      "real_pg_browser": 11,
+      "browser_seconds": 52.281,
+      "skipped": 0
+    },
+    {
+      "sha": "800dfa3742f6f093989c140b178c79d92d43c18f",
+      "python_workbench_real_pg": {
+        "executed": 713,
+        "passed": 713,
+        "skipped": 0,
+        "seconds": 177.687
+      },
+      "real_pg_browser": 11,
+      "browser_seconds": 59.428
+    }
+  ],
+  "rules": [
+    "Only A writes 08/09/10 and this queue.",
+    "All code workers use isolated worktrees and independent PRs.",
+    "F must not implement the tested feature.",
+    "Do not infer current worker availability from an old errored status; actually retry a task within available concurrency.",
+    "Do not transfer PASS between SHAs or call fixture Host/synthetic binding field qualification.",
+    "Preserve historical failures and all unsupported configuration boundaries."
+  ],
+  "external_gates": {
+    "status": "FIELD_NEEDS_BANK_TRANSFER",
+    "user_confirmed_outside_bank_unreachable": true,
+    "dsh_version_target": "1.18.26",
+    "not_passed": [
+      "Native Host/SSO/model/session/attachments",
+      "Actual Agent Teams concurrency and resource recovery",
+      "Windows offline install/restart",
+      "Final license/SBOM and independent release gates"
+    ]
+  },
+  "release": "NOT_APPROVED",
+  "final_delivery_zip_created": false
+}

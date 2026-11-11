@@ -19,7 +19,7 @@ from rc6_release.static_skills import ALL_SKILLS, materialize_professional_skill
 BUILD_STATUS = "ENGINEERING_CANDIDATE_NOT_BANK_FINAL"
 PACKAGE_NAME = "PFC-AITest-DSH-Turnkey-RC7-BANK-WIN10"
 MANIFEST_SCHEMA = "pfc.aitest.rc7.package.v1"
-SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin")
+SOURCE_DIRS = ("rc6_runtime", "rc6_release", "rc7_runtime", "rc7_release", "rc7_admin", "dsh_scope_codec")
 LAUNCHER_DIR = Path("packaging") / "rc7"
 RC6_COORDINATOR_DIR = Path("packaging") / "rc6" / ".dsh" / "skills" / "pfc-full-chain-test"
 PACKAGE_LOCAL_PYTHON = Path("workspace-template") / "runtime" / "python" / "python.exe"
@@ -71,6 +71,10 @@ LAUNCHER_NAMES = (
 ENTRYPOINTS = tuple("packaging/rc7/%s" % name for name in LAUNCHER_NAMES)
 REQUIRED_PRODUCT_FILES = (
     "rc7_runtime/bank_mission.py",
+    "rc7_runtime/unadmitted_scope_guard.py",
+    "rc7_runtime/mission_scope_preservation.py",
+    "dsh_scope_codec/__init__.py",
+    "dsh_scope_codec/mission_binding.py",
     "rc7_admin/__main__.py",
     "rc7_admin/server.py",
     "rc7_admin/projection.py",

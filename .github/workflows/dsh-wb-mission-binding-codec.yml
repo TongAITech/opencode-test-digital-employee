@@ -1,0 +1,50 @@
+name: DSH Workbench compact Mission binding codec
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/dsh_workbench/mission_scope_binding_codec.py'
+      - 'tools/dsh_workbench/mission_create_codec.py'
+      - 'tools/dsh_workbench/formal_mission_event.py'
+      - 'tests/test_dsh_workbench_formal_mission_event.py'
+      - 'tools/dsh_workbench/formal_mission_receipt.py'
+      - 'tests/test_dsh_workbench_formal_mission_receipt.py'
+      - 'tests/test_dsh_workbench_mission_create_codec.py'
+      - 'tests/test_dsh_workbench_mission_scope_binding_codec.py'
+      - 'tools/dsh_workbench/runtime_batch_mapping.py'
+      - 'tests/test_dsh_workbench_runtime_batch_mapping.py'
+      - 'tools/dsh_workbench/runtime_batch_history.py'
+      - 'tests/test_dsh_workbench_runtime_batch_history.py'
+      - 'tools/dsh_workbench/r1_snapshot_events.py'
+      - 'tests/test_dsh_workbench_r1_snapshot_events.py'
+      - '.github/workflows/dsh-wb-mission-binding-codec.yml'
+permissions:
+  contents: read
+jobs:
+  pure-binding-codec:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify actual source and runtime
+        run: |
+          git rev-parse HEAD
+          python --version
+      - name: Run pure compact binding tests
+        run: |
+          python -m unittest discover -s tests -p test_dsh_workbench_mission_scope_binding_codec.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_mission_create_codec.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_mapping.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_runtime_batch_history.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_r1_snapshot_events.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_event.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_receipt.py -v

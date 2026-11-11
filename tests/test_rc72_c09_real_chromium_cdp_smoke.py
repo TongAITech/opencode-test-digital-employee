@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -20,7 +21,7 @@ from urllib.request import urlopen, url2pathname
 # Deliberately required: any CI suite collecting this module must provision
 # Python Playwright and the matching real Chromium. Never silently skip a
 # required browser proof in an RC7.2 qualification job.
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from rc7_runtime.rc72_journey_playwright import JourneyPlaywrightAdapter
 from rc7_runtime.rc72_journey_replay import JourneyReplayService
@@ -307,8 +308,31 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
             auth_asset_ref="auth://4a/session-asset",
         )
         assert recorder.page is not None
-        recorder.page.locator("#save").click(timeout=10000)
-        recorder.page.wait_for_load_state("networkidle", timeout=15000)
+        # FG17: a successful click is NOT proof that CDP delivered the SPA
+        # fetch response. Fence on the actual POST response BEFORE taking the
+        # teaching action's network snapshot; still verify recorder evidence.
+        # This does not skip an HTTP Oracle or fabricate recorded responses.
+        with recorder.page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0] == origin + "/api/save"
+            ),
+            timeout=15000,
+        ) as save_response:
+            recorder.page.locator("#save").click(timeout=10000)
+        observed_response = save_response.value
+        assert observed_response.status == 200, (
+            "FG17_SUT_POST_RESPONSE_NOT_200: " + str(observed_response.status)
+        )
+        # networkidle may already have fired before this XHR starts; it is
+        # not a fence for the SPA promise continuation. Wait for the exact
+        # business Oracle, without sleeping or weakening the expected value.
+        try:
+            expect(recorder.page.locator("#toast")).to_have_text(
+                re.compile(r"^Saved on server$"),
+                timeout=15000, use_inner_text=True)
+        except AssertionError as exc:
+            raise AssertionError("FG17_SUT_TOAST_ORACLE_NOT_MET") from exc
         observed_events = []
         for _ in range(30):
             observed_events = recorder.poll(page_role="CONFIGURATION")
@@ -341,7 +365,10 @@ def test_real_chromium_cdp_teaching_captures_dom_event_network_and_png(tmp_path:
         responses = json.loads(response_path.read_text())["responses"]
         assert any(item["method"] == "POST" and
                    item["url"] == origin + "/api/save" and
-                   item["status"] == 200 for item in responses)
+                   item["status"] == 200 for item in responses), (
+                       "FG17_RECORDER_NETWORK_RESPONSE_NOT_ATTACHED_TO_CLICK: "
+                       + repr(responses)
+                   )
         assert "never-leak" not in response_path.read_text()
 
         compiled = JourneyCompiler(truth, release_id="RC7.2").compile(

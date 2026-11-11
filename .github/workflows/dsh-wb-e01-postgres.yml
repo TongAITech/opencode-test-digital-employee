@@ -1,0 +1,50 @@
+name: DSH Workbench E01 PostgreSQL HTTP R1 component
+on:
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'tools/dsh_workbench/e01_service.py'
+      - 'rc7_admin/product_server.py'
+      - 'rc7_admin/projection.py'
+      - 'tests/test_dsh_workbench_mount_auth.py'
+      - 'tools/dsh_workbench/e02_service.py'
+      - 'tools/dsh_workbench/e02_lineage.py'
+      - 'tests/test_dsh_workbench_e02_lineage.py'
+      - 'tests/test_dsh_workbench_e02_postgres.py'
+      - 'tools/dsh_workbench/business_http.py'
+      - 'tests/test_dsh_workbench_e01_postgres.py'
+      - '.github/workflows/dsh-wb-e01-postgres.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  e01-component:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: component-only-password
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'psycopg[binary]==3.2.13'
+      - name: Real PostgreSQL, loopback HTTP and immutable persistent R1 fixture
+        env:
+          WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e01_postgres.py' -v
+      - name: E02 canonical graph with persistent R1 and real PostgreSQL
+        env:
+          WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_postgres.py'
+      - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e_*.py'
+      - run: python -m unittest discover -s tests -p 'test_dsh_workbench_e02_lineage.py'
+      - name: Mounted legacy private API authorization regression
+        env:
+          WB_PG_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres password=component-only-password
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_mount_auth.py'

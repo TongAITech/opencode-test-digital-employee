@@ -1,0 +1,76 @@
+name: DSH Workbench physical ledger probe
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tests/fixtures/workbench_physical_ledger/**'
+      - 'tests/test_dsh_workbench_physical_ledger_writer.py'
+      - 'tests/test_dsh_workbench_b_pg_r1_recovery_postgres.py'
+      - '.github/workflows/dsh-wb-physical-ledger-probe.yml'
+permissions:
+  contents: read
+jobs:
+  physical-file-probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record exact source and platform
+        run: |
+          git rev-parse HEAD
+          uname -sm
+          python --version
+      - name: Run disposable physical-file probes
+        run: python -W error -m unittest discover -s tests -p test_dsh_workbench_physical_ledger_writer.py -v
+
+  cross-store-recovery-probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'psycopg[binary]==3.2.13'
+      - name: Record exact source and platform
+        run: |
+          git rev-parse HEAD
+          uname -sm
+          python --version
+      - name: Run disposable PostgreSQL and physical R1 recovery probes
+        env:
+          WB_PG_TEST_DSN: host=localhost port=5432 dbname=postgres user=postgres password=local-ci-only
+        run: python -W error -m unittest discover -s tests -p test_dsh_workbench_b_pg_r1_recovery_postgres.py -v
+
+  windows-physical-file-probe:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record exact source and platform
+        run: |
+          git rev-parse HEAD
+          python -c "import platform; print(platform.platform())"
+          python --version
+      - name: Run Windows disposable physical-file probe
+        run: python -W error -m unittest discover -s tests -p test_dsh_workbench_physical_ledger_writer.py -k windows_hard_links -v

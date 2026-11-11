@@ -1,0 +1,11 @@
+# F 统一入口独立组件验收
+
+精确源66a57fabfcd86f8d7f924410e2a649e513fed61e，PR144。F隔离worktree/真实临时PG库与nonowner角色、实际product_server HTTP及Chromium，未参与实现。
+
+真实test_same_origin_workbench.py 1/1、E01持久R1/PG组件35/35、F新增namespace攻击1/1均独立PASS。默认未配置provider时伪X-Principal/Bearer/query不放行；配置fixture后同源Scope浏览器数据与DB Oracle一致、质量HOLD、foreign Mission403、撤权清空恢复、原R1字节不变。F攻击观察application.dispatch_get调用：/api/workbench/v1根及子路径四种请求均503 HOST_IDENTITY_UNAVAILABLE，旧dispatch调用0；随后/api/meta仍200且正常走旧dispatch。未泄露配置/数据库/对象详情，也未回落静态SPA或旧Mission接口。
+
+源码确认product_server仅对精确namespace边界委派共用scope_handler，默认scope_handler(None,None)先拒绝缺Host；standalone复用同一类不分叉协议，POST不落入旧mutation。D B07签署绑定22fc88ff2884dea92ff6139bf9a56aa1474331e6，仅接受草稿资产写授权/CSRF与Host信任设计；不将它当此源真实宿主能力或B07实现验收。
+
+同SHA五CI SUCCESS：W0 run42806634695/job129797329400；PG run42806634659/job129797329406；E01 run42806634821/job129797329492；C01 run42806634675/job129797330975；C02真实PG浏览器同run/job129797331487。均独立API核实，未复用旧源结果。
+
+结论SAME_ORIGIN_SCOPE_QUALITY_MOUNT_COMPONENT_ACCEPTED，当前组件范围无已发现P0/P1，A可集成后对新联合HEAD回归。不是Host现场/SSO、CSRF真实发行者、全业务资产十区、F01完整链路或银行交付通过；provider/token/cookie为明确fixture。原R1不被写入，正式NodeGate仍HOLD。未改功能、08/09/10或正式R1事实。

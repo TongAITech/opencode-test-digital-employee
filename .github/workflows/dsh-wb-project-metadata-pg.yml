@@ -1,0 +1,42 @@
+name: Workbench optional M1 PostgreSQL candidate
+on:
+  pull_request:
+    paths:
+      - 'tools/dsh_workbench/project_metadata_*.py'
+      - 'tools/dsh_workbench/business_directory.py'
+      - 'tools/dsh_workbench/business_migrations.py'
+      - 'tools/dsh_workbench/migrations/optional/**'
+      - 'tests/test_dsh_workbench_b_project_metadata_postgres.py'
+      - '.github/workflows/dsh-wb-project-metadata-pg.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  optional-metadata-pg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'psycopg[binary]==3.2.13'
+      - name: Exact optional candidate and existing profile compatibility
+        env:
+          WB_PG_REQUIRE_ICU: '1'
+          WB_PG_TEST_DSN: host=localhost port=5432 dbname=postgres user=postgres password=local-ci-only
+        run: |
+          git rev-parse HEAD
+          python --version
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_project_metadata_postgres.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_b_scope_policy*postgres.py' -v
+          python -m unittest discover -s tests -p 'test_dsh_workbench_scope_profile_artifact.py' -v

@@ -1,0 +1,31 @@
+name: Workbench B real PostgreSQL
+on:
+  pull_request:
+    paths:
+      - 'tools/dsh_workbench/business_*.py'
+      - 'tools/dsh_workbench/migrations/**'
+      - 'tools/dsh_workbench/requirements-postgres.txt'
+      - 'tests/test_dsh_workbench_b*postgres.py'
+      - 'tests/fixtures/workbench_scope_008/**'
+      - '.github/workflows/dsh-wb-b-postgres.yml'
+  workflow_dispatch:
+jobs:
+  postgres-identity:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'psycopg[binary]==3.2.13'
+      - name: Real PostgreSQL identity negative and recovery tests
+        env:
+          WB_PG_TEST_DSN: host=localhost port=5432 dbname=postgres user=postgres password=local-ci-only
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_b*postgres.py' -v

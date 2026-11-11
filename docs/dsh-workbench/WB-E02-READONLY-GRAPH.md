@@ -1,0 +1,15 @@
+# E02 canonical R1 graph read component
+
+Baseline 0b22bb80. GET /api/workbench/v1/missions/{mission_id}/graph and /workitems require project_id,batch_id,release_date query, trusted server HostIdentity, real B06 all-page authorization. No client principal or write routes.
+
+E02 reuses E01 authorization and immutable R1 snapshot admission, verifies the second snapshot matches truth_revision, performs unique Mission project/batch identity query before graph details, and rechecks PG authorization/revisions after reads. Raw canonical RC72 mission_node/delivery/gate/transition/back_edge or task/ETU/binding records retain their formal states. Missing nodes/gates return explicit gaps; human approval remains UNKNOWN_NOT_QUERIED and release_decision HOLD. No prompt/overlay/draft can create a formal PASS. Unknown canonical node state causes replay failure503, never invented success. Original R1 is not modified.
+
+PostgreSQL17.6 loopback HTTP and persistent synthetic R1 tests cover actual canonical N1 record, missing remaining nodes/gates, workitems, untrusted identity, wrong batch, revoked permission, unknown state503/recovery and original bytes unchanged. Inherited E01 tests cover legacy binding denial, cold recovery, immutable bytes and identity-only rejection. No bank Host/Windows/field claim. F independent review remains required.
+
+Initial local test rejected fixture node_type=N1, correctly requiring canonical N1_REALITY; fixed test and missing-node calculation to use RC72_CANONICAL_NODE_ORDER. No runtime contract modified.
+
+Final local real PostgreSQL/HTTP/persistent R1 regression: 35/35 PASS (14.725s). A first HTTP fixture used a temporary mock context that ended before request handling, causing503; fixed provider lifetime for the server. This was a test integration failure, retained here rather than counted as prior PASS.
+
+## F150 P1 correction
+F independently reproduced same-release M1 Gate referencing M2 node/delivery on72dd3f9f. Prior release-only check was insufficient. New fail-closed canonical joins verify node/delivery/gate identity and node type, node refs/active version, transitions/backedges, workitems/ETU/obligation/batch/case/Attempt bindings and parent refs against the authorized Mission's own indexed objects. Unknown/foreign/missing joins return503 R1_LINEAGE_UNRESOLVED without returning records or PASS. No R1 mutation. Node scope_ref is retained as opaque canonical reference rather than guessed by string parsing; full formal planning-snapshot scope provenance remains separate qualification.
+Real PG/HTTP/persistent R1 regression35/35 PASS (13.682s), now including original foreign-Mission same-release Gate attack against both graph/workitems, original bytes unchanged and clean-snapshot recovery. Pure join suite1/1 PASS with 11 independently varied reference/identity mismatches and one fully linked positive record set. No DSH/Windows access attempted: FIELD_NEEDS_BANK_TRANSFER. New SHA requires independent F recheck; old P1 failure retained.

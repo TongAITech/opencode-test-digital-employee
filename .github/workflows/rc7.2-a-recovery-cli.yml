@@ -12,21 +12,34 @@ on:
       - 'tests/test_rc72_mission_bindings.py'
       - '.github/workflows/rc7.2-a-recovery-cli.yml'
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches:
       - work/rc7.2-abcd-v2-qualification
       - work/rc7.2-abd-integration
       - work/rc7.2
+    paths:
+      - 'rc7_runtime/rc72_n8_*.py'
+      - 'rc7_runtime/rc72_mission_factory.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'rc7_release/rc72_configured_mission.py'
+      - 'tests/test_rc72_n8_*.py'
+      - 'tests/test_rc72_qa_c01_c02_independent.py'
+      - 'tests/test_rc72_configured_mission.py'
+      - 'tests/test_rc72_mission_bindings.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rc72-n8-cli-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  # The latest relevant PR head supersedes old draft qualification runs.
+  # Explicit manual runs are retained as independent audit evidence.
+  group: rc72-n8-cli-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   native-n8-and-cli:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: n8-multi-round-cli-${{ matrix.os }}-py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35

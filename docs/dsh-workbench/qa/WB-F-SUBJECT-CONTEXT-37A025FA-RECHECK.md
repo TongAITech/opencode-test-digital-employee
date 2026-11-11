@@ -1,0 +1,11 @@
+# F 本地主体上下文恢复独立复验
+
+后端精确源：3fc3c1a4f25b033b1743a0d0507f90d4851f1a72（PR161）。客户端组合精确源：37a025fa90bd24854ce269ac79cb0b07a889d051（PR162），包含该后端。F隔离worktree/临时PostgreSQL/nonowner角色/loopback HTTP与本机Chromium，无真实Host凭据或生产R1访问。
+
+后端源独立write-context真PG/HTTP16/16 PASS（3新+13继承）。组合源四套真实浏览器4/4、write-context16/16、Node24/24 PASS；原F159主体切换浏览器反例原样加载独立1/1 PASS，原来3!=2的重复资产现不再发生。新版浏览器验证Alice已提交丢响应→Bob同项目合法写会话原context409且DB仍2→刷新/语言/分区/Scope变化保原key→Alice重新授权恢复后同key返回原回执，DB资产/版本/outbox不增加；Scope变更清空表单/列表，旧私有payload不带往新Scope。
+
+后端HMAC context仅主体域围栏，不是授权token；服务端校验早于业务连接，缺context403、错主体409、缺provider/key503，mutation/CSRF和project.can_write仍各自必须满足。context固定同key重启保持、key轮换旧context409不重绑定，readonly主体得context也无写权。客户端每新写取context，pending重试保原context，不能取Bob新context重新包装Alice payload，未知状态跨刷新不解除HOLD。
+
+F-C-MILESTONE-01刷新丢恢复身份与F-C-MILESTONE-02主体切换重放两P1在组合源关闭。结论SUBJECT_FENCED_MILESTONE_RECOVERY_COMPONENT_ACCEPTED；当前组件范围无剩余已发现P0/P1。父A提供同精确源CI成功证据：B PG42824461547/job129858008798、W042824461590/job129858008694；C PG42824689535/job129858819076及browser42824689664/job129858819958。遵本轮本地复验限制，F没有重新访问远端查询，CI事实应由A保持原始证据归档。
+
+不是真实DSH用户切换/SSO/签名权威/现场恢复或完整C03/C04验收，FIELD_NEEDS_BANK_TRANSFER保持。context目前绑定principal域，不证明同principal不同登录会话epoch；真实Host生命周期/密钥轮换与撤权对接仍需D现场资格。A集成后新联合HEAD需回归。未改功能、08/09/10或生产R1。

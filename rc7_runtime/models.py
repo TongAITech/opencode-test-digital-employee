@@ -6,10 +6,13 @@ identities. Mission state is durable; worker sessions are disposable.
 
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+from dsh_scope_codec.mission_binding import ScopeIdentity
 
 
 class ContractError(ValueError):
@@ -96,6 +99,16 @@ def _string_list(values: List[str], name: str) -> List[str]:
     return values
 
 
+class _ScopePresence(Enum):
+    ABSENT = "absent"
+
+
+_SCOPE_ABSENT = _ScopePresence.ABSENT
+MISSION_SCOPE_FIELDS = frozenset(("project_id", "batch_id", "scope_binding"))
+MISSION_SCOPE_HOLD = "MISSION_SCOPE_NOT_ADMITTED"
+_MISSING_SCOPE_ATTRIBUTE = object()
+
+
 @dataclass
 class Mission:
     mission_id: str
@@ -111,6 +124,7 @@ class Mission:
     revision: int = 1
     created_at: int = field(default_factory=_now)
     updated_at: int = field(default_factory=_now)
+    _scope_state: Union[_ScopePresence, ScopeIdentity] = field(default=_SCOPE_ABSENT, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.mission_id = _required(self.mission_id, "mission_id")
@@ -122,6 +136,108 @@ class Mission:
         _string_list(self.open_gap_ids, "open_gap_ids")
         _string_list(self.active_task_ids, "active_task_ids")
         _string_list(self.residual_risk_ids, "residual_risk_ids")
+
+
+_MISSION_DICT = vars(Mission)["__dict__"]
+_MISSION_SCOPE_FIELD = vars(Mission)["__dataclass_fields__"]["_scope_state"]
+
+
+def is_mission_object(value: Any) -> bool:
+    """Recognize actual inheritance without reading a value's __class__ hook."""
+    return issubclass(type(value), Mission)
+
+
+def _plain_string_dict(value: Any) -> bool:
+    """Prove dictionary and key types before any lookup or copy."""
+    return type(value) is dict and all(type(key) is str for key in value)
+
+
+def _mission_instance_dict(value: Mission, error=ContractError) -> Dict[str, Any]:
+    kind = type(value)
+    if (type(kind) is not type or not issubclass(kind, Mission) or
+            inspect.getattr_static(kind, "__dict__", None) is not _MISSION_DICT):
+        raise error(MISSION_SCOPE_HOLD)
+    raw = _MISSION_DICT.__get__(value, Mission)
+    if not _plain_string_dict(raw):
+        raise error(MISSION_SCOPE_HOLD)
+    return raw
+
+
+def _mission_scope_state(value: Mission, error=ContractError):
+    """Read the known Mission state without invoking a substituted getter."""
+    kind = type(value)
+    raw = _mission_instance_dict(value, error)
+    if (inspect.getattr_static(kind, "__getattribute__", None) is not object.__getattribute__ or
+            inspect.getattr_static(kind, "__getattr__", _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE):
+        raise error(MISSION_SCOPE_HOLD)
+    for base in kind.__mro__:
+        if base is Mission:
+            break
+        if "_scope_state" in vars(base):
+            raise error(MISSION_SCOPE_HOLD)
+    fields = inspect.getattr_static(kind, "__dataclass_fields__", None)
+    if (not _plain_string_dict(fields) or dict.get(fields, "_scope_state") is not _MISSION_SCOPE_FIELD or
+            MISSION_SCOPE_FIELDS.intersection(fields) or MISSION_SCOPE_FIELDS.intersection(raw) or
+            inspect.getattr_static(kind, "_scope_state", None) is not _SCOPE_ABSENT):
+        raise error(MISSION_SCOPE_HOLD)
+    if any(inspect.getattr_static(kind, name, _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE
+           for name in MISSION_SCOPE_FIELDS):
+        raise error(MISSION_SCOPE_HOLD)
+    return dict.get(raw, "_scope_state", _SCOPE_ABSENT)
+
+
+def require_unbound_mission(value: Mission, error=ContractError) -> None:
+    if _mission_scope_state(value, error) is not _SCOPE_ABSENT:
+        raise error(MISSION_SCOPE_HOLD)
+
+
+_SCALAR_FIELDS = {
+    "mission_id": str,
+    "release_id": str,
+    "goal": str,
+    "state": MissionStatus,
+    "sufficiency_state": str,
+    "revision": int,
+    "created_at": int,
+    "updated_at": int,
+}
+_REFERENCE_FIELDS = ("artifact_refs", "open_gap_ids", "active_task_ids", "residual_risk_ids")
+_DECLARED_FIELDS = frozenset(_SCALAR_FIELDS) | frozenset(_REFERENCE_FIELDS) | {"latest_evaluation_id"}
+_COPY_FIELDS = _DECLARED_FIELDS | {"_scope_state"}
+
+
+def _copy_mission_fields(mission):
+    source = dict.copy(_mission_instance_dict(mission))
+    if (not _plain_string_dict(source) or any(name not in _COPY_FIELDS for name in source) or
+            not _DECLARED_FIELDS.issubset(source)):
+        raise ContractError(MISSION_SCOPE_HOLD)
+
+    copied = {}
+    for name, expected in _SCALAR_FIELDS.items():
+        value = source[name]
+        if type(value) is not expected:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied[name] = value
+    evaluation_id = source["latest_evaluation_id"]
+    if evaluation_id is not None and type(evaluation_id) is not str:
+        raise ContractError(MISSION_SCOPE_HOLD)
+    copied["latest_evaluation_id"] = evaluation_id
+
+    for name in _REFERENCE_FIELDS:
+        refs = source[name]
+        if type(refs) is not list:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        detached = list.copy(refs)
+        if any(type(ref) is not str for ref in detached):
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied[name] = detached
+
+    if "_scope_state" in source:
+        scope = source["_scope_state"]
+        if scope is not _SCOPE_ABSENT and type(scope) is not ScopeIdentity:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        copied["_scope_state"] = scope
+    return copied
 
 
 @dataclass
@@ -287,7 +403,19 @@ class EventRecord:
 
 def to_payload(value: Any) -> Dict[str, Any]:
     """Return a JSON-friendly payload while preserving canonical enum values."""
+    mission = is_mission_object(value)
+    if mission:
+        require_unbound_mission(value)
+    if type(value) is Mission:
+        data = _copy_mission_fields(value)
+        if data.pop("_scope_state", _SCOPE_ABSENT) is not _SCOPE_ABSENT:
+            raise ContractError(MISSION_SCOPE_HOLD)
+        data["state"] = data["state"].value
+        return data
+
     data = asdict(value)
+    if mission:
+        data.pop("_scope_state")
     for key, item in list(data.items()):
         if isinstance(item, Enum):
             data[key] = item.value

@@ -1,0 +1,89 @@
+{
+  "schema": "wb.optional-migrations/v1",
+  "migrations": [
+    {
+      "version": 1,
+      "dependencies": [],
+      "up": "001_identity.up.sql",
+      "up_sha256": "6edcbc4de7529fa9d9c2876da886ea41af182816a3a0efad7ae58ebb6da8eca2",
+      "down": "001_identity.down.sql",
+      "down_sha256": "c1eef2aee75f4f9530d3c47c51503fe6951479d4681338c2aa30ab90ac4ff60f"
+    },
+    {
+      "version": 2,
+      "dependencies": [
+        1
+      ],
+      "up": "002_membership.up.sql",
+      "up_sha256": "d2acb6ffd2fa8dbdd1d5463caa7b7cfb98f3de0f3cadf296283e2e831bec7353",
+      "down": "002_membership.down.sql",
+      "down_sha256": "d1aee26f9391619f6031c13472d8a5c46986d3fd289172a26ef43f2a499245d1"
+    },
+    {
+      "version": 3,
+      "dependencies": [
+        2
+      ],
+      "up": "003_requirement_version.up.sql",
+      "up_sha256": "ed42ae7c8e8d68ceeafce61f1bf29090dabca75d0c2459b517551309aa6b8029",
+      "down": "003_requirement_version.down.sql",
+      "down_sha256": "4b3dc9bc87a1b5c1beec8972dd85f1f9b205d925d9fb4a2fcaa7d38b666e2e31"
+    },
+    {
+      "version": 4,
+      "dependencies": [
+        3
+      ],
+      "up": "004_sst.up.sql",
+      "up_sha256": "a2cca502bdba5c7af9a304798b9654c1cabec765032329d0cb2247a928a93f8a",
+      "down": "004_sst.down.sql",
+      "down_sha256": "cfe15dbae64f4c24cacc192170db8235a3754473a5195d4fd072397db6fd906d"
+    },
+    {
+      "version": 5,
+      "dependencies": [
+        4
+      ],
+      "up": "005_scope.up.sql",
+      "up_sha256": "4c6ccdb3704454b30d421f07b42df1c041d53636d28b76fceecc532c289db506",
+      "down": "005_scope.down.sql",
+      "down_sha256": "92b3d413c2e83a802bf69b816d09140796c8ba275589923534e99129ae49b30a"
+    },
+    {
+      "version": 6,
+      "dependencies": [
+        5
+      ],
+      "up": "006_milestone.up.sql",
+      "up_sha256": "4afbb99dad66f08c508580c63a87ff9af32e5e6f9a30df6636ae8e4014d843f9",
+      "down": "006_milestone.down.sql",
+      "down_sha256": "ba4e4d7364ec6e8dc3274c32f18afe957df5b498a7c1ae238912bdb8bc1d8669"
+    },
+    {
+      "version": 7,
+      "dependencies": [
+        6
+      ],
+      "up": "007_draft_kinds.up.sql",
+      "up_sha256": "2b2afbeac99e582b3a8db3b6507d54d1b12ab2bd56faf3f7b766bacfbdf605c5",
+      "down": "007_draft_kinds.down.sql",
+      "down_sha256": "a7b5fe616032a88c46142622e972d9680957ecd9e43bc87f1bfb17da1fc1af45"
+    },
+    {
+      "version": 9,
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "up": "optional/009_project_metadata.up.sql",
+      "up_sha256": "aeb7e3b86ccd0e81c6668e86ac16ba331a8d36bac6c4a96effff85413664a22a",
+      "down": "optional/009_project_metadata.down.sql",
+      "down_sha256": "9375afd79c5d801ca28a78d08aa6b503c58f11464dfe11c8c07a33bf36834a7b"
+    }
+  ]
+}

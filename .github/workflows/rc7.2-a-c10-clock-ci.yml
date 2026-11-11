@@ -4,18 +4,28 @@ on:
   push:
     branches: [work/rc7.2-a-c10-deterministic-window]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [work/rc7.2-economy, work/rc7.2]
+    paths:
+      - 'rc7_runtime/rc72_*economy*.py'
+      - 'rc7_runtime/rc72_native_delta_prompt.py'
+      - 'rc7_release/rc72_mission_cli.py'
+      - 'tests/test_rc72_production_economy_*.py'
+      - 'tests/test_rc72_native_delta_prompt.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rc72-c10-clock-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  # The latest relevant PR head supersedes old draft qualification runs.
+  # Explicit manual runs are retained as independent audit evidence.
+  group: rc72-c10-clock-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   c10-native-model-economy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: c10-real-command-${{ matrix.os }}-py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25

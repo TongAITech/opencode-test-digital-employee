@@ -1,0 +1,7 @@
+ALTER TABLE wb.project ADD COLUMN access_scope_revision bigint NOT NULL DEFAULT 1 CHECK(access_scope_revision>0);
+CREATE FUNCTION wb.acl_revision_changed() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,wb AS $$ BEGIN UPDATE wb.project SET access_scope_revision=access_scope_revision+1 WHERE project_id=COALESCE(NEW.project_id,OLD.project_id); IF TG_OP='UPDATE' AND OLD.project_id<>NEW.project_id THEN UPDATE wb.project SET access_scope_revision=access_scope_revision+1 WHERE project_id=OLD.project_id; END IF; RETURN NULL; END $$;
+CREATE TRIGGER acl_revision_changed AFTER INSERT OR UPDATE OR DELETE ON wb.project_acl FOR EACH ROW EXECUTE FUNCTION wb.acl_revision_changed();
+-- Every visible relation insertion invalidates earlier pages, including governed
+-- callers other than the repository; a stable revision cannot hide a new edge.
+CREATE FUNCTION wb.relation_row_changed() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,wb AS $$ BEGIN UPDATE wb.release_batch SET relation_revision=relation_revision+1 WHERE project_id=NEW.project_id AND batch_id=NEW.batch_id; RETURN NULL; END $$;
+DO $$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['batch_requirement','batch_version','batch_requirement_version','batch_requirement_version_sst'] LOOP EXECUTE format('CREATE TRIGGER relation_row_changed AFTER INSERT ON wb.%I FOR EACH ROW EXECUTE FUNCTION wb.relation_row_changed()',t); END LOOP; END $$;

@@ -1,0 +1,37 @@
+name: DSH Workbench B Domain A03 Design Contract
+
+on:
+  push:
+    branches: [work/dsh-wb-domain]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tests/test_dsh_workbench_b_a03_design.py'
+      - '.github/workflows/dsh-wb-b-domain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  b-a03-design-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: B A03 isolated SQL constraint, FK and error-contract witnesses
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_b_a03_design.py' -v
+      - name: Fetch F-owned original FG18 regression at immutable F SHA
+        uses: actions/checkout@v4
+        with:
+          ref: 5111044d87a97120d57cddc1b6d3c8e177502c2f
+          path: wb_f_qa_checkout
+          persist-credentials: false
+      - name: Replay F-original cross-version SST source identity negative test
+        run: WB_B_CHECKOUT=. python -m unittest discover -s wb_f_qa_checkout/tests -p 'test_dsh_workbench_b_sst_identity_f.py' -v
+      - name: W0 shared contract regression (no full RC7 build)
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: Boundaries
+        run: echo 'W0 design-only SQL witness, not Postgres, real HTTP/R1, F QA or bank acceptance'

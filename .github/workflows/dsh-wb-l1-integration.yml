@@ -1,0 +1,80 @@
+name: DSH Workbench L1 Integration Admission
+# L0 runs on normal W0 PR commits. L1 runs only on candidate admission
+# (ready_for_review) or explicit manual verification with pinned source SHA.
+on:
+  pull_request:
+    types: [ready_for_review, synchronize, reopened, opened]
+    branches: [work/rc7.2]
+    paths:
+      - 'docs/dsh-workbench/**'
+      - 'tools/dsh_workbench/**'
+      - 'tests/test_dsh_workbench*'
+      - '.github/workflows/dsh-wb-l1-integration.yml'
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        description: "Exact 40-character source HEAD to qualify (never a stale artifact)"
+        required: true
+        type: string
+      include_browser:
+        description: "Also run original W0 Chromium prototype, not field QA"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-wb-l1-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  wb-l1-integration:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: wb-l1-contract-and-cross-group-probe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact source for explicit release-stage runs
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          observed="$(git rev-parse HEAD)"
+          echo "L1_QUALIFIED_SOURCE_SHA=$observed"
+          if [ -n "$EXPECTED_SHA" ] && [ "$observed" != "$EXPECTED_SHA" ]; then
+            echo "::error::L1_SOURCE_HEAD_MISMATCH"; exit 2
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Integrated B/C/D/E/F contract and adversarial scope checks
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench*.py' -v
+      - name: Independent C original-feature/Scope Node probes
+        run: node --test tests/test_dsh_workbench_ui_w0.mjs tests/test_dsh_workbench_c_feature_reconciliation.mjs tests/test_dsh_workbench_ui_source_fence.mjs
+      - name: Install Chromium only when explicitly requested
+        if: github.event_name == 'workflow_dispatch' && inputs.include_browser == true
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Actual browser probe (prototype only, NEVER product QA_PASS)
+        if: github.event_name == 'workflow_dispatch' && inputs.include_browser == true
+        run: python tools/dsh_workbench/ui_w0_prototype/qa/run_browser_evidence.py --output "$RUNNER_TEMP/wb-l1-browser"
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.include_browser == true
+        with:
+          name: wb-l1-browser-${{ github.sha }}
+          path: ${{ runner.temp }}/wb-l1-browser/*.png
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Design evidence does not equal real product or bank QA
+        run: echo 'L1 CONTRACT/PROTOTYPE_ONLY; W1 implementation, F field QA, commercial license remain separate.'

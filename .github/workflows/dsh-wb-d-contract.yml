@@ -1,0 +1,44 @@
+name: DSH Workbench D Host Design and Read-Only Contract
+on:
+  push:
+    branches: [work/dsh-wb-host]
+    paths:
+      - 'docs/dsh-workbench/WB-D00-*'
+      - 'docs/dsh-workbench/WB-D01-*'
+      - 'tools/dsh_workbench/wb_d_host_probe.py'
+      - 'tools/dsh_workbench/wb_d_manifest_inspector.py'
+      - 'tests/test_dsh_workbench_host_d.py'
+      - 'tests/test_dsh_workbench_host_inventory_d.py'
+      - 'tests/test_dsh_workbench_host_live_loopback_d.py'
+      - '.github/workflows/dsh-wb-d-contract.yml'
+  pull_request:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'docs/dsh-workbench/WB-D00-*'
+      - 'docs/dsh-workbench/WB-D01-*'
+      - 'tools/dsh_workbench/wb_d_host_probe.py'
+      - 'tools/dsh_workbench/wb_d_manifest_inspector.py'
+      - 'tests/test_dsh_workbench_host_d.py'
+      - 'tests/test_dsh_workbench_host_inventory_d.py'
+      - 'tests/test_dsh_workbench_host_live_loopback_d.py'
+      - '.github/workflows/dsh-wb-d-contract.yml'
+  workflow_dispatch:
+jobs:
+  host-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: D original loopback read-only negative contracts
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_host_d.py' -v
+      - name: D offline read-only manifest metadata and secret negative contracts
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_host_inventory_d.py' -v
+      - name: D actual loopback socket transport (fixture server only, NOT bank DSH)
+        run: python -m unittest discover -s tests -p 'test_dsh_workbench_host_live_loopback_d.py' -v
+      - name: Explicit non-qualification
+        run: echo 'CONTRACT_ONLY; no bank DSH 1.18.26, no signed live Captain, no Windows offline or model quota qualification'

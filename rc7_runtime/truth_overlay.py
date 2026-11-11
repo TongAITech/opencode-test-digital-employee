@@ -19,7 +19,11 @@ from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 
 from .defect_loop import DefectRecord
-from .models import Artifact, Evaluation, EventRecord, Evidence, Gap, Mission, Task, to_payload
+from .models import (
+    Artifact, ContractError, Evaluation, EventRecord, Evidence, Gap, Mission,
+    MISSION_SCOPE_FIELDS, MISSION_SCOPE_HOLD, Task, _plain_string_dict, is_mission_object,
+    require_unbound_mission, to_payload,
+)
 
 
 RC7_EVENT_TYPES = {
@@ -244,12 +248,17 @@ def _r1_payload(entity: Any, *, release_id: str, artifact_version: int = 1) -> T
     event_type = _MODEL_EVENT.get(type(entity))
     if event_type is None:
         raise TypeError("UNSUPPORTED_RC7_ENTITY")
-    if not isinstance(release_id, str) or not release_id.strip():
+    mission = type(entity) is Mission
+    payload = to_payload(entity) if mission else None
+    if ((mission and type(release_id) is not str) or
+            not isinstance(release_id, str) or not release_id.strip()):
         raise ValueError("RELEASE_ID_REQUIRED")
-    if not isinstance(artifact_version, int) or artifact_version < 1:
+    if ((mission and type(artifact_version) is not int) or
+            not isinstance(artifact_version, int) or artifact_version < 1):
         raise ValueError("ARTIFACT_VERSION_INVALID")
 
-    payload = to_payload(entity)
+    if payload is None:
+        payload = to_payload(entity)
     payload["release_id"] = release_id.strip()
     payload["artifact_version"] = artifact_version
 
@@ -336,38 +345,42 @@ def _enforce_durable_acceptance(truth_runtime: _truth.TruthRuntime, entity: Any)
             if defect.get("latest_evaluation_id") != entity.resolution_evaluation_id:
                 raise _truth.EventValidationError("PRODUCT_DEFECT_RECORD_EVALUATION_MISMATCH")
 
-    if isinstance(entity, Mission) and entity.state.value == "CONVERGED":
-        evaluation = _require_durable_pass_evaluation(
-            truth_runtime,
-            entity.latest_evaluation_id or "",
-            mission_id=entity.mission_id,
-            node="MISSION_EVALUATION",
-        )
-        sufficiency = str(evaluation.get("dimensions", {}).get("sufficiency_state", ""))
-        if sufficiency != entity.sufficiency_state:
-            raise _truth.EventValidationError("MISSION_SUFFICIENCY_EVALUATION_STATE_MISMATCH")
+def _enforce_mission_acceptance(truth_runtime: _truth.TruthRuntime, payload: Dict[str, Any]) -> None:
+    if payload["state"] != "CONVERGED":
+        return
 
-        active_task_states = {
-            "REGISTERED", "READY", "LEASED", "RUNNING", "OUTPUT_PRODUCED",
-            "EVALUATING", "REPAIR_REQUIRED", "BLOCKED", "HUMAN_REQUIRED",
-            "FAILED", "STALE",
-        }
-        active_tasks = [
-            row for row in truth_runtime.query("rc7_task", mission_id=entity.mission_id)
-            if row.get("state") in active_task_states
-        ]
-        if active_tasks:
-            raise _truth.EventValidationError("CONVERGED_MISSION_HAS_ACTIVE_TASK_PROJECTION")
+    mission_id = payload["mission_id"]
+    evaluation = _require_durable_pass_evaluation(
+        truth_runtime,
+        payload["latest_evaluation_id"] or "",
+        mission_id=mission_id,
+        node="MISSION_EVALUATION",
+    )
+    sufficiency = str(evaluation.get("dimensions", {}).get("sufficiency_state", ""))
+    if sufficiency != payload["sufficiency_state"]:
+        raise _truth.EventValidationError("MISSION_SUFFICIENCY_EVALUATION_STATE_MISMATCH")
 
-        open_gap_states = {
-            "OPEN", "PLANNED", "REPAIRING", "EVIDENCE_PENDING", "HUMAN_REQUIRED", "BLOCKED",
-        }
-        open_gaps = [
-            row for row in truth_runtime.query("rc7_gap", mission_id=entity.mission_id)
-            if row.get("state") in open_gap_states
-        ]
-        if open_gaps:
-            raise _truth.EventValidationError("CONVERGED_MISSION_HAS_OPEN_GAP_PROJECTION")
+    active_task_states = {
+        "REGISTERED", "READY", "LEASED", "RUNNING", "OUTPUT_PRODUCED",
+        "EVALUATING", "REPAIR_REQUIRED", "BLOCKED", "HUMAN_REQUIRED",
+        "FAILED", "STALE",
+    }
+    active_tasks = [
+        row for row in truth_runtime.query("rc7_task", mission_id=mission_id)
+        if row.get("state") in active_task_states
+    ]
+    if active_tasks:
+        raise _truth.EventValidationError("CONVERGED_MISSION_HAS_ACTIVE_TASK_PROJECTION")
+
+    open_gap_states = {
+        "OPEN", "PLANNED", "REPAIRING", "EVIDENCE_PENDING", "HUMAN_REQUIRED", "BLOCKED",
+    }
+    open_gaps = [
+        row for row in truth_runtime.query("rc7_gap", mission_id=mission_id)
+        if row.get("state") in open_gap_states
+    ]
+    if open_gaps:
+        raise _truth.EventValidationError("CONVERGED_MISSION_HAS_OPEN_GAP_PROJECTION")
 
 
 def append_entity(
@@ -378,6 +391,20 @@ def append_entity(
     artifact_version: int = 1,
 ):
     """Append an RC7 control entity to inherited R1 truth and verify RAW."""
+    if type(entity) is Mission:
+        event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)
+        payload["mission_id"] = _contracts._require_str(payload, "mission_id")
+        rows = truth_runtime.query("rc7_mission", mission_id=payload["mission_id"])
+        if len(rows) > 1 or any(not _plain_string_dict(row) or MISSION_SCOPE_FIELDS.intersection(row)
+                                for row in rows):
+            raise ContractError(MISSION_SCOPE_HOLD)
+        install_rc7_truth_overlay()
+        _enforce_mission_acceptance(truth_runtime, payload)
+        return truth_runtime.append_atomic(event_type, payload)
+
+    if is_mission_object(entity):
+        require_unbound_mission(entity)
+        raise TypeError("UNSUPPORTED_RC7_ENTITY")
     install_rc7_truth_overlay()
     _enforce_durable_acceptance(truth_runtime, entity)
     event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)

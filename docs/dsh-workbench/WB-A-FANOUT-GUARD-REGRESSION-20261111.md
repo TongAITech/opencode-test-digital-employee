@@ -1,0 +1,7 @@
+# A 脚本分流门禁与Scope保护回归修复
+
+完整联合源16ae40e8的run42893372170已结束FAILURE。四个Ubuntu/Windows×Python3.8/3.11原生job通过，全源码job实际3110通过、1失败、4跳过，用时3294.25秒。失败为test_accept_evaluation_invokes_script_fanout_gate_before_persisting_pass。旧测试用SimpleNamespace替代scheduler，受审Scope保护在触及fanout sentinel前按未知依赖拒绝。记录该失败并修复真实入口测试。
+
+本候选用真实TruthRuntime、Mission bootstrap、默认scheduler与register_task建立fixture。通过正常accept_evaluation入口观察脚本门禁sentinel，并断言拒绝后R1完整字节、Evaluation缺席及Task OUTPUT_PRODUCED状态。其余三个fanout边界断言保持原意。受影响Scope保护与此文件合跑106/106，2.72秒。
+
+针对性CI加入本文件，下一次Scope保护变更将同时运行这项门禁顺序回归。该候选待独立F核对及实际3.8/3.11 CI，后续集中完整回归仍需精确联合源。旧16ae完整运行继续记录FAILURE。

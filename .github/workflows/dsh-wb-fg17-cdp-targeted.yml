@@ -1,0 +1,105 @@
+name: Workbench FG17 Targeted Real Chromium Network Capture
+on:
+  push:
+    branches: [work/dsh-wb-w0]
+    paths:
+      - 'tests/test_rc72_c09_real_chromium_cdp_smoke.py'
+      - 'tests/test_rc72_journey_playwright_adapter.py'
+      - 'rc7_runtime/rc72_journey_playwright.py'
+      - 'rc7_runtime/rc72_journey_cdp_capture.py'
+      - '.github/workflows/dsh-wb-fg17-cdp-targeted.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fg17-python38-five-trial:
+    name: fg17-py38-playwright-1.48-five-trial
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      - name: Install exact Q1 Python 3.8 and Chromium harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+          python -m pip install --disable-pip-version-check 'playwright==1.48.0'
+          python -m playwright install --with-deps chromium
+      - name: Run complete C09 real browser module once (includes replay text Oracle)
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ github.workspace }}/fg17-evidence/py38-full
+        run: |
+          set -euo pipefail
+          mkdir -p fg17-evidence/py38-full
+          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py tests/test_rc72_journey_playwright_adapter.py --junitxml=fg17-evidence/py38-full/full-module.xml
+      - name: Five independent teaching recorder trials; any failure blocks
+        shell: bash
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ github.workspace }}/fg17-evidence/py38-trials
+        run: |
+          set -uo pipefail
+          mkdir -p fg17-evidence/py38-trials
+          failures=0
+          for trial in 1 2 3 4 5; do
+            export RC72_C09_EVIDENCE_EXPORT_ROOT="$GITHUB_WORKSPACE/fg17-evidence/py38-trials/trial-$trial"
+            mkdir -p "$RC72_C09_EVIDENCE_EXPORT_ROOT"
+            echo "FG17_PY38_TRIAL=$trial SOURCE_SHA=$(git rev-parse HEAD)"
+            if python -m pytest -v -s \
+              tests/test_rc72_c09_real_chromium_cdp_smoke.py::test_real_chromium_cdp_teaching_captures_dom_event_network_and_png \
+              --junitxml="fg17-evidence/py38-trials/trial-$trial.xml"; then
+              echo "FG17_PY38_TRIAL_$trial=PASS"
+            else
+              code=$?
+              echo "FG17_PY38_TRIAL_$trial=FAIL exit=$code"
+              failures=$((failures + 1))
+            fi
+          done
+          echo "FG17_PY38_FIVE_TRIAL_FAILURES=$failures"
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fg17-python38-five-trial-evidence-${{ github.sha }}
+          path: fg17-evidence/
+          retention-days: 14
+          if-no-files-found: warn
+
+  fg17-python311-cross-version:
+    name: fg17-py311-playwright-1.62-cross-version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install modern RC7.2 Chromium harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m rc7_release.rc72_pytest_bootstrap --requirements rc7_release/requirements-qualification.txt --timeout-seconds 120
+          python -m pip install --disable-pip-version-check 'playwright==1.62.0'
+          python -m playwright install --with-deps chromium
+      - name: Run complete C09 real browser module
+        env:
+          RC72_C09_EVIDENCE_EXPORT_ROOT: ${{ github.workspace }}/fg17-evidence/py311
+        run: |
+          set -euo pipefail
+          mkdir -p fg17-evidence/py311
+          python -m pytest -v -s tests/test_rc72_c09_real_chromium_cdp_smoke.py tests/test_rc72_journey_playwright_adapter.py --junitxml=fg17-evidence/py311/full-module.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fg17-python311-cross-version-evidence-${{ github.sha }}
+          path: fg17-evidence/
+          retention-days: 14
+          if-no-files-found: warn

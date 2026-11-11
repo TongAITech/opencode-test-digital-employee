@@ -156,6 +156,51 @@ class AdminProjection:
                 related[name] = []
         return {"mission": deepcopy(rows[0]), "related": deepcopy(related)}
 
+    def mission_overview_scoped(
+        self, *, mission_id: str, project_id: str, batch_id: str,
+    ) -> Dict[str, Any]:
+        """Check the minimal Mission scope identity before reading any details.
+
+        This is a legacy in-process scope guard, not a replacement for DSH Host
+        authorization or a production database row-level security policy.
+        It accepts only the legacy flat binding shape.
+        Deliberately do not call refresh(): it replays the entire event log and
+        rebuilds unrelated projections before the selected Mission is scoped.
+        TruthRuntime's in-process projection is updated by append_atomic().
+        """
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (mission_id, project_id, batch_id)):
+            raise AdminProjectionError("R1_MISSION_SCOPE_UNRESOLVED")
+        # TruthRuntime exposes query() (not get()); this query touches only the
+        # Mission identity bucket and deliberately does not load related records.
+        missions = self.truth.query("rc7_mission", mission_id=mission_id)
+        mission = missions[0] if len(missions) == 1 else None
+        if (not isinstance(mission, Mapping)
+                or "scope_binding" in mission
+                or "runtime_batch_mapping" in mission
+                or mission.get("mission_id") != mission_id
+                or mission.get("project_id") != project_id
+                or mission.get("batch_id") != batch_id):
+            # Keep the same denial for every unsupported scope shape.
+            raise AdminProjectionError("R1_MISSION_SCOPE_UNRESOLVED")
+
+        # Return only the identity fields needed by E. Do not expose the full
+        # Mission record from the identity lookup.
+        scoped_mission = {
+            "mission_id": mission_id,
+            "project_id": project_id,
+            "batch_id": batch_id,
+        }
+        related = {}
+        for name in ("tasks", "executions", "evidence"):
+            artifact_type = RESOURCE_TYPES[name]
+            try:
+                related[name] = self.truth.query(
+                    artifact_type, mission_id=mission_id)
+            except Exception as exc:
+                raise AdminProjectionError("R1_RELATED_READ_FAILED") from exc
+        return {"mission": scoped_mission, "related": deepcopy(related)}
+
     def create_test_case(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         candidate = deepcopy(dict(payload))
         tc_id = str(candidate.get("tc_id") or "")

@@ -1,0 +1,19 @@
+# F E03 只读文档依据核查
+
+被审文档源：E0e8259cd96b54e5009eecc2bac01a532eb896b3f；B4c02b8afe62ab9e1c5f9c08f2ce89fe7323c18c0。仅本地阅读文档及现有接口定义，未编写/调用执行器、执行任务、访问真实服务或生产R1。
+
+结论REVIEWED_WITH_REQUIRED_DETAILS。E03继续BLOCKED_FORMAL_CONTROL_API；不批准不存在的命令能力。
+
+源码依据：rc7_runtime/models.py的MissionStatus无PAUSED；control_plane.py的TaskScheduler提供ready/lease/start等任务接口，未定义工作台四动作所需统一principal/Scope/expected revision/idempotency/command_ref协议。bank_mission.start_or_resume是持久Mission启动恢复，不等于pause/resume命令。execution_recovery_control.py::authorize_direct_retry明确要求DIRECT_RETRY plan、PreparedAttempt、诊断Evidence、原Task/Gap状态和归属；不可泛化任意重试。rc72_n9_reproduction_human_gate.py::N9ReproductionHumanGateService构造要求正式request service与可信bank verifier，review读取已有request及attestation_ref，不是通用创建/批准Gate入口。故E依赖判断有源码支持，但不能否认已存在专项恢复/人审控制能力。
+
+B所需PG意图/journal/audit/outbox属于新增协议，不是已存在正式Mission表或R1事务。B指出R1已提交但PG未收到command_ref的恢复缺口成立：只有query(command_ref)不能找回未知ref，必须原权威幂等键+digest查询或证明重复submit只返回原回执不重执行。
+
+实现前仍需冻结明确：
+- submit/query逐字段schema及版本、动作专属payload、Scope身份/来源、规范digest、principal/project/Mission幂等域、完整错误与原回执语义；submit accepted的准确含义和正式回执发行者/签名/绑定。
+- pause/resume停派屏障持久状态与fencing epoch、旧owner恢复处理，以及每次Worker/Browser/model租约准入在正式控制面同一原子边界复核屏障/修订/权威；仅PG或HTTP入口检查不足。活跃Attempt安全停止/取消和UNKNOWN副作用HOLD必须明确，不能强杀伪终态。
+- retry_failed仅允许已验证专项恢复plan路径；human gate需正式request种类、发行者/有效期/防重放和审批权限分离，未知种类UNSUPPORTED。客户端不得提交签名权威或R1 payload。
+- PG意图提交/投递claim/正式R1提交/回执落库每个崩溃窗口，双投递/旧fence/撤权/Scope变化/同ref异digest的状态与对账策略；正式state revision由gateway比较，PG业务revision不能替代；outbox成功不等于执行完成。
+- 原主体context与后台正式委托身份不可重绑当前用户，context非SSO/CSRF/签名授权；授权先于幂等回执读取，撤权后不通过历史记录或旧lease绕过。
+- 命名复合键、角色/RLS、不可变意图/审计/回执引用、增量迁移校验与非空回退HOLD、冻结合同影响及B/D/E/F各自签署；不修改旧迁移checksum或R1历史分母。
+
+建议补充内容进入独立设计增量，再由A决定冻结合同变更。当前未获得可实施schema/正式控制协议，不以本次文档核查判实现或产品通过；FIELD_NEEDS_BANK_TRANSFER保持。未改08/09/10、功能、冻结RC7.2或任何R1事实。
