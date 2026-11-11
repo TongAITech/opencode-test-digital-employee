@@ -55,7 +55,13 @@ def scope_handler(connection_factory,cursor_key,host_identity_provider=None,qual
                     except ValueError:raise BusinessError(400,'INVALID_PAGE_SIZE')
                     project=unquote(directory[1]) if directory[1] else None
                     if project is not None and (not project or '/' in project):raise BusinessError(400,'INVALID_DIRECTORY_QUERY')
-                    with connection_factory() as connection:value=DirectoryStore(connection,cursor_key).directory(identity.principal,project,size,q.get('page_cursor',[None])[0])
+                    directory_store = DirectoryStore
+                    if project is None and metadata_store_factory is not None:
+                        from .project_metadata_directory import MetadataDirectoryStore
+                        directory_store = MetadataDirectoryStore
+                    with connection_factory() as connection:
+                        value = directory_store(connection, cursor_key).directory(
+                            identity.principal, project, size, q.get('page_cursor', [None])[0])
                     self.respond(200,value)
                     return
                 if url.path=='/api/workbench/v1/write-context':
