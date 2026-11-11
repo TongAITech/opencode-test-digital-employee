@@ -6,6 +6,7 @@ on:
       - 'tools/dsh_workbench/migrations/**'
       - 'tools/dsh_workbench/requirements-postgres.txt'
       - 'tests/test_dsh_workbench_b*postgres.py'
+      - 'tests/fixtures/workbench_scope_008/**'
       - '.github/workflows/dsh-wb-b-postgres.yml'
   workflow_dispatch:
 jobs:
