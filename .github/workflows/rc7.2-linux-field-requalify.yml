@@ -1,0 +1,32 @@
+name: RC7.2 Linux Existing Artifact Independent Requalification
+
+on:
+  push:
+    branches:
+      - work/rc7.2-linux-field-transport-20261111
+    paths:
+      - 'packaging/rc7.2/REQUALIFY-LINUX-FIELD.sh'
+      - '.github/workflows/rc7.2-linux-field-requalify.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  independent-linux-clean-qualification:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Requalify original Linux tarball without rebuilding it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash packaging/rc7.2/REQUALIFY-LINUX-FIELD.sh
+      - name: Publish qualification evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC72-LINUX-INDEPENDENT-QUALIFICATION-${{ github.sha }}
+          path: ${{ runner.temp }}/rc72-linux-independent-requalification/evidence/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,79 @@
+name: RC7.2 Native Linux Field Transport
+
+on:
+  push:
+    branches:
+      - work/rc7.2-linux-field-transport-20261111
+    paths:
+      - 'rc7_release/rc72_linux_field_portable.py'
+      - 'packaging/rc7.2/BUILD-LINUX-FIELD.sh'
+      - 'packaging/rc7.2/LINUX-FIELD-AITEST.sh'
+      - 'packaging/rc7.2/LINUX-FIELD-README.md'
+      - 'tests/test_rc72_linux_field_portable.py'
+      - '.github/workflows/rc7.2-linux-field-portable.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc72-linux-field-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.8', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run source contract
+        run: |
+          python -m pip install -r rc7_release/requirements-qualification.txt
+          python -m compileall -q rc7_release/rc72_linux_field_portable.py tests/test_rc72_linux_field_portable.py
+          python -m pytest -q tests/test_rc72_linux_field_portable.py
+          bash -n packaging/rc7.2/BUILD-LINUX-FIELD.sh
+          bash -n packaging/rc7.2/LINUX-FIELD-AITEST.sh
+
+  linux-native-package:
+    needs: linux-contract
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      UV_PYTHON_INSTALL_DIR: /tmp/rc72-managed-python
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.9.0'
+      - uses: astral-sh/setup-uv@v6
+      - name: Build and independently verify Linux field tarball
+        run: bash packaging/rc7.2/BUILD-LINUX-FIELD.sh
+      - name: Upload native Linux field tarball and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC72-LINUX-FIELD-UBUNTU22-X64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/rc72-linux-dist/RC72-LINUX-FIELD-UBUNTU22-X64-*.tar.gz
+            ${{ runner.temp }}/rc72-linux-dist/RC72-LINUX-FIELD-UBUNTU22-X64-*.tar.gz.sha256
+            ${{ runner.temp }}/linux-input-acquisition.json
+            ${{ runner.temp }}/linux-stage-evidence.json
+            ${{ runner.temp }}/linux-archive-evidence.json
+            ${{ runner.temp }}/linux-clean-identity.json
+            ${{ runner.temp }}/linux-launch-probe.txt
+            ${{ runner.temp }}/linux-browser-smoke.txt
+            ${{ runner.temp }}/linux-q3-generic-hold.json
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30

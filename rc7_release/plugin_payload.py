@@ -204,6 +204,8 @@ def acquire(repo_root: Path, output_archive: Optional[Path] = None) -> Dict[str,
         with zipfile.ZipFile(str(archive), "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
             for path in sorted(vendor.rglob("*")):
                 if path.is_file():
+                    if os.name != "nt" and path.suffix.lower() in {".exe", ".dll", ".cmd", ".bat", ".ps1", ".msi", ".pdb"}:
+                        continue
                     target.write(str(path), path.relative_to(vendor).as_posix())
     result = {
         "status": "PASS",

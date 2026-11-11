@@ -165,19 +165,18 @@ def _code_gate(codegraph_bin: Optional[str]) -> Dict[str, object]:
         binary = Path(codegraph_bin).expanduser().resolve()
         if not binary.is_file():
             raise RuntimeError("CODEGRAPH_BINARY_NOT_FOUND:%s" % binary)
-        if os.name == "nt":
-            result = subprocess.run(
-                [str(binary), "--help"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                timeout=60,
-            )
-            if result.returncode != 0:
-                raise RuntimeError("CODEGRAPH_SMOKE_FAILED:%s" % result.returncode)
-            details["codegraph_smoke"] = "PASS"
-        else:
-            details["codegraph_smoke"] = "HOLD_NON_WINDOWS"
+        result = subprocess.run(
+            [str(binary), "--help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=60,
+            check=False,
+            shell=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("CODEGRAPH_SMOKE_FAILED:%s" % result.returncode)
+        details["codegraph_smoke"] = "PASS"
         details["codegraph_bin"] = str(binary)
     return details
 
