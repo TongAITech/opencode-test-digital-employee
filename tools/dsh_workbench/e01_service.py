@@ -59,12 +59,19 @@ class E01Service:
                 runtime=TruthRuntime(snapshot)
                 overview=AdminProjection(runtime).mission_overview_scoped(mission_id=mission_id,project_id=project,batch_id=batch)
                 value=r1_preview(scope,overview,project_id=project,batch_id=batch,mission_id=mission_id)
-            # Recheck PostgreSQL authorization and snapshot revision after R1 I/O.
-            check=self.scope_store.scope(principal,project,batch,release_date=release_date,page_size=page_size)
-            if any(check[k]!=scope[k] for k in ('relation_revision','access_scope_revision','release_date')):
-                raise BusinessError(409,'SCOPE_CHANGED_DURING_READ')
-            value.update(truth_revision=revision,as_of=datetime.now(timezone.utc).isoformat(),data_quality='READ_ONLY_SNAPSHOT')
-            value['evidence']=[self._evidence(row) for row in overview['related']['evidence']]
+            def recheck_scope():
+                check = self.scope_store.scope(principal, project, batch, release_date=release_date,
+                                               page_size=page_size)
+                if any(check[k] != scope[k] for k in ('relation_revision', 'access_scope_revision', 'release_date')):
+                    raise BusinessError(409, 'SCOPE_CHANGED_DURING_READ')
+
+            # Reauthorize before opening evidence and again after the file reads.
+            recheck_scope()
+            evidence = [self._evidence(row) for row in overview['related']['evidence']]
+            if evidence:
+                recheck_scope()
+            value.update(truth_revision=revision, as_of=datetime.now(timezone.utc).isoformat(),
+                         data_quality='READ_ONLY_SNAPSHOT', evidence=evidence)
             value['gap_indicators']=[g for g in scope['gap_indicators']]+['CANONICAL_NODEGATE_NOT_PROJECTED','ATTEMPT_LINEAGE_NOT_QUALIFIED']
             if any(e['integrity']!='HASH_VERIFIED_ONLY' for e in value['evidence']):value['gap_indicators'].append('EVIDENCE_INTEGRITY_UNRESOLVED')
             if not value['evidence']:value['gap_indicators'].append('EVIDENCE_MISSING')

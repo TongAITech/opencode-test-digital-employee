@@ -9,7 +9,7 @@ from unittest.mock import patch
 from rc7_admin.projection import AdminProjection
 import test_dsh_workbench_b_scope_postgres as prior
 from rc6_runtime.truth import TruthRuntime
-from rc7_runtime.models import Mission
+from rc7_runtime.models import Evidence, Mission
 from tools.dsh_workbench.business_http import create_scope_server,HostIdentity
 from tools.dsh_workbench.e01_service import E01Service
 
@@ -49,6 +49,50 @@ class E01(prior.Scope):
         self.owner.execute("DELETE FROM wb.project_acl WHERE principal='alice'")
         self.assertEqual(self.http(origin,path)[0],403)
         self.assertEqual(self.before,self.r1.read_bytes())
+
+    def test_e01_rechecks_access_after_evidence_integrity_read(self):
+        self.scope_seed()
+        self.setup_r1()
+        evidence = self.root / 'evidence.bin'
+        evidence.write_bytes(b'controlled component evidence')
+        record = Evidence(evidence_id='E1', mission_id='M1', kind='fixture',
+                          source_ref='test-fixture', content_ref=evidence.as_uri(),
+                          content_hash='sha256:' + hashlib.sha256(evidence.read_bytes()).hexdigest())
+        TruthRuntime(self.r1).append_atomic('RC7_EVIDENCE_UPSERTED', dict(release_id='B1', **asdict(record)))
+        before = self.r1.read_bytes()
+        origin = self.quality_server()
+        path = '/api/workbench/v1/projects/P1/release-dates/2026-11-12/quality?batch_id=B1&mission_id=M1'
+        status, value = self.http(origin, path)
+        self.assertEqual(status, 200, value)
+        self.assertEqual(value['evidence'][0]['integrity'], 'HASH_VERIFIED_ONLY')
+
+        original = E01Service._evidence
+
+        def read_and_downgrade(service, row):
+            result = original(service, row)
+            self.owner.execute("UPDATE wb.project_acl SET can_write=false WHERE principal='alice'")
+            return result
+
+        with patch.object(E01Service, '_evidence', read_and_downgrade):
+            status, value = self.http(origin, path)
+        self.assertEqual(status, 409, value)
+        self.assertNotIn('evidence', value)
+        self.assertEqual(self.http(origin, path)[0], 200)
+
+        checked = []
+
+        def read_and_revoke(service, row):
+            result = original(service, row)
+            checked.append(result['integrity'])
+            self.owner.execute("DELETE FROM wb.project_acl WHERE principal='alice'")
+            return result
+
+        with patch.object(E01Service, '_evidence', read_and_revoke):
+            status, value = self.http(origin, path)
+        self.assertEqual(checked, ['HASH_VERIFIED_ONLY'])
+        self.assertEqual(status, 403, value)
+        self.assertNotIn('evidence', value)
+        self.assertEqual(self.r1.read_bytes(), before)
 
     def test_e01_legacy_binding_rejected_and_partial_r1_fails_closed(self):
         self.scope_seed();self.setup_r1(False);origin=self.quality_server()
