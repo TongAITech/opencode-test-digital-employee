@@ -1,3 +1,4 @@
+import {mountProjectMetadata} from './project-metadata-panel.mjs';
 import {mountRequirements} from './requirements-panel.mjs';
 import {mountRuntime} from './runtime-panel.mjs';
 import {mountDirectory} from './directory-panel.mjs';
@@ -15,7 +16,7 @@ $('project-entry').onclick=()=>update('page','detail');$('locale').onchange=e=>u
 scopePanel=mountScopePanel(document.getElementById("business-scope"));
 mountMilestones(document.getElementById('milestones'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
-mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>{update('page','detail');$('heading').tabIndex=-1;$('heading').focus();}});
+const directory=mountDirectory(document.getElementById('project-directory'),{scopePanel,getView:()=>({...state}),openDetail:()=>{update('page','detail');$('heading').tabIndex=-1;$('heading').focus();}});
 
 mountRuntime(document.getElementById('runtime-facts'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
 
@@ -23,3 +24,5 @@ function refreshReadiness(){const t=labels[state.locale];$('readiness').textCont
 document.addEventListener('workbench-scope-changed',refreshReadiness);refreshReadiness();
 
 mountRequirements(document.getElementById('requirement-relations'),{getScope:()=>({...scopePanel.client.state,selection:scopePanel.selection}),getView:()=>({...state})});
+
+mountProjectMetadata($('project-metadata'),{getProject:()=>scopePanel.context.project_id,getView:()=>state,refreshDirectory:directory.refreshMetadata,revalidateScope:scopePanel.revalidate,clearUnauthorized:directory.clearUnauthorized});

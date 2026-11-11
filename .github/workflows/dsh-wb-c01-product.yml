@@ -16,6 +16,7 @@ on:
       - 'tests/browser/test_runtime_product_browser.py'
       - 'tests/browser/test_native_runtime_product_browser.py'
       - 'tests/browser/test_requirement_relations_product_browser.py'
+      - 'tests/browser/test_project_metadata_product_browser.py'
       - 'tests/test_dsh_workbench_requirement_relations.mjs'
       - 'tests/test_dsh_workbench_calendar.mjs'
       - 'tests/browser/test_calendar_product_browser.py'
@@ -81,4 +82,5 @@ jobs:
           python -m unittest discover -s tests/browser -p test_runtime_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_native_runtime_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_requirement_relations_product_browser.py -v
+          python -m unittest discover -s tests/browser -p test_project_metadata_product_browser.py -v
           python -m unittest discover -s tests/browser -p test_calendar_product_browser.py -v

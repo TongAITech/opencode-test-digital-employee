@@ -20,5 +20,22 @@ export function mountDirectory(root,{scopePanel,getView,openDetail,fetcher=fetch
  $('[data-directory-load]').onclick=load;$('[data-project-select]').onchange=e=>chooseProject(e.target.value);
  $('[data-date-select]').onchange=()=>{batch=$('[data-date-select]').value;const row=dates.state.records.find(r=>r.batch_id===batch);scopePanel.setContext(row?{project_id:project,batch_id:row.batch_id,release_date:row.release_date}:{project_id:project});if(row)scopePanel.load();render();};
  document.addEventListener('workbench-scope-changed',()=>{if(scopePanel.client.state.status==='ERROR'&&scopePanel.client.state.error==='HTTP_403'){invalidateAuthorization(false);return;}const value=scopePanel.context;if(project&&value.project_id!==project){project='';batch='';dates.clear();render();}else if(batch){const row=dates.state.records.find(r=>r.batch_id===batch);if(!row||value.batch_id!==batch||value.release_date!==row.release_date){batch='';render();}}});
- new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});document.addEventListener('workbench-view-changed',render);render();return {load};
+ async function refreshMetadata(expectedAccess=null){
+  if(projects.state.status!=='READY')return;
+  const target=scopePanel.context.project_id;
+  const previous=projects.state.records.find(row=>row.project_id===target);
+  const promise=projects.load();render();const loaded=await promise;
+  if(scopePanel.context.project_id===target){
+   const current=projects.state.records.find(row=>row.project_id===target);
+   const accessChanged=expectedAccess===null
+    ? previous&&(!current||current.access_scope_revision!==previous.access_scope_revision)
+    : (previous||current)&&(!current||String(current.access_scope_revision)!==expectedAccess);
+   if(projects.state.error==='HTTP_403'||(loaded&&accessChanged)){
+    invalidateAuthorization(true);return;
+   }
+  }
+  render();
+ }
+ function clearUnauthorized(target){if(scopePanel.context.project_id===target)invalidateAuthorization(true);}
+ new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});document.addEventListener('workbench-view-changed',render);render();return {load,refreshMetadata,clearUnauthorized};
 }
