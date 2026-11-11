@@ -6,10 +6,13 @@ identities. Mission state is durable; worker sessions are disposable.
 
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+from dsh_scope_codec.mission_binding import ScopeIdentity
 
 
 class ContractError(ValueError):
@@ -96,6 +99,16 @@ def _string_list(values: List[str], name: str) -> List[str]:
     return values
 
 
+class _ScopePresence(Enum):
+    ABSENT = "absent"
+
+
+_SCOPE_ABSENT = _ScopePresence.ABSENT
+MISSION_SCOPE_FIELDS = frozenset(("project_id", "batch_id", "scope_binding"))
+MISSION_SCOPE_HOLD = "MISSION_SCOPE_NOT_ADMITTED"
+_MISSING_SCOPE_ATTRIBUTE = object()
+
+
 @dataclass
 class Mission:
     mission_id: str
@@ -111,6 +124,7 @@ class Mission:
     revision: int = 1
     created_at: int = field(default_factory=_now)
     updated_at: int = field(default_factory=_now)
+    _scope_state: Union[_ScopePresence, ScopeIdentity] = field(default=_SCOPE_ABSENT, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.mission_id = _required(self.mission_id, "mission_id")
@@ -122,6 +136,45 @@ class Mission:
         _string_list(self.open_gap_ids, "open_gap_ids")
         _string_list(self.active_task_ids, "active_task_ids")
         _string_list(self.residual_risk_ids, "residual_risk_ids")
+
+
+_MISSION_DICT = vars(Mission)["__dict__"]
+_MISSION_SCOPE_FIELD = vars(Mission)["__dataclass_fields__"]["_scope_state"]
+
+
+def is_mission_object(value: Any) -> bool:
+    """Recognize actual inheritance without reading a value's __class__ hook."""
+    return issubclass(type(value), Mission)
+
+
+def _mission_scope_state(value: Mission, error=ContractError):
+    """Read the known Mission state without invoking a substituted getter."""
+    kind = type(value)
+    if type(kind) is not type or not issubclass(kind, Mission):
+        raise error(MISSION_SCOPE_HOLD)
+    if (inspect.getattr_static(kind, "__getattribute__", None) is not object.__getattribute__ or
+            inspect.getattr_static(kind, "__getattr__", _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE):
+        raise error(MISSION_SCOPE_HOLD)
+    for base in kind.__mro__:
+        if base is Mission:
+            break
+        if "_scope_state" in vars(base):
+            raise error(MISSION_SCOPE_HOLD)
+    fields = inspect.getattr_static(kind, "__dataclass_fields__", None)
+    if (type(fields) is not dict or fields.get("_scope_state") is not _MISSION_SCOPE_FIELD or
+            MISSION_SCOPE_FIELDS.intersection(fields) or
+            inspect.getattr_static(kind, "_scope_state", None) is not _SCOPE_ABSENT or
+            inspect.getattr_static(value, "__dict__", None) is not _MISSION_DICT):
+        raise error(MISSION_SCOPE_HOLD)
+    if any(inspect.getattr_static(value, name, _MISSING_SCOPE_ATTRIBUTE) is not _MISSING_SCOPE_ATTRIBUTE
+           for name in MISSION_SCOPE_FIELDS):
+        raise error(MISSION_SCOPE_HOLD)
+    return _MISSION_DICT.__get__(value, Mission).get("_scope_state", _SCOPE_ABSENT)
+
+
+def require_unbound_mission(value: Mission, error=ContractError) -> None:
+    if _mission_scope_state(value, error) is not _SCOPE_ABSENT:
+        raise error(MISSION_SCOPE_HOLD)
 
 
 @dataclass
@@ -287,7 +340,12 @@ class EventRecord:
 
 def to_payload(value: Any) -> Dict[str, Any]:
     """Return a JSON-friendly payload while preserving canonical enum values."""
+    mission = is_mission_object(value)
+    if mission:
+        require_unbound_mission(value)
     data = asdict(value)
+    if mission:
+        data.pop("_scope_state")
     for key, item in list(data.items()):
         if isinstance(item, Enum):
             data[key] = item.value

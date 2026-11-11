@@ -15,8 +15,8 @@ from .rc72_schedule_semantics import WorkScheduleSemanticsService
 from .rc72_economy_scheduler import EconomyAwareReadySelector
 from .rc72_model_economy import BankCostWindowConfig
 
-RESERVED = frozenset(('project_id', 'batch_id', 'scope_binding'))
-HOLD = 'MISSION_SCOPE_NOT_ADMITTED'
+from .models import MISSION_SCOPE_FIELDS as RESERVED, MISSION_SCOPE_HOLD as HOLD
+from .models import is_mission_object, require_unbound_mission
 UNRESOLVED = 'MISSION_SCOPE_TARGET_UNRESOLVED'
 _SCHEDULER = {name: getattr(TaskScheduler, name) for name in vars(TaskScheduler)
               if name != '__init__' and callable(getattr(TaskScheduler, name))}
@@ -83,6 +83,9 @@ def _expected_method(value, cls, name, method, descriptor, error):
 
 
 def reject_reserved(value, error=ControlPlaneError):
+    if is_mission_object(value):
+        require_unbound_mission(value, error)
+        return
     values = value if isinstance(value, dict) else vars(value)
     if RESERVED.intersection(values):
         raise error(HOLD)

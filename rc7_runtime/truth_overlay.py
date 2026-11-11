@@ -19,7 +19,11 @@ from rc6_runtime import contracts as _contracts
 from rc6_runtime import truth as _truth
 
 from .defect_loop import DefectRecord
-from .models import Artifact, Evaluation, EventRecord, Evidence, Gap, Mission, Task, to_payload
+from .models import (
+    Artifact, ContractError, Evaluation, EventRecord, Evidence, Gap, Mission,
+    MISSION_SCOPE_FIELDS, MISSION_SCOPE_HOLD, Task, is_mission_object,
+    require_unbound_mission, to_payload,
+)
 
 
 RC7_EVENT_TYPES = {
@@ -378,6 +382,13 @@ def append_entity(
     artifact_version: int = 1,
 ):
     """Append an RC7 control entity to inherited R1 truth and verify RAW."""
+    if is_mission_object(entity):
+        require_unbound_mission(entity)
+        if type(entity) is Mission:
+            mission_id = _contracts._require_str({"mission_id": entity.mission_id}, "mission_id")
+            rows = truth_runtime.query("rc7_mission", mission_id=mission_id)
+            if len(rows) > 1 or any(MISSION_SCOPE_FIELDS.intersection(row) for row in rows):
+                raise ContractError(MISSION_SCOPE_HOLD)
     install_rc7_truth_overlay()
     _enforce_durable_acceptance(truth_runtime, entity)
     event_type, payload = _r1_payload(entity, release_id=release_id, artifact_version=artifact_version)
