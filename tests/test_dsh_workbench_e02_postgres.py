@@ -6,10 +6,53 @@ from rc7_runtime.rc72_truth import append_rc72_entity
 from rc7_runtime.rc72_domain import MissionNodeRecord,NodeDelivery,NodeGate
 from rc7_runtime.rc72_domain import TestObligation as RuntimeObligation
 from rc6_runtime.truth import TruthRuntime
+from rc7_admin.projection import AdminProjection
 import test_dsh_workbench_e01_postgres as prior
 
 @unittest.skipUnless(prior.prior.prior.prior.DSN and prior.prior.prior.prior.psycopg,'real PG required')
 class E02(prior.E01):
+    def test_legacy_scope_routes_reject_formal_markers_before_detail_queries(self):
+        self.scope_seed()
+        self.setup_r1()
+        runtime = TruthRuntime(self.r1)
+        legacy = runtime.query('rc7_mission', mission_id='M1')[0]
+        provider_patch = patch('test_dsh_workbench_e01_postgres.E01Service', E02Service)
+        provider_patch.start()
+        self.addCleanup(provider_patch.stop)
+        origin = self.quality_server()
+        paths = [
+            '/api/workbench/v1/projects/P1/release-dates/2026-11-12/quality?batch_id=B1&mission_id=M1',
+            '/api/workbench/v1/missions/M1/graph?project_id=P1&batch_id=B1&release_date=2026-11-12',
+            '/api/workbench/v1/missions/M1/workitems?project_id=P1&batch_id=B1&release_date=2026-11-12',
+        ]
+        for path in paths:
+            self.assertEqual(self.http(origin, path)[0], 200)
+
+        calls = []
+
+        class ObservedProjection(AdminProjection):
+            def __init__(self, truth):
+                query = truth.query
+
+                def observed(kind, **filters):
+                    calls.append(kind)
+                    return query(kind, **filters)
+
+                truth.query = observed
+                super().__init__(truth)
+
+        with patch('tools.dsh_workbench.e01_service.AdminProjection', ObservedProjection):
+            for version, marker in enumerate(('scope_binding', 'runtime_batch_mapping'), 2):
+                runtime.append_atomic('RC7_MISSION_UPSERTED',
+                                      dict(legacy, artifact_version=version, **{marker: None}))
+                before = self.r1.read_bytes()
+                for path in paths:
+                    with self.subTest(marker=marker, path=path):
+                        calls.clear()
+                        self.assertEqual(self.http(origin, path), (403, {'error': {'code': 'FORBIDDEN'}}))
+                        self.assertEqual(calls, ['rc7_mission'])
+                self.assertEqual(self.r1.read_bytes(), before)
+
     def test_unreferenced_obligation_requires_the_authorized_batch(self):
         self.scope_seed()
         self.setup_r1()
