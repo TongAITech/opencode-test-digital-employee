@@ -9,6 +9,8 @@ on:
       - 'tests/test_dsh_workbench_formal_mission_event.py'
       - 'tools/dsh_workbench/formal_mission_receipt.py'
       - 'tests/test_dsh_workbench_formal_mission_receipt.py'
+      - 'tools/dsh_workbench/formal_mission_mixed_replay.py'
+      - 'tests/test_dsh_workbench_formal_mission_mixed_replay.py'
       - 'tests/test_dsh_workbench_mission_create_codec.py'
       - 'tests/test_dsh_workbench_mission_scope_binding_codec.py'
       - 'tools/dsh_workbench/runtime_batch_mapping.py'
@@ -48,3 +50,4 @@ jobs:
           python -m unittest discover -s tests -p test_dsh_workbench_r1_snapshot_events.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_event.py -v
           python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_receipt.py -v
+          python -m unittest discover -s tests -p test_dsh_workbench_formal_mission_mixed_replay.py -v
