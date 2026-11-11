@@ -49,9 +49,15 @@ def verify_runtime_batch_history(events, mapping):
             raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID")
         if entity_id != identity[0]:
             raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID")
-        if identity[0] != expected[0] and identity[2] != expected[2]:
+        try:
+            canonical = validate_release_batch(payload)
+        except DomainValidationError as error:
+            raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID") from error
+        canonical_identity = tuple(canonical[key] for key in ("release_batch_id", "release_id", "mission_id"))
+        if (identity[0] != expected[0] and identity[2] != expected[2] and
+                canonical_identity[0] != expected[0] and canonical_identity[2] != expected[2]):
             continue
-        if identity != expected:
+        if identity != expected or canonical_identity != expected:
             raise RuntimeBatchHistoryError("RUNTIME_BATCH_HISTORY_CONFLICT")
 
         event_id = event.get("event_id")
@@ -66,10 +72,6 @@ def verify_runtime_batch_history(events, mapping):
                 (history is None and version != 1) or
                 (history is not None and version <= history.latest_version)):
             raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID")
-        try:
-            validate_release_batch(payload)
-        except DomainValidationError as error:
-            raise RuntimeBatchHistoryError("RUNTIME_BATCH_EVENT_INVALID") from error
         seen.add(event_id)
         latest_seq = seq
         history = RuntimeBatchHistory(history.initial_event_id if history else event_id, event_id, version)

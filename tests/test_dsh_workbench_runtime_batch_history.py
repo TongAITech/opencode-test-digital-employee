@@ -1,5 +1,6 @@
 """Runtime batch history checks using cold, durable R1 fixtures."""
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -85,3 +86,17 @@ class RuntimeBatchHistoryTest(unittest.TestCase):
         del event["payload"]["name"]
         with self.assertRaisesRegex(RuntimeBatchHistoryError, "EVENT_INVALID"):
             verify_runtime_batch_history([event], self.mapping)
+
+    def test_canonical_normalization_cannot_hide_a_foreign_update(self):
+        self.bootstrap()
+        event = next(self.truth.store.iter_raw())
+        event.update(event_id="foreign-event", seq=100, entity_id=" RT-BATCH ", entity_version=2)
+        event["payload"].update(release_batch_id=" RT-BATCH ", release_id="FOREIGN",
+                                mission_id="OTHER-MISSION", artifact_version=2)
+        with self.path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event) + "\n")
+        cold = TruthRuntime(self.path)
+        self.assertEqual(cold.query("rc72_release_batch", release_batch_id="RT-BATCH")[0]
+                         ["mission_id"], "OTHER-MISSION")
+        with self.assertRaisesRegex(RuntimeBatchHistoryError, "HISTORY_CONFLICT"):
+            self.verify()
