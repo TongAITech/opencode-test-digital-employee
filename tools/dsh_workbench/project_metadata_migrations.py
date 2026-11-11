@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).with_name('migrations')
 MANIFEST = ROOT / 'optional' / 'project_metadata_manifest.json'
-MANIFEST_SHA256 = '2cab98addba23768cb852a4ead9c4a5ed7670c417ce39b1d9a7889b95f1b43bb'
+MANIFEST_SHA256 = 'ee96a0f590190766d891eb84b6fed22782b11dae8e43fa7b0de8c645f198cac5'
 
 
 def _plan(manifest):
@@ -96,6 +96,8 @@ def migrate_project_metadata(connection, executor_role):
         raise ValueError('IDLE_AUTOCOMMIT_ADMIN_CONNECTION_REQUIRED')
     with connection.transaction():
         connection.execute('SELECT pg_advisory_xact_lock(684091210)')
+        if connection.execute('SHOW server_encoding').fetchone()[0] != 'UTF8':
+            raise ValueError('METADATA_REQUIRES_UTF8_DATABASE')
         role = _executor(connection, executor_role)
         applied = dict(connection.execute('SELECT version,checksum FROM public.wb_schema_migration').fetchall())
         if set(applied) - {1, 2, 3, 4, 5, 6, 7, 9}:
