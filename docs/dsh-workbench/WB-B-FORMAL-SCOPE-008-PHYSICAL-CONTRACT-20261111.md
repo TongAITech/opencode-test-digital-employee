@@ -29,9 +29,11 @@ Journal 允许的 phase/result 对为 PREPARE/PERSISTED，SUBMIT/PROVED_PRE_APPE
 
 K 的 actor_ref 由可信 Host 主体映射为事务 `wb.principal`。V1 写入口要求审核后的映射结果与 PG actor_ref 精确相等。原 context 是受控服务引用，拒绝跨主体重包。authority 也由原服务配置选择，恢复须向同一 authority 发出。batch 放在不可变 payload，换 batch 或同 K 换请求选择为 409。不同 authority 的 K 独立，自动切换会改变权威域，须拒绝。
 
-`selection_bytes` 是 PG 内部首次分配前的稳定选择记录。对象键为 `schema_version,formal_authority_ref,actor_ref,project_id,creation_key,batch_id,filters,mapping_policy`，filters 用 V3 规范的三个已排序数组。沿 V3 JSON 字节规则，`selection_digest=SHA256(UTF8('dsh.mission-prepare-selection.v1\n')||selection_bytes)`。同 K 复用前同时比较规范 bytes、digest 及原 context。选择记录排除实时 Scope 重读和易变 token。重试相同选择但真实 Scope 已变时保留原 intent，最终复验返回 HOLD。显式换批次、filters 或其他已签选择才判 409。正式请求 digest 由 E/D/A 另签版本化 wire，须绑定 V3 K、batch、scope_digest、mapping、mission_id、binding_ref 和永久 creation_operation_ref。`request_bytes` 保存已签的规范字节。SQL 校验必须在 wire 域、前缀及向量冻结后加入。当前纯 codec 仅有 scope digest 和 K，不能假装已有正式请求摘要或生成创建可用 intent。`` 等控制字符按 V3 字节规则保留在 bytes 中，传到 text 标识域按本合同上限校验。
+`selection_bytes` 是 PG 内部首次分配前的稳定选择记录。对象键为 `schema_version,formal_authority_ref,actor_ref,project_id,creation_key,batch_id,filters,mapping_policy`，filters 用 V3 规范的三个已排序数组。沿 V3 JSON 字节规则，`selection_digest=SHA256(UTF8('dsh.mission-prepare-selection.v1\n')||selection_bytes)`。同 K 复用前同时比较规范 bytes、digest 及原 context。选择记录排除实时 Scope 重读和易变 token。重试相同选择但真实 Scope 已变时保留原 intent，最终复验返回 HOLD。显式换批次、filters 或其他已签选择才判 409。正式请求 digest 由 E/D/A 另签版本化 wire，须绑定 V3 K、batch、scope_digest、mapping、mission_id、binding_ref 和永久 creation_operation_ref。`request_bytes` 保存已签的规范字节。SQL 校验必须在 wire 域、前缀及向量冻结后加入。当前纯 codec 仅有 scope digest 和 K，不能假装已有正式请求摘要或生成创建可用 intent。`U+001F` 等控制字符按 V3 字节规则保留在 bytes 中，传到 text 标识域按本合同上限校验。
 
 E245 另提议由同一创建事件描述 `runtime_release_batch_id`，并验证其与 Mission、运行 release 的正式三元组。它是待另签的物理字段和唯一域 `(formal_authority_ref,runtime_release_batch_id)`。可在冻结 008 SQL 前纳入同一 intent，或以随后显式依赖 008 的不可变一对一 reservation 表按 K 完整外键纳入，选择须另审。无论选择，权威须在同一次 durable PREPARE 预留并绑定正式摘要。两种配置的生产创建在映射字段、digest 和正式事件协议核准前均 HOLD。核心候选保留原紧凑 mapping 的七键，PG `batch_id` 和 `runtime_release_id` 不能冒充正式 `runtime_release_batch_id`。历史无描述数据维持未解析。
+
+[D263 实际源码与临时 R1 探针 4587b0c1](https://github.com/TongAITech/opencode-test-digital-employee/pull/263) 显示 `CanonicalRC72Repository.persist` 可用同一 runtime batch ID 写入 v2 并更换 Mission/release。冷投影只返回一个已漂移的当前行。正式 reader 必须核原始 creation 事件唯一、绑定及映射逐字段一致、相关 canonical Batch 全历史三元组稳定，即使更换后改回也拒绝。008 保存三个独立身份的预留及永久 operation 和原回执引用。映射成立以原权威事件与经核的完整历史为准。
 
 ## 3. 权限和锁端口
 
@@ -45,7 +47,7 @@ E245 另提议由同一创建事件描述 `runtime_release_batch_id`，并验证
 | receipt 校验/lookup 服务 | 按当前许可、原 actor/context 和同一 authority 查询原结果。校验适配端仅 INSERT receipt/受限 journal。普通原主体查询需当前 `can_write`。异 K、同 K 异 digest、未核 authority、权限撤销均不泄漏回执。原回执只读不暗转 submit。 |
 | 行政维护 | 停写迁移与备份对账。若需全表只读断言，显式专用角色与 FORCE RLS 策略，只能由受审维护入口执行并留审计。普通 Host/session 不获得此权限。 |
 
-每张 008 表的角色策略、GRANT 和函数依赖必须列在实现 PR。snapshot 共享同 project/batch/digest 的规范记录，只供受控端读；其策略使用当前项目 can_write。intent、receipt、journal 使用原 `actor_ref=wb.principal` 且 `wb.allowed(project_id,true)`，写检查匹配服务职责与 stage。若将来需要不具当前权限的后台对账，另签 authority 委托角色。当前撤权时只能保留未对账状态并交正式 authority 管理，服务不切换 Bob、migration owner 或 Captain 来补行。
+每张 008 表的角色策略、GRANT 和函数依赖必须列在实现 PR。snapshot 共享同 project/batch/digest 的规范记录，只供受控端读；其策略使用当前项目 can_write。intent、receipt、journal 使用原 `actor_ref=wb.principal` 且 `wb.allowed(project_id,true)`，写检查匹配服务职责与 stage。若将来需要不具当前权限的后台对账，另签 authority 委托角色。当前撤权时只能保留未对账状态并交正式 authority 管理，服务不切换 Bob、migration owner 或 Captain 来补行。 正常回执追加经受控适配入口在已持锁的最终连接完成，端口只接原权威可查证结果。适配入口的发行者认证和 SQL 授权必须在实现审查证明，任何自报 verified、缺权限或失败均进入按原权威对账的分支。
 
 候选 `wb.lock_scope_admission(project,batch)` 为 `VOLATILE SECURITY DEFINER`，固定 `search_path=pg_catalog,wb`，无动态 SQL。owner 专用 NOLOGIN/NOINHERIT、无成员边、无登录、BYPASS、replication 或表所有权。只授这个 owner 锁所需 `SELECT` 及 `UPDATE(project.access_scope_revision)`、`UPDATE(release_batch.relation_revision)` 列权限。SELECT 行锁在真实 PG 需要至少一个 UPDATE 列权限，已在 009 fixture 验证。只给 admission 服务 EXECUTE，撤 PUBLIC 和普通 runtime。PG 008 实库必须证明该权限组合只允许锁行，任何对这些列的实际 UPDATE 失败。
 
