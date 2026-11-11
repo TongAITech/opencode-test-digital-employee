@@ -135,11 +135,19 @@ def _npm():
 
 def _run(command, cwd=None, timeout=900):
     try:
-        proc = subprocess.run(
-            [str(x) for x in command], cwd=str(cwd) if cwd else None,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=timeout, check=False,
-        )
+        normalized = [str(x) for x in command]
+        if os.name == "nt" and Path(normalized[0]).suffix.lower() in (".cmd", ".bat"):
+            proc = subprocess.run(
+                subprocess.list2cmdline(normalized), cwd=str(cwd) if cwd else None,
+                shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=timeout, check=False,
+            )
+        else:
+            proc = subprocess.run(
+                normalized, cwd=str(cwd) if cwd else None,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=timeout, check=False,
+            )
     except Exception as exc:
         raise BundleBuildError("BUILD_COMMAND_COULD_NOT_START:%s" % command[0]) from exc
     output = (proc.stdout or b"").decode("utf-8", errors="replace")
@@ -175,9 +183,35 @@ def _tree_sha256(root):
     digest = hashlib.sha256()
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix().encode("utf-8")
-        digest.update(relative + b"\\0")
+        digest.update(relative + b"\0")
         digest.update(bytes.fromhex(_sha256_file(path)))
     return digest.hexdigest()
+
+
+def _apply_bank_policy(spec, package_root):
+    """Apply explicit local-only defaults without deleting upstream source or notices."""
+    package_root = Path(package_root)
+    if spec["id"] == "dsh-mnemon":
+        patch = package_root / "cordis.patch.yml"
+        text = patch.read_text(encoding="utf-8")
+        start = text.find("            providers:\\n")
+        end = text.find("        # Skills keep DSH's own files", start)
+        if start < 0 or end < 0:
+            raise BundleBuildError("MNEMON_PROVIDER_POLICY_ANCHOR_MISSING")
+        native_only = (
+            "            providers:\\n"
+            "              - use: dsh-mnemon-provider-mnemon-native\\n"
+            "                instanceId: mnemon-native\\n"
+        )
+        text = text[:start] + native_only + text[end:]
+        patch.write_text(text, encoding="utf-8")
+        return {
+            "active_memory_provider": "mnemon-native",
+            "remote_memory_providers_enabled": False,
+            "auto_capture_enabled": False,
+            "skill_self_evolution_enabled": False,
+        }
+    return None
 
 
 def _license_files(package_root):
@@ -270,11 +304,13 @@ def _pack_plugin(npm, spec, target, work):
     lock = target / "package-lock.json"
     if not lock.is_file():
         raise BundleBuildError("PLUGIN_DEPENDENCY_LOCK_MISSING:%s" % spec["id"])
-    bank_policy_patch = (
-        "staged but not registered with DSH until an approved internal OpenAI-compatible "
-        "multimodal endpoint is configured"
-        if spec["id"] == "modlens" else None
-    )
+    bank_policy_patch = _apply_bank_policy(spec, target)
+    if spec["id"] == "modlens":
+        bank_policy_patch = {
+            "activation": "staged_not_registered",
+            "enable_only_after": "approved_internal_openai_compatible_multimodal_endpoint",
+            "reuse_external_harness_credentials": False,
+        }
     licenses = _scan_licenses(target)
     return {
         "id": spec["id"],
