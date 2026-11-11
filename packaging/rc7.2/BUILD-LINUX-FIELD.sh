@@ -4,8 +4,16 @@ set -euo pipefail
 
 set -euo pipefail
 uv python install 3.11
-PYBIN="$(uv python find 3.11 --managed-python)"
-PYROOT="$(dirname "$(dirname "$(readlink -f "$PYBIN")")")"
+MANAGED_PYBIN="$(uv python find 3.11 --managed-python)"
+MANAGED_PYROOT="$(dirname "$(dirname "$(readlink -f "$MANAGED_PYBIN")")")"
+# uv's managed distribution is externally managed. Never mutate it: copy it
+# into an isolated build-owned runtime, then provision packages into that copy.
+PYROOT="$RUNNER_TEMP/rc72-linux-input/python"
+mkdir -p "$PYROOT"
+cp -a "$MANAGED_PYROOT"/. "$PYROOT"/
+rm -f "$PYROOT/lib/python3.11/EXTERNALLY-MANAGED"
+PYBIN="$PYROOT/bin/python3.11"
+[[ -x "$PYBIN" ]] || { echo "LINUX_COPIED_PYTHON_NOT_EXECUTABLE" >&2; exit 3; }
 uv pip install --python "$PYBIN" "pip==25.2" \
   "pytest==8.3.5" "requests==2.34.2" "openpyxl==3.1.5" \
   "python-docx==1.2.0" "python-pptx==1.0.2" \
