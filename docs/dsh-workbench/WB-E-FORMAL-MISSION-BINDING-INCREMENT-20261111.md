@@ -22,7 +22,25 @@
 - 保留紧凑对象 15 键、K 4 键和 mapping 7 键。共享纯校验如需迁入运行包，另审 stdlib 叶模块、Python 3.8/3.11、离线源归档及与现有 codec 的一致性。运行域禁止依赖 `tools/dsh_workbench`。既有 `ScopeIdentity` 仅作结构数据，无法凭其签发任何权威。
 - 历史 `TruthRuntime.rebuild_projection` 保留既有日志解析语义。严格 raw JSON 在新版本正式 creation 入口和受控绑定解码处应用，历史中的旧额外字段、null/partial 行保留供诊断。严禁将这些行处理为 `ABSENT` 后写回，也不以新解析规则整本拒绝旧日志。版本化正式回放及不可变历史校验另属第 4 节。
 
-第一阶段可审代码范围限运行域内部表示、隔离解码及 serializer、原局部 guard 的缺省兼容适配。实际模型改动须此文档精确评审后另开实现 PR。生产 bound 路由继续 HOLD。
+### 通用序列化、直接持久化及复制的保真边界
+
+D 对首版 `ff98337d1b97da68082dbb96e262057a817aa0b5` 的 P1 保留在 [PR247](https://github.com/TongAITech/opencode-test-digital-employee/pull/247) `cb7a9ae`。实际临时 R1 探针在同基线复现两条路径。第一条把动态 `scope_binding` 和模拟内部值附在精确 `Mission` 上，`reject_reserved` 拒绝，直接 `append_entity` 却持久化无 Scope 行。第二条在临时旧行 v2 注入 Scope，随后用普通无绑定 `Mission` 调 `append_entity` 写入 v3。当前目标行的 Scope 消失，R1 bytes 改变。两条都发生在现有 `append_entity`，首版仅靠 Control guard 或移除内部字段会遗漏它们。
+
+阶段一将以下规则作为精确实现与验收条件。
+
+| 入口 | 强制行为 |
+|---|---|
+| `models.to_payload` 的 Mission 分支 | 在 `asdict` 或深拷贝、字段丢弃前核 Mission 实际类型和状态。动态三个保留键、派生 dataclass 声明的同名 wire 字段、非 ABSENT 内部状态，包括 null、完整绑定和未知对象，统一 `MISSION_SCOPE_NOT_ADMITTED`。只有合法旧 `ABSENT` 进入既有 `asdict` 和顶层 Enum 转换，并从输出移除内部字段。其他实体继续原通用路径。 |
+| `truth_overlay.append_entity` 的 Mission 分支 | 在 durable acceptance、`_r1_payload` 和 append 前执行相同对象拒绝。对通过的精确旧 Mission，按既有 canonical ID 定位本次实际写入目标，核当前投影旧行。旧行带任一保留键或目标不唯一时拒绝，防止 ABSENT 输入覆盖有 Scope 的现存目标。新无旧行或旧行完全无保留键沿原旧路径。该检查只覆盖当前可见目标，跨进程陈旧投影及 raw writer 残余照旧。 |
+| `truth_overlay._r1_payload` | 既有精确 `_MODEL_EVENT` 类型分派保留。通用 serializer 自身拒绝 Scope，防止直接调用 payload 构造丢字段。旧无 Scope 的 release 参数处理保持既有规则。 |
+| `append_rc72_entity` | 精确类型映射继续拒绝 RC7 `Mission` 为 `UNSUPPORTED_RC72_ENTITY`，早于 RC72 的 `asdict` 序列化。 |
+| 隔离 serializer | 仅输出 detached 的紧凑作用域 DTO。阶段一不从该 DTO 转换到现有 `append_entity`、`append_rc72_entity`、`append_atomic` 或 Control 重建路径。绑定保真由该隔离输出验证。 |
+
+真实构造分母为 D242 所列八处：bank、N1、五个 qualification 和 Control 重建均使用精确 `Mission`。源码搜索未发现正式运行、交付、管理路径的 Mission 派生类调用者。通用 serializer 如遇真实派生 dataclass，保持原无 Scope 子类的字段输出，但须先以真实继承关系识别，拒绝动态或声明的保留键和任何内部状态覆盖。缺省必须来自可信 `Mission` 的基类声明或真实实例的内部 `ABSENT` 单例，不能以 duck type、任意 getter 或 `vars().get(..., ABSENT)` 推定。`init=False` 默认字段可能仅存在于基类声明，D 的实际探针已确认这一点。派生类若遮蔽缺省字段或提供异常 descriptor，在进入 `asdict` 前拒绝，禁止试运行 getter。`append_entity` 对无 Scope 派生类继续沿既有精确分派的 unsupported 行为。
+
+绑定对象的隔离 clone 和 `deepcopy` 必须保留同一规范绑定和身份，脱离可变输入。旧无绑定复制保持缺省及旧 wire。默认 `dataclasses.replace` 不可用于 bound，因为 `init=False` 字段会回到缺省。调用点清单、显式保真 clone 和回归共同约束该边界。未经审阅的直接 `asdict/replace` 不能作为 writer 或绑定恢复入口。历史原始记录照旧回放，现有 `TruthRuntime.append_atomic` 和 `JsonlEventStore.append` 仍是未封闭的通用端口。
+
+第一阶段可审代码范围限运行域内部表示、隔离解码及 serializer、原局部 guard 的缺省兼容适配，以及上表通用入口的局部保真拒绝。实际模型改动须此文档精确评审后另开实现 PR。生产 bound 路由继续 HOLD。
 
 ## 2. 正式批次身份由创建事实固定
 
@@ -61,8 +79,9 @@ HostFence 需 D 核可信当前动作、主体、scope/request digest、永久 o
 ## 5. 验收与恢复测试
 
 - 第一阶段对象测试覆盖三键缺省、显式 null、partial、flat-only、完整 15/4/7、内部未知状态、动态键、错镜像、trim/覆盖 release、深拷贝及 clone。对旧构造签名和序列化逐字段比对。隔离绑定往返保持内容，旧运行 guard 对完整绑定依旧 HOLD。旧日志冷回放保留原字段与 bytes，现有 legacy bootstrap/qualification、task 更新、恢复及离线源导入回归通过后才可集成。
+- 直接入口测试用真实临时 R1。分别给精确 Mission 注入每个动态保留键、内部完整值、null、未知值和伪造缺省对象，调用 `to_payload` 与 `append_entity`，断言同一 HOLD。给 `asdict`、未知字段 getter、durable acceptance、append 放置 tripwire，确认拒绝先于这些动作。另给目标旧行置 Scope，再传 ABSENT Mission，检查正确目标定位、R1 bytes/投影及原行不变。无 Scope 新建和更新需真实成功并与旧 wire 比对。旧干净派生 dataclass 保留通用序列化字段，派生保留键与遮蔽状态被拒绝，直接 append 的精确类型拒绝保留。验证 `append_rc72_entity` 的旧拒绝、隔离 serializer 无写端调用、clone/deepcopy 不丢绑定、bound 调用点没有默认 replace 路径，以及历史 raw 记录冷回放不改写。
 - 正式 reader 测真实 PG 与正式 creation writer，使用三个互不相等的 ID 验证映射。错误 PG 批次、错误正式批次、同名巧合、重复事件、篡改映射/摘要、缺快照和缺 canonical row 都有拒绝测试。拒绝时以 spy 验证零任务/执行/Evidence 明细查询，旧无绑定仍按既有 legacy 兼容。成功图验证使用正式 `runtime_release_batch_id` 并返回正确业务 batch。
 - 首个副作用前测试覆盖 supervisor reset/human boundary、`resume_active._assign`、Session prepare/activate、CLI budget、Field-start、N1 assignment 和直接底层 writer 尝试。断言原 R1 bytes/投影、Task/lease、预算、日志/证据目录及 Worker 调用计数保持不变。合法旧无 Scope 恢复回归同时运行，已有上游事实作为测试基线保留。
 - 真实 PG + 两进程正式 writer + Host 合同 fixture 覆盖 PREPARE 断开、未 append 超时、append 后响应丢失、PG 回执失败、日志尾部损坏、同 K 异 payload、撤权前后、跨主体拒绝、原 K 唯一回执和部分图恢复。无真实 Host 时 fixture 只核协议行为，行内 DSH/Windows 保持待验证。最终还须真实 PG→正式 factory/R1→HTTP 链路，禁止用手工 payload 代替正式事实。
 
-本次只提交候选设计。实际内存探针复核旧 Mission strip、旧 wire 省略及 Optional 默认值冲突。R1 副作用观察引用 D 精确报告，后续实施证据须对新源码独立取得。
+本次提交候选设计。内存探针复核旧 Mission strip、旧 wire 省略及 Optional 默认值冲突。临时 R1 探针复现直接写入丢 Scope 的两条旧路径。supervisor 与 Session 的观察引用 D 精确报告。实现后的拒绝及保真证据须对新源码独立取得。
