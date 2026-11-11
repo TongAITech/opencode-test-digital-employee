@@ -232,7 +232,7 @@ def _resolve_node(rc72_home):
 
 def _node_version(node_bin):
     output = _run([node_bin, "--version"])
-    match = re.search(r"v?(\\d+)\\.(\\d+)\\.(\\d+)", output)
+    match = re.search(r"v?(\d+)\.(\d+)\.(\d+)", output)
     if not match:
         raise InstallError("NODE_VERSION_UNREADABLE")
     return tuple(int(value) for value in match.groups()), output.strip()
@@ -248,7 +248,7 @@ def _require_node(node_bin, minimum, purpose):
 def install(root=None, *, rc72_home, dsh_bin=None, profile=PROFILE_DEFAULT):
     checked = verify_bundle(root)
     root = Path(checked["root"])
-    if not re.fullmatch(r"rc7\\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
+    if not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN")
     rc72_home = Path(rc72_home).expanduser().resolve()
     if not ((rc72_home / "SOURCE_COMMIT").is_file()
@@ -387,7 +387,7 @@ def health(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     if not receipt_path.is_file():
         raise InstallError("ECOSYSTEM_INSTALL_RECEIPT_MISSING")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("profile") != profile or not re.fullmatch(r"rc7\\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
+    if receipt.get("profile") != profile or not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("ECOSYSTEM_PROFILE_RECEIPT_MISMATCH")
     dsh = _resolve_dsh(dsh_bin)
     native_path = Path(receipt["mnemon_cli"]["path"])
@@ -432,7 +432,7 @@ def uninstall(rc72_home, *, dsh_bin=None, profile=PROFILE_DEFAULT):
     if not receipt_path.is_file():
         raise InstallError("ECOSYSTEM_INSTALL_RECEIPT_MISSING")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("profile") != profile or not re.fullmatch(r"rc7\\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
+    if receipt.get("profile") != profile or not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN")
     package_root = rc72_home / "workspace-template/runtime/dsh-ecosystem-extensions/packages"
     for row in receipt["extensions"]:
@@ -519,7 +519,7 @@ def enable_modlens(rc72_home, *, internal_host_suffix, dsh_bin=None, profile=PRO
         raise InstallError("MODLENS_EXTERNAL_CREDENTIAL_REUSE_MUST_BE_DISABLED")
     if not (config.get("guards") or {}).get("denyWhenUnknown"):
         raise InstallError("MODLENS_DENY_UNKNOWN_GUARD_REQUIRED")
-    if not re.fullmatch(r"rc7\\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
+    if not re.fullmatch(r"rc7\.2-[a-z0-9][a-z0-9._-]{0,40}", profile):
         raise InstallError("PROTECTED_OR_NON_RC72_PROFILE_FORBIDDEN")
 
     rc72_home = Path(rc72_home).expanduser().resolve()
