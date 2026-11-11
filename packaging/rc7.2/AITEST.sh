@@ -86,6 +86,10 @@ DSH_RESOLVED_NATIVE="$(cygpath -aw "$DSH_RESOLVED" | tr '[:upper:]' '[:lower:]')
 }
 export PFC_RC72_DSH_BIND_SOURCE="$DSH_BIND_SOURCE"
 echo "[RC7.2] DSH binding source: $DSH_BIND_SOURCE"
-echo "[RC7.2] DSH binary SHA256 is recorded in state/dsh-host-binding.json; this is not an authorization or Field PASS"
+if [[ "$DSH_BIND_SOURCE" == "EXTERNAL_BANK_HOST" ]]; then
+  echo "[RC7.2] External DSH host SHA256 is recorded in state/dsh-host-binding.json; this is not an authorization or Field PASS"
+else
+  echo "[RC7.2] Package-local DSH is covered by package checksums; this is not bank Field acceptance"
+fi
 echo "[RC7.2] Delegating to mature RC7 DSH bootstrap with isolated profile: $PFC_RC7_DSH_PROFILE"
 exec "$DELEGATE"
